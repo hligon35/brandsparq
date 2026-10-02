@@ -1,9 +1,21 @@
 import { Link } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { api } from "@/api/client";
-import { Card, Screen, StatusBadge } from "@/components/ui";
+import {
+  Card,
+  PageHeader,
+  PageScroll,
+  StatusBadge,
+} from "@/components/ui";
 import { clients, posts as demoPosts } from "@/data/demo";
+import { useResponsive } from "@/hooks/useResponsive";
 import { colors, spacing } from "@/theme/tokens";
 import type { MarketingPost } from "@/types/domain";
 
@@ -11,6 +23,7 @@ export default function ReviewScreen() {
   const [posts, setPosts] = useState<MarketingPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [offlineDemo, setOfflineDemo] = useState(false);
+  const { compact } = useResponsive();
 
   async function load() {
     setLoading(true);
@@ -18,7 +31,9 @@ export default function ReviewScreen() {
       setPosts(await api.getReviewQueue());
       setOfflineDemo(false);
     } catch {
-      setPosts(demoPosts.filter((post) => post.status === "awaiting_approval"));
+      setPosts(
+        demoPosts.filter((post) => post.status === "awaiting_approval")
+      );
       setOfflineDemo(true);
     } finally {
       setLoading(false);
@@ -30,56 +45,162 @@ export default function ReviewScreen() {
   }, []);
 
   return (
-    <Screen>
-      <Text style={styles.title}>Review</Text>
-      <Text style={styles.sub}>
-        Content reaches the calendar only after you approve it.
-      </Text>
-      {offlineDemo && <Text style={styles.notice}>Preview data · API not connected</Text>}
+    <PageScroll>
+      <PageHeader
+        eyebrow="Approval inbox"
+        title="Review"
+        subtitle="Generated content stays out of the marketing calendar until you approve it."
+        action={
+          <Pressable onPress={load}>
+            <Text style={styles.refresh}>Refresh</Text>
+          </Pressable>
+        }
+      />
+
+      {offlineDemo && (
+        <Text style={styles.notice}>Preview data · API not connected</Text>
+      )}
 
       {loading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : (
-        <View style={styles.list}>
+        <View style={styles.loading}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : posts.length ? (
+        <View style={styles.grid}>
           {posts.map((post) => {
-            const demoClient = clients.find((client) => client.id === post.clientId);
+            const demoClient = clients.find(
+              (client) => client.id === post.clientId
+            );
             return (
-              <Link key={post.id} href={`/posts/${post.id}`} asChild>
-                <Pressable>
-                  <Card>
-                    <StatusBadge label={post.status} />
-                    <Text style={styles.cardTitle}>
-                      {post.clientName || demoClient?.name || "Client"} · {post.platform}
-                    </Text>
-                    <Text style={styles.sub}>{post.title}</Text>
-                    {!!post.suggestedPublishAt && (
-                      <Text style={styles.time}>
-                        Suggested · {new Date(post.suggestedPublishAt).toLocaleString()}
+              <View
+                key={post.id}
+                style={[
+                  styles.gridItem,
+                  compact && styles.gridItemCompact,
+                ]}
+              >
+                <Link href={`/posts/${post.id}`} asChild>
+                  <Pressable style={styles.pressableCard}>
+                    <Card style={styles.card}>
+                      <View style={styles.cardTop}>
+                        <StatusBadge label={post.status} />
+                        {!!post.sparqScore && (
+                          <Text style={styles.score}>
+                            {post.sparqScore}
+                          </Text>
+                        )}
+                      </View>
+                      <Text style={styles.client}>
+                        {post.clientName ||
+                          demoClient?.name ||
+                          "Client"}
                       </Text>
-                    )}
-                    {!!post.sparqScore && (
-                      <Text style={styles.score}>SparQ Score {post.sparqScore}</Text>
-                    )}
-                  </Card>
-                </Pressable>
-              </Link>
+                      <Text style={styles.platform}>
+                        {post.platform.toUpperCase()}
+                      </Text>
+                      <Text style={styles.cardTitle}>{post.title}</Text>
+                      {!!post.suggestedPublishAt && (
+                        <Text style={styles.time}>
+                          Suggested ·{" "}
+                          {new Date(
+                            post.suggestedPublishAt
+                          ).toLocaleString()}
+                        </Text>
+                      )}
+                    </Card>
+                  </Pressable>
+                </Link>
+              </View>
             );
           })}
-          {!posts.length && <Text style={styles.sub}>Nothing is waiting for approval.</Text>}
-          <Text onPress={load} style={styles.refresh}>Refresh</Text>
         </View>
+      ) : (
+        <Card subtle>
+          <Text style={styles.emptyTitle}>You’re caught up.</Text>
+          <Text style={styles.emptyBody}>
+            Nothing is waiting for approval right now.
+          </Text>
+        </Card>
       )}
-    </Screen>
+    </PageScroll>
   );
 }
 
 const styles = StyleSheet.create({
-  title: { color: colors.text, fontSize: 30, fontWeight: "800" },
-  sub: { color: colors.muted, fontSize: 15, lineHeight: 22 },
-  notice: { color: colors.warning, fontSize: 13 },
-  list: { gap: spacing.md },
-  cardTitle: { color: colors.text, fontSize: 18, fontWeight: "700" },
-  time: { color: colors.text, fontSize: 13 },
-  score: { color: colors.accent, fontWeight: "700" },
-  refresh: { color: colors.accent, fontWeight: "700", paddingVertical: 12 },
+  refresh: {
+    color: colors.primary,
+    fontWeight: "800",
+    paddingVertical: 8,
+  },
+  notice: {
+    color: colors.warning,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  loading: {
+    paddingVertical: 60,
+  },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.md,
+    alignItems: "stretch",
+  },
+  gridItem: {
+    flexGrow: 1,
+    flexBasis: 310,
+    maxWidth: "100%",
+  },
+  gridItemCompact: {
+    flexBasis: "100%",
+  },
+  pressableCard: {
+    flex: 1,
+  },
+  card: {
+    height: "100%",
+    minHeight: 220,
+  },
+  cardTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  score: {
+    color: colors.orange,
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  client: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  platform: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+  },
+  cardTitle: {
+    color: colors.textSoft,
+    fontSize: 16,
+    lineHeight: 23,
+    fontWeight: "700",
+  },
+  time: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: "auto",
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  emptyBody: {
+    color: colors.muted,
+  },
 });

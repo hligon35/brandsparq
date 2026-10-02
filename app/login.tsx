@@ -10,7 +10,9 @@ import {
   View,
 } from "react-native";
 import { useAuth } from "@/auth/context";
-import { Button, Card, Screen } from "@/components/ui";
+import { BrandLogo } from "@/components/brand";
+import { Button, Card, PageScroll } from "@/components/ui";
+import { useResponsive } from "@/hooks/useResponsive";
 import { colors, radius, spacing } from "@/theme/tokens";
 
 export default function LoginScreen() {
@@ -19,13 +21,17 @@ export default function LoginScreen() {
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
   const [working, setWorking] = useState(false);
+  const { wide } = useResponsive();
 
   if (user) return <Redirect href="/(tabs)" />;
 
   async function sendCode() {
     const normalized = email.trim().toLowerCase();
     if (!normalized.includes("@")) {
-      Alert.alert("Enter your email", "Use the email address authorized for BrandSparQ.");
+      Alert.alert(
+        "Enter your email",
+        "Use the email address authorized for BrandSparQ."
+      );
       return;
     }
 
@@ -37,7 +43,10 @@ export default function LoginScreen() {
         Alert.alert("Development code", result.devCode);
       }
     } catch (error) {
-      Alert.alert("Unable to send code", error instanceof Error ? error.message : "Try again.");
+      Alert.alert(
+        "Unable to send code",
+        error instanceof Error ? error.message : "Try again."
+      );
     } finally {
       setWorking(false);
     }
@@ -48,27 +57,48 @@ export default function LoginScreen() {
     try {
       await verifyCode(email.trim().toLowerCase(), code.trim());
     } catch (error) {
-      Alert.alert("Sign-in failed", error instanceof Error ? error.message : "Check the code and try again.");
+      Alert.alert(
+        "Sign-in failed",
+        error instanceof Error
+          ? error.message
+          : "Check the code and try again."
+      );
     } finally {
       setWorking(false);
     }
   }
 
   return (
-    <Screen>
+    <PageScroll contentStyle={styles.page}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.shell}
+        style={[styles.shell, wide && styles.shellWide]}
       >
-        <View style={styles.brand}>
-          <Text style={styles.eyebrow}>BRANDSPARQ</Text>
-          <Text style={styles.title}>Run your marketing from anywhere.</Text>
-          <Text style={styles.sub}>
-            Sign in with an authorized email. BrandSparQ will send a one-time code.
-          </Text>
+        <View style={styles.brandPanel}>
+          <BrandLogo showTagline />
+          <View style={styles.brandCopy}>
+            <Text style={styles.kicker}>AI MARKETING PRODUCTION</Text>
+            <Text style={styles.title}>
+              Create faster. Keep control.
+            </Text>
+            <Text style={styles.sub}>
+              Upload images, generate branded campaigns, approve the work,
+              and manage publishing from anywhere.
+            </Text>
+          </View>
+          <View style={styles.sparkRow}>
+            <View style={[styles.spark, { backgroundColor: colors.primary }]} />
+            <View style={[styles.spark, { backgroundColor: colors.cyan }]} />
+            <View style={[styles.spark, { backgroundColor: colors.orange }]} />
+          </View>
         </View>
 
-        <Card>
+        <Card style={styles.loginCard}>
+          <Text style={styles.cardTitle}>Sign in to BrandSparQ</Text>
+          <Text style={styles.cardSub}>
+            We’ll send a six-digit code to an authorized email.
+          </Text>
+
           <Text style={styles.label}>Email</Text>
           <TextInput
             value={email}
@@ -122,19 +152,86 @@ export default function LoginScreen() {
           )}
         </Card>
       </KeyboardAvoidingView>
-    </Screen>
+    </PageScroll>
   );
 }
 
 const styles = StyleSheet.create({
-  shell: { flex: 1, justifyContent: "center", gap: spacing.xl },
-  brand: { gap: spacing.sm },
-  eyebrow: { color: colors.accent, fontWeight: "800", letterSpacing: 2 },
-  title: { color: colors.text, fontSize: 34, lineHeight: 39, fontWeight: "900" },
-  sub: { color: colors.muted, fontSize: 16, lineHeight: 24 },
-  label: { color: colors.muted, fontSize: 12, fontWeight: "800", textTransform: "uppercase" },
+  page: {
+    justifyContent: "center",
+  },
+  shell: {
+    flex: 1,
+    minHeight: 620,
+    justifyContent: "center",
+    gap: spacing.xl,
+  },
+  shellWide: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xxl,
+  },
+  brandPanel: {
+    flex: 1.15,
+    gap: spacing.xl,
+    paddingVertical: spacing.lg,
+  },
+  brandCopy: {
+    gap: spacing.sm,
+    maxWidth: 620,
+  },
+  kicker: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 1.5,
+  },
+  title: {
+    color: colors.text,
+    fontSize: 42,
+    lineHeight: 47,
+    fontWeight: "900",
+    letterSpacing: -1.1,
+  },
+  sub: {
+    color: colors.muted,
+    fontSize: 17,
+    lineHeight: 26,
+  },
+  sparkRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  spark: {
+    width: 34,
+    height: 7,
+    borderRadius: radius.pill,
+  },
+  loginCard: {
+    flex: 0.85,
+    width: "100%",
+    maxWidth: 470,
+    alignSelf: "center",
+    gap: spacing.md,
+  },
+  cardTitle: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: "900",
+  },
+  cardSub: {
+    color: colors.muted,
+    lineHeight: 21,
+  },
+  label: {
+    color: colors.textSoft,
+    fontSize: 12,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
   input: {
-    minHeight: 50,
+    minHeight: 52,
     color: colors.text,
     backgroundColor: colors.surface2,
     borderRadius: radius.md,
@@ -143,5 +240,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     fontSize: 16,
   },
-  link: { color: colors.accent, fontWeight: "700", textAlign: "center", padding: 8 },
+  link: {
+    color: colors.primary,
+    fontWeight: "800",
+    textAlign: "center",
+    padding: 8,
+  },
 });

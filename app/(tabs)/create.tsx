@@ -3,14 +3,21 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Image,
-  ScrollView,
+  Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { api } from "@/api/client";
-import { Button, Card, Screen } from "@/components/ui";
+import {
+  Button,
+  Card,
+  PageHeader,
+  PageScroll,
+  SectionTitle,
+} from "@/components/ui";
 import { clients as demoClients } from "@/data/demo";
+import { useResponsive } from "@/hooks/useResponsive";
 import { colors, radius, spacing } from "@/theme/tokens";
 import type { Client } from "@/types/domain";
 
@@ -18,13 +25,18 @@ const objectives = ["Auto", "Promote", "Awareness", "Announce"];
 
 export default function CreateScreen() {
   const [clients, setClients] = useState<Client[]>(demoClients);
-  const [clientId, setClientId] = useState(demoClients[0]?.id ?? "");
+  const [clientId, setClientId] = useState(
+    demoClients[0]?.id ?? ""
+  );
   const [objective, setObjective] = useState("Auto");
-  const [assets, setAssets] = useState<ImagePicker.ImagePickerAsset[]>([]);
+  const [assets, setAssets] =
+    useState<ImagePicker.ImagePickerAsset[]>([]);
   const [uploading, setUploading] = useState(false);
+  const { wide } = useResponsive();
 
   useEffect(() => {
-    api.getClients()
+    api
+      .getClients()
       .then((data) => {
         if (!data.length) return;
         setClients(data);
@@ -59,16 +71,19 @@ export default function CreateScreen() {
           await api.uploadAsset(
             clientId,
             asset.uri,
-            asset.fileName || `brandsparq-${Date.now()}-${index + 1}.jpg`,
+            asset.fileName ||
+              `brandsparq-${Date.now()}-${index + 1}.jpg`,
             asset.mimeType || "image/jpeg"
           )
         );
       }
+
       const job = await api.createGenerationJob(
         clientId,
         objective,
         uploaded.map((item) => item.id)
       );
+
       Alert.alert(
         "Campaign generation started",
         `${uploaded.length} image${uploaded.length === 1 ? "" : "s"} uploaded for ${selectedClient?.name ?? "this client"}. BrandSparQ queued generation job ${job.jobId.slice(0, 8)}.`
@@ -77,7 +92,9 @@ export default function CreateScreen() {
     } catch (error) {
       Alert.alert(
         "Upload failed",
-        error instanceof Error ? error.message : "Unable to upload images."
+        error instanceof Error
+          ? error.message
+          : "Unable to upload images."
       );
     } finally {
       setUploading(false);
@@ -85,56 +102,92 @@ export default function CreateScreen() {
   }
 
   return (
-    <Screen>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.eyebrow}>CREATE</Text>
-        <Text style={styles.title}>Turn images into a campaign</Text>
-        <Text style={styles.sub}>
-          Choose the client, add raw images, then BrandSparQ can analyze and build platform-ready content.
-        </Text>
+    <PageScroll>
+      <PageHeader
+        eyebrow="Create"
+        title="Turn images into a campaign"
+        subtitle="Choose the brand and objective, add your raw images, and let BrandSparQ build platform-ready creative and captions."
+      />
 
-        <Card>
-          <Text style={styles.label}>Client</Text>
-          <View style={styles.chips}>
-            {clients.map((client) => (
-              <Text
-                key={client.id}
-                onPress={() => setClientId(client.id)}
-                style={[
-                  styles.chip,
-                  client.id === clientId && styles.chipActive,
-                ]}
-              >
-                {client.name}
-              </Text>
-            ))}
-          </View>
-        </Card>
+      <View style={[styles.columns, wide && styles.columnsWide]}>
+        <View style={styles.column}>
+          <Card>
+            <SectionTitle
+              title="1. Choose client"
+              subtitle="Brand Brain rules will shape the creative."
+            />
+            <View style={styles.chips}>
+              {clients.map((client) => {
+                const active = client.id === clientId;
+                return (
+                  <Pressable
+                    key={client.id}
+                    onPress={() => setClientId(client.id)}
+                    style={[
+                      styles.chip,
+                      active && styles.chipActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        active && styles.chipTextActive,
+                      ]}
+                    >
+                      {client.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Card>
 
-        <Card>
-          <Text style={styles.label}>Objective</Text>
-          <View style={styles.chips}>
-            {objectives.map((item) => (
-              <Text
-                key={item}
-                onPress={() => setObjective(item)}
-                style={[styles.chip, item === objective && styles.chipActive]}
-              >
-                {item}
-              </Text>
-            ))}
-          </View>
-        </Card>
+          <Card>
+            <SectionTitle
+              title="2. Set objective"
+              subtitle="Or leave it on Auto and let BrandSparQ decide."
+            />
+            <View style={styles.chips}>
+              {objectives.map((item) => {
+                const active = item === objective;
+                return (
+                  <Pressable
+                    key={item}
+                    onPress={() => setObjective(item)}
+                    style={[
+                      styles.chip,
+                      active && styles.chipActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        active && styles.chipTextActive,
+                      ]}
+                    >
+                      {item}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Card>
+        </View>
 
-        <Card>
-          <Text style={styles.cardTitle}>Source images</Text>
-          <Text style={styles.sub}>
-            Select up to 20 images from your phone, tablet, or browser.
-          </Text>
-          <Button label={assets.length ? "Change images" : "Choose images"} onPress={chooseImages} />
-          {!!assets.length && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={styles.previewRow}>
+        <View style={styles.column}>
+          <Card style={styles.assetCard}>
+            <SectionTitle
+              title="3. Add source images"
+              subtitle="Select up to 20 images from your phone, tablet, or browser."
+            />
+            <Button
+              label={assets.length ? "Change images" : "Choose images"}
+              onPress={chooseImages}
+              secondary={!!assets.length}
+            />
+
+            {!!assets.length && (
+              <View style={styles.previewGrid}>
                 {assets.map((asset) => (
                   <Image
                     key={asset.assetId || asset.uri}
@@ -143,37 +196,74 @@ export default function CreateScreen() {
                   />
                 ))}
               </View>
-            </ScrollView>
-          )}
-          {!!assets.length && (
-            <Button
-              label={uploading ? "Uploading…" : `Upload ${assets.length} image${assets.length === 1 ? "" : "s"}`}
-              onPress={uploading ? undefined : upload}
-            />
-          )}
-        </Card>
-      </ScrollView>
-    </Screen>
+            )}
+
+            {!!assets.length && (
+              <Button
+                label={
+                  uploading
+                    ? "Uploading…"
+                    : `Create campaign from ${assets.length} image${assets.length === 1 ? "" : "s"}`
+                }
+                onPress={uploading ? undefined : upload}
+              />
+            )}
+          </Card>
+        </View>
+      </View>
+    </PageScroll>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { gap: spacing.md, paddingBottom: 40 },
-  eyebrow: { color: colors.accent, fontWeight: "800", letterSpacing: 2 },
-  title: { color: colors.text, fontSize: 30, fontWeight: "800" },
-  sub: { color: colors.muted, fontSize: 15, lineHeight: 22 },
-  label: { color: colors.muted, fontSize: 12, fontWeight: "800", textTransform: "uppercase" },
-  cardTitle: { color: colors.text, fontSize: 18, fontWeight: "700" },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  columns: {
+    gap: spacing.md,
+  },
+  columnsWide: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  column: {
+    flex: 1,
+    gap: spacing.md,
+    minWidth: 0,
+  },
+  chips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
   chip: {
-    color: colors.text,
     backgroundColor: colors.surface2,
+    borderColor: colors.border,
+    borderWidth: 1,
     borderRadius: radius.pill,
     paddingHorizontal: 14,
-    paddingVertical: 9,
-    overflow: "hidden",
+    paddingVertical: 10,
   },
-  chipActive: { backgroundColor: colors.accent },
-  previewRow: { flexDirection: "row", gap: 10 },
-  preview: { width: 110, height: 138, borderRadius: radius.md, backgroundColor: colors.surface2 },
+  chipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  chipText: {
+    color: colors.textSoft,
+    fontWeight: "750",
+  },
+  chipTextActive: {
+    color: colors.white,
+  },
+  assetCard: {
+    minHeight: 290,
+  },
+  previewGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  preview: {
+    width: 104,
+    height: 132,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface2,
+  },
 });
