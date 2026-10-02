@@ -1,9 +1,11 @@
 import { getSessionUser, handleAuthRoute } from "./auth";
+import { hashReviewToken, runGenerationJob } from "./generation";
 
 interface Env {
   DB: D1Database;
   MEDIA: R2Bucket;
-  PUBLISH_QUEUE: Queue<PublishMessage>;
+  PUBLISH_QUEUE: Queue<JobMessage>;
+  GENERATION_QUEUE: Queue<JobMessage>;
   ALLOWED_ORIGINS?: string;
   ENVIRONMENT?: string;
   AUTH_PEPPER?: string;
@@ -11,12 +13,24 @@ interface Env {
   RESEND_API_KEY?: string;
   RESEND_FROM_EMAIL?: string;
   RESEND_FROM_NAME?: string;
+  REVIEW_NOTIFICATION_EMAIL?: string;
+  REVIEW_BASE_URL?: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_TEXT_MODEL?: string;
 }
 
 type PublishMessage = {
+  kind: "publish";
   postId: string;
   idempotencyKey: string;
 };
+
+type GenerationMessage = {
+  kind: "generate";
+  jobId: string;
+};
+
+type JobMessage = PublishMessage | GenerationMessage;
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -101,6 +115,68 @@ export default {
       return response(request, env, { ok: true, service: "brandsparq-api" });
     }
 
+    const publicReviewMatch = url.pathname.match(/^\/v1\/public\/review\/([^/]+)$/);
+    if (publicReviewMatch && request.method === "GET") {
+      const tokenHash = await hashReviewToken(publicReviewMatch[1], env);
+      const row = await env.DB.prepare(
+        `SELECT rt.id AS review_token_id, rt.expires_at, rt.used_at,
+                p.*, c.name AS client_name,
+                COALESCE(bp.primary_color, '#A56CFF') AS client_color
+         FROM review_tokens rt
+         JOIN posts p ON p.id = rt.post_id
+         JOIN clients c ON c.id = p.client_id
+         LEFT JOIN brand_profiles bp ON bp.client_id = p.client_id
+         WHERE rt.token_hash = ?`
+      ).bind(tokenHash).first<any>();
+
+      if (!row || row.expires_at <= Date.now()) {
+        return response(request, env, { error: "This review link is invalid or expired." }, { status: 404 });
+      }
+      return response(request, env, { data: row });
+    }
+
+    const publicApproveMatch = url.pathname.match(/^\/v1\/public\/review\/([^/]+)\/approve$/);
+    if (publicApproveMatch && request.method === "POST") {
+      const tokenHash = await hashReviewToken(publicApproveMatch[1], env);
+      const row = await env.DB.prepare(
+        `SELECT rt.id AS review_token_id, rt.post_id, rt.expires_at, rt.used_at,
+                p.status, p.suggested_publish_at
+         FROM review_tokens rt
+         JOIN posts p ON p.id = rt.post_id
+         WHERE rt.token_hash = ?`
+      ).bind(tokenHash).first<any>();
+
+      if (!row || row.expires_at <= Date.now() || row.used_at) {
+        return response(request, env, { error: "This review link is invalid, expired, or already used." }, { status: 409 });
+      }
+      if (!row.suggested_publish_at) {
+        return response(request, env, { error: "This post does not have a proposed publishing slot." }, { status: 409 });
+      }
+
+      const now = new Date().toISOString();
+      await env.DB.batch([
+        env.DB.prepare(
+          `UPDATE posts SET
+             status = 'calendar_scheduled',
+             approved_at = ?,
+             calendar_added_at = ?,
+             scheduled_publish_at = suggested_publish_at,
+             updated_at = ?
+           WHERE id = ?`
+        ).bind(now, now, now, row.post_id),
+        env.DB.prepare(
+          "UPDATE review_tokens SET used_at = ? WHERE id = ?"
+        ).bind(Date.now(), row.review_token_id),
+        env.DB.prepare(
+          `INSERT INTO approvals
+             (id, post_id, decision, previous_status)
+           VALUES (?, ?, 'approved_via_review_link', ?)`
+        ).bind(crypto.randomUUID(), row.post_id, row.status),
+      ]);
+      await audit(env, row.post_id, "post.approved_via_review_link");
+      return response(request, env, { ok: true, postId: row.post_id, status: "calendar_scheduled" });
+    }
+
     const authRoute = await handleAuthRoute(request, url, env);
     if (authRoute) {
       return response(
@@ -121,6 +197,107 @@ export default {
         { error: "Authentication required." },
         { status: 401 }
       );
+    }
+
+    const brandMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/brand$/);
+    if (brandMatch && request.method === "GET") {
+      const row = await env.DB.prepare(
+        `SELECT c.id AS client_id, c.name, c.timezone,
+                bp.id, bp.voice, bp.audience, bp.primary_color, bp.secondary_color,
+                bp.website, bp.social_handles, bp.restricted_words, bp.tagline,
+                bp.preferred_ctas, bp.imagery_preferences, bp.posting_rules
+         FROM clients c
+         LEFT JOIN brand_profiles bp ON bp.client_id = c.id
+         WHERE c.id = ?`
+      ).bind(brandMatch[1]).first();
+      if (!row) return response(request, env, { error: "Client not found" }, { status: 404 });
+      return response(request, env, { data: row });
+    }
+
+    if (brandMatch && request.method === "POST") {
+      const payload = await request.json<any>().catch(() => ({}));
+      const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ?")
+        .bind(brandMatch[1]).first();
+      if (!client) return response(request, env, { error: "Client not found" }, { status: 404 });
+
+      const current = await env.DB.prepare("SELECT id FROM brand_profiles WHERE client_id = ?")
+        .bind(brandMatch[1]).first<{ id: string }>();
+      const id = current?.id || crypto.randomUUID();
+
+      await env.DB.prepare(
+        `INSERT INTO brand_profiles
+         (id, client_id, voice, audience, primary_color, secondary_color, website,
+          social_handles, restricted_words, tagline, preferred_ctas,
+          imagery_preferences, posting_rules, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT(client_id) DO UPDATE SET
+           voice = excluded.voice,
+           audience = excluded.audience,
+           primary_color = excluded.primary_color,
+           secondary_color = excluded.secondary_color,
+           website = excluded.website,
+           social_handles = excluded.social_handles,
+           restricted_words = excluded.restricted_words,
+           tagline = excluded.tagline,
+           preferred_ctas = excluded.preferred_ctas,
+           imagery_preferences = excluded.imagery_preferences,
+           posting_rules = excluded.posting_rules,
+           updated_at = CURRENT_TIMESTAMP`
+      ).bind(
+        id,
+        brandMatch[1],
+        payload.voice || null,
+        payload.audience || null,
+        payload.primaryColor || null,
+        payload.secondaryColor || null,
+        payload.website || null,
+        payload.socialHandles ? JSON.stringify(payload.socialHandles) : null,
+        payload.restrictedWords || null,
+        payload.tagline || null,
+        payload.preferredCtas || null,
+        payload.imageryPreferences || null,
+        payload.postingRules || null
+      ).run();
+
+      return response(request, env, { ok: true, id });
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/generation-jobs") {
+      const payload = await request.json<{
+        clientId?: string;
+        objective?: string;
+        assetIds?: string[];
+      }>().catch(() => ({}));
+
+      if (!payload.clientId || !payload.assetIds?.length) {
+        return response(request, env, { error: "clientId and assetIds are required." }, { status: 400 });
+      }
+
+      const placeholders = payload.assetIds.map(() => "?").join(",");
+      const owned = await env.DB.prepare(
+        `SELECT COUNT(*) AS count FROM assets
+         WHERE client_id = ? AND id IN (${placeholders})`
+      ).bind(payload.clientId, ...payload.assetIds).first<{ count: number }>();
+
+      if (Number(owned?.count || 0) !== payload.assetIds.length) {
+        return response(request, env, { error: "One or more assets do not belong to this client." }, { status: 400 });
+      }
+
+      const jobId = crypto.randomUUID();
+      await env.DB.prepare(
+        `INSERT INTO generation_jobs
+         (id, client_id, requested_by, objective, asset_ids, status)
+         VALUES (?, ?, ?, ?, ?, 'queued')`
+      ).bind(
+        jobId,
+        payload.clientId,
+        sessionUser?.id || null,
+        payload.objective || "Auto",
+        JSON.stringify(payload.assetIds)
+      ).run();
+
+      await env.GENERATION_QUEUE.send({ kind: "generate", jobId });
+      return response(request, env, { ok: true, jobId, status: "queued" }, { status: 202 });
     }
 
     if (request.method === "GET" && url.pathname === "/v1/clients") {
@@ -314,6 +491,7 @@ export default {
       ).bind(new Date().toISOString(), postId).run();
 
       await env.PUBLISH_QUEUE.send({
+        kind: "publish",
         postId,
         idempotencyKey: `manual:${postId}:${crypto.randomUUID()}`,
       });
@@ -363,14 +541,32 @@ export default {
 
     for (const row of due.results) {
       await env.PUBLISH_QUEUE.send({
+        kind: "publish",
         postId: row.id,
         idempotencyKey: `scheduled:${row.id}:${nowIso.slice(0, 16)}`,
       });
     }
   },
 
-  async queue(batch: MessageBatch<PublishMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<JobMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
+      if (message.body.kind === "generate") {
+        try {
+          await runGenerationJob(env, message.body.jobId);
+          message.ack();
+        } catch (error) {
+          await env.DB.prepare(
+            `UPDATE generation_jobs SET status = 'failed', error_message = ?, completed_at = ? WHERE id = ?`
+          ).bind(
+            error instanceof Error ? error.message.slice(0, 1500) : "Generation failed",
+            new Date().toISOString(),
+            message.body.jobId
+          ).run();
+          message.retry();
+        }
+        continue;
+      }
+
       const existing = await env.DB.prepare(
         "SELECT id FROM publish_attempts WHERE idempotency_key = ?"
       ).bind(message.body.idempotencyKey).first();
@@ -397,4 +593,4 @@ export default {
       message.ack();
     }
   },
-} satisfies ExportedHandler<Env, PublishMessage>;
+} satisfies ExportedHandler<Env, JobMessage>;
