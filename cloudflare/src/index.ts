@@ -1,8 +1,16 @@
+import { getSessionUser, handleAuthRoute } from "./auth";
+
 interface Env {
   DB: D1Database;
   MEDIA: R2Bucket;
   PUBLISH_QUEUE: Queue<PublishMessage>;
   ALLOWED_ORIGINS?: string;
+  ENVIRONMENT?: string;
+  AUTH_PEPPER?: string;
+  AUTH_ALLOWED_EMAILS?: string;
+  RESEND_API_KEY?: string;
+  RESEND_FROM_EMAIL?: string;
+  RESEND_FROM_NAME?: string;
 }
 
 type PublishMessage = {
@@ -27,7 +35,7 @@ function cors(request: Request, env: Env) {
     headers: {
       "access-control-allow-origin": origin && allowed ? origin : "",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type,x-client-id,x-file-name",
+      "access-control-allow-headers": "authorization,content-type,x-client-id,x-file-name",
       "access-control-max-age": "86400",
       vary: "Origin",
     },
@@ -91,6 +99,28 @@ export default {
 
     if (url.pathname === "/health") {
       return response(request, env, { ok: true, service: "brandsparq-api" });
+    }
+
+    const authRoute = await handleAuthRoute(request, url, env);
+    if (authRoute) {
+      return response(
+        request,
+        env,
+        authRoute.body,
+        authRoute.status ? { status: authRoute.status } : {}
+      );
+    }
+
+    const sessionUser = url.pathname.startsWith("/v1/")
+      ? await getSessionUser(request, env)
+      : null;
+    if (url.pathname.startsWith("/v1/") && !sessionUser) {
+      return response(
+        request,
+        env,
+        { error: "Authentication required." },
+        { status: 401 }
+      );
     }
 
     if (request.method === "GET" && url.pathname === "/v1/clients") {
