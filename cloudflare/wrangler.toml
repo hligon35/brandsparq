@@ -1,12 +1,16 @@
-name = "brandsparq-api"
+name = "brandsparq"
 main = "src/index.ts"
 compatibility_date = "2026-10-02"
 
 [vars]
-ENVIRONMENT = "development"
-ALLOWED_ORIGINS = "http://localhost:8081"
-REVIEW_BASE_URL = "http://localhost:8081"
+ENVIRONMENT = "production"
 OPENAI_TEXT_MODEL = "gpt-5.6-sol"
+
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = [ "/v1/*", "/health" ]
 
 [[d1_databases]]
 binding = "DB"
