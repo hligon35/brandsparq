@@ -16,6 +16,9 @@ interface Env {
   ENVIRONMENT?: string;
   AUTH_PEPPER?: string;
   AUTH_ALLOWED_EMAILS?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REDIRECT_URI?: string;
   RESEND_API_KEY?: string;
   RESEND_FROM_EMAIL?: string;
   RESEND_FROM_NAME?: string;
@@ -216,6 +219,9 @@ export default {
 
     const authRoute = await handleAuthRoute(request, url, env);
     if (authRoute) {
+      if ("response" in authRoute && authRoute.response) {
+        return authRoute.response;
+      }
       return response(
         request,
         env,
