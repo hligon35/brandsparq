@@ -1,9 +1,9 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, StyleSheet, Text } from "react-native";
+import { Alert, Image, StyleSheet, Text } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, Screen, StatusBadge } from "@/components/ui";
-import { colors } from "@/theme/tokens";
+import { colors, radius } from "@/theme/tokens";
 
 export default function PublicReviewScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
@@ -12,9 +12,11 @@ export default function PublicReviewScreen() {
   const [approved, setApproved] = useState(false);
 
   useEffect(() => {
-    if (token) api.getPublicReview(token).then((r) => setPost(r.data)).catch((e) => {
-      Alert.alert("Review link unavailable", e instanceof Error ? e.message : "This review link is invalid.");
-    });
+    if (token) {
+      api.getPublicReview(token).then((r) => setPost(r.data)).catch((e) => {
+        Alert.alert("Review link unavailable", e instanceof Error ? e.message : "This review link is invalid.");
+      });
+    }
   }, [token]);
 
   async function approve() {
@@ -43,14 +45,18 @@ export default function PublicReviewScreen() {
           <StatusBadge label={post.status} />
           <Text style={styles.title}>{post.client_name}</Text>
           <Text style={styles.platform}>{String(post.platform).toUpperCase()}</Text>
-          <Card><Text style={styles.preview}>GRAPHIC PREVIEW</Text></Card>
+          <Card>
+            {post.image_url ? (
+              <Image source={{ uri: post.image_url }} style={styles.image} />
+            ) : (
+              <Text style={styles.preview}>GRAPHIC GENERATION PENDING</Text>
+            )}
+          </Card>
           <Text style={styles.heading}>{post.headline || post.title}</Text>
           <Text style={styles.sub}>{post.caption}</Text>
           <Card>
             <Text style={styles.label}>Suggested publish time</Text>
-            <Text style={styles.heading}>
-              {post.suggested_publish_at ? new Date(post.suggested_publish_at).toLocaleString() : "Not selected"}
-            </Text>
+            <Text style={styles.heading}>{post.suggested_publish_at ? new Date(post.suggested_publish_at).toLocaleString() : "Not selected"}</Text>
           </Card>
           <Button label={working ? "Approving…" : "Approve and add to calendar"} onPress={working ? undefined : approve} />
         </>
@@ -68,5 +74,6 @@ const styles = StyleSheet.create({
   heading:{color:colors.text,fontSize:18,fontWeight:"700"},
   sub:{color:colors.muted,fontSize:16,lineHeight:24},
   label:{color:colors.muted,fontSize:12,fontWeight:"800",textTransform:"uppercase"},
+  image:{width:"100%",aspectRatio:4/5,borderRadius:radius.md,backgroundColor:colors.surface},
   preview:{color:colors.muted,textAlign:"center",paddingVertical:72,fontWeight:"700"}
 });
