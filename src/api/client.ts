@@ -104,6 +104,32 @@ export const api = {
   signOut: () =>
     jsonRequest<{ ok: true }>("/v1/auth/logout", { method: "POST" }),
 
+  getBrand: (clientId: string) =>
+    jsonRequest<{ data: any }>(`/v1/clients/${clientId}/brand`),
+
+  saveBrand: (clientId: string, brand: Record<string, unknown>) =>
+    jsonRequest<{ ok: true; id: string }>(`/v1/clients/${clientId}/brand`, {
+      method: "POST",
+      body: JSON.stringify(brand),
+    }),
+
+  createGenerationJob: (clientId: string, objective: string, assetIds: string[]) =>
+    jsonRequest<{ ok: true; jobId: string; status: string }>("/v1/generation-jobs", {
+      method: "POST",
+      body: JSON.stringify({ clientId, objective, assetIds }),
+    }),
+
+  getPublicReview: (token: string) =>
+    jsonRequest<{ data: ApiPost & { client_name?: string } }>(
+      `/v1/public/review/${encodeURIComponent(token)}`
+    ),
+
+  approvePublicReview: (token: string) =>
+    jsonRequest<{ ok: true; postId: string; status: string }>(
+      `/v1/public/review/${encodeURIComponent(token)}/approve`,
+      { method: "POST" }
+    ),
+
   async getClients(): Promise<Client[]> {
     const result = await jsonRequest<{ data: Client[] }>("/v1/clients");
     return result.data;
