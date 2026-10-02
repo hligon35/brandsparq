@@ -91,20 +91,19 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  requestAuthCode: (email: string) =>
-    jsonRequest<{ ok: true; devCode?: string }>("/v1/auth/request-code", {
-      method: "POST",
-      body: JSON.stringify({ email }),
-    }),
+  getGoogleAuthStartUrl(returnTo: string) {
+    return `${API_URL}/v1/auth/google/start?return_to=${encodeURIComponent(returnTo)}`;
+  },
 
-  verifyAuthCode: (email: string, code: string) =>
-    jsonRequest<{ token: string; expiresAt: number; user: AuthUser }>(
-      "/v1/auth/verify-code",
-      {
-        method: "POST",
-        body: JSON.stringify({ email, code }),
-      }
-    ),
+  completeGoogleAuth: (handoff: string) =>
+    jsonRequest<{
+      token: string;
+      expiresAt: number;
+      user: AuthUser;
+    }>("/v1/auth/google/complete", {
+      method: "POST",
+      body: JSON.stringify({ handoff }),
+    }),
 
   getSession: () =>
     jsonRequest<{ user: AuthUser }>("/v1/auth/session"),

@@ -1,11 +1,17 @@
 ENVIRONMENT=development
 AUTH_PEPPER=replace-with-a-long-random-string
 AUTH_ALLOWED_EMAILS=
+
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=http://localhost:8787/v1/auth/google/callback
+
 RESEND_API_KEY=
 RESEND_FROM_EMAIL=noreply@example.com
 RESEND_FROM_NAME=BrandSparQ
 REVIEW_NOTIFICATION_EMAIL=
 REVIEW_BASE_URL=http://localhost:8081
+
 OPENAI_API_KEY=
 OPENAI_TEXT_MODEL=gpt-6.1-sol
 OPENAI_FAST_MODEL=gpt-6-luna

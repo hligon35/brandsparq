@@ -3,9 +3,9 @@ export type AuthEnv = {
   ENVIRONMENT?: string;
   AUTH_PEPPER?: string;
   AUTH_ALLOWED_EMAILS?: string;
-  RESEND_API_KEY?: string;
-  RESEND_FROM_EMAIL?: string;
-  RESEND_FROM_NAME?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REDIRECT_URI?: string;
 };
 
 export type SessionUser = {
@@ -15,16 +15,26 @@ export type SessionUser = {
   role: string;
 };
 
-export type RouteResult = {
-  body: unknown;
-  status?: number;
-};
+export type RouteResult =
+  | {
+      body: unknown;
+      status?: number;
+      response?: never;
+    }
+  | {
+      response: Response;
+      body?: never;
+      status?: never;
+    };
 
-const CODE_TTL_MS = 10 * 60 * 1000;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const HANDOFF_TTL_MS = 5 * 60 * 1000;
 
 function bytesToHex(bytes: Uint8Array) {
-  return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+  return [...bytes]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function sha256(value: string) {
@@ -41,12 +51,6 @@ function randomToken(bytes = 32) {
   return bytesToHex(value);
 }
 
-function randomCode() {
-  const value = new Uint32Array(1);
-  crypto.getRandomValues(value);
-  return String(value[0] % 1_000_000).padStart(6, "0");
-}
-
 function normalizeEmail(value: unknown) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
@@ -56,47 +60,94 @@ function emailAllowed(email: string, env: AuthEnv) {
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
-  return !list.length || list.includes(email);
-}
 
-async function codeHash(email: string, code: string, env: AuthEnv) {
-  return sha256(`${env.AUTH_PEPPER || ""}:code:${email}:${code}`);
+  return !list.length || list.includes(email);
 }
 
 async function sessionHash(token: string, env: AuthEnv) {
   return sha256(`${env.AUTH_PEPPER || ""}:session:${token}`);
 }
 
-async function sendCode(email: string, code: string, env: AuthEnv) {
-  if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL) return false;
+async function stateHash(token: string, env: AuthEnv) {
+  return sha256(`${env.AUTH_PEPPER || ""}:google-state:${token}`);
+}
 
-  const result = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      from: `${env.RESEND_FROM_NAME || "BrandSparQ"} <${env.RESEND_FROM_EMAIL}>`,
-      to: [email],
-      subject: "Your BrandSparQ sign-in code",
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:28px">
-          <p style="letter-spacing:.12em;font-weight:700">BRANDSPARQ</p>
-          <h1 style="font-size:28px">Your sign-in code</h1>
-          <p>Enter this code to sign in. It expires in 10 minutes.</p>
-          <div style="font-size:34px;font-weight:800;letter-spacing:.2em;margin:28px 0">${code}</div>
-          <p style="color:#68707f">If you did not request this code, you can ignore this email.</p>
-        </div>
-      `,
-    }),
-  });
+async function handoffHash(token: string, env: AuthEnv) {
+  return sha256(`${env.AUTH_PEPPER || ""}:google-handoff:${token}`);
+}
 
-  if (!result.ok) {
-    const detail = await result.text();
-    throw new Error(`Resend sign-in email failed: ${result.status} ${detail.slice(0, 300)}`);
+function googleConfigured(env: AuthEnv) {
+  return !!(
+    env.AUTH_PEPPER &&
+    env.GOOGLE_CLIENT_ID &&
+    env.GOOGLE_CLIENT_SECRET
+  );
+}
+
+function redirectUri(url: URL, env: AuthEnv) {
+  return (
+    env.GOOGLE_REDIRECT_URI ||
+    `${url.origin}/v1/auth/google/callback`
+  );
+}
+
+function validReturnTo(returnTo: string, requestOrigin: string, env: AuthEnv) {
+  try {
+    const target = new URL(returnTo);
+
+    if (target.protocol === "brandsparq:") return true;
+
+    if (
+      (target.protocol === "https:" || target.protocol === "http:") &&
+      target.origin === requestOrigin
+    ) {
+      return true;
+    }
+
+    if (
+      env.ENVIRONMENT !== "production" &&
+      target.protocol === "http:" &&
+      ["localhost", "127.0.0.1"].includes(target.hostname)
+    ) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
   }
-  return true;
+}
+
+function withQuery(returnTo: string, key: string, value: string) {
+  const target = new URL(returnTo);
+  target.searchParams.set(key, value);
+  return target.toString();
+}
+
+async function createSession(
+  env: AuthEnv,
+  user: SessionUser
+): Promise<{ token: string; expiresAt: number }> {
+  const now = Date.now();
+  const token = randomToken();
+  const expiresAt = now + SESSION_TTL_MS;
+
+  await env.DB.prepare(
+    `INSERT INTO sessions
+     (id, user_id, token_hash, expires_at, created_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      crypto.randomUUID(),
+      user.id,
+      await sessionHash(token, env),
+      expiresAt,
+      now,
+      now
+    )
+    .run();
+
+  return { token, expiresAt };
 }
 
 export async function getSessionUser(
@@ -142,74 +193,229 @@ export async function handleAuthRoute(
   url: URL,
   env: AuthEnv
 ): Promise<RouteResult | null> {
-  if (request.method === "POST" && url.pathname === "/v1/auth/request-code") {
-    const payload = await request.json<{ email?: string }>().catch(() => ({}));
-    const email = normalizeEmail(payload.email);
-
-    if (!email || !email.includes("@")) {
-      return { body: { error: "A valid email address is required." }, status: 400 };
-    }
-    if (!emailAllowed(email, env)) {
-      return { body: { error: "This email is not authorized for BrandSparQ." }, status: 403 };
-    }
-    if (!env.AUTH_PEPPER && env.ENVIRONMENT === "production") {
-      return { body: { error: "Authentication is not configured." }, status: 503 };
+  if (
+    request.method === "GET" &&
+    url.pathname === "/v1/auth/google/start"
+  ) {
+    if (!googleConfigured(env)) {
+      return {
+        body: { error: "Google authentication is not configured." },
+        status: 503,
+      };
     }
 
-    const code = randomCode();
+    const returnTo =
+      url.searchParams.get("return_to") || `${url.origin}/login`;
+
+    if (!validReturnTo(returnTo, url.origin, env)) {
+      return {
+        body: { error: "Invalid authentication return URL." },
+        status: 400,
+      };
+    }
+
+    const state = randomToken();
     const now = Date.now();
+
     await env.DB.prepare(
-      `INSERT INTO auth_codes
-       (id, email, code_hash, expires_at, created_at)
+      `INSERT INTO google_oauth_states
+       (id, state_hash, return_to, expires_at, created_at)
        VALUES (?, ?, ?, ?, ?)`
     )
       .bind(
         crypto.randomUUID(),
-        email,
-        await codeHash(email, code, env),
-        now + CODE_TTL_MS,
+        await stateHash(state, env),
+        returnTo,
+        now + OAUTH_STATE_TTL_MS,
         now
       )
       .run();
 
-    const delivered = await sendCode(email, code, env);
-    const development = env.ENVIRONMENT !== "production";
+    const google = new URL(
+      "https://accounts.google.com/o/oauth2/v2/auth"
+    );
+    google.searchParams.set("client_id", env.GOOGLE_CLIENT_ID!);
+    google.searchParams.set("redirect_uri", redirectUri(url, env));
+    google.searchParams.set("response_type", "code");
+    google.searchParams.set("scope", "openid email profile");
+    google.searchParams.set("state", state);
+    google.searchParams.set("prompt", "select_account");
+    google.searchParams.set("access_type", "online");
 
-    return {
-      body: {
-        ok: true,
-        ...(development && !delivered ? { devCode: code } : {}),
-      },
-    };
+    return { response: Response.redirect(google.toString(), 302) };
   }
 
-  if (request.method === "POST" && url.pathname === "/v1/auth/verify-code") {
-    const payload = await request
-      .json<{ email?: string; code?: string }>()
-      .catch(() => ({}));
-    const email = normalizeEmail(payload.email);
-    const code = typeof payload.code === "string" ? payload.code.trim() : "";
-
-    if (!email || !/^\d{6}$/.test(code)) {
-      return { body: { error: "Email and a valid six-digit code are required." }, status: 400 };
+  if (
+    request.method === "GET" &&
+    url.pathname === "/v1/auth/google/callback"
+  ) {
+    if (!googleConfigured(env)) {
+      return {
+        body: { error: "Google authentication is not configured." },
+        status: 503,
+      };
     }
 
-    const hash = await codeHash(email, code, env);
-    const now = Date.now();
-    const codeRow = await env.DB.prepare(
-      `SELECT id FROM auth_codes
-       WHERE email = ?
-         AND code_hash = ?
-         AND consumed_at IS NULL
-         AND expires_at > ?
-       ORDER BY created_at DESC
-       LIMIT 1`
-    )
-      .bind(email, hash, now)
-      .first<{ id: string }>();
+    const state = url.searchParams.get("state") || "";
+    const stateRow = state
+      ? await env.DB.prepare(
+          `SELECT id, return_to, expires_at, consumed_at
+           FROM google_oauth_states
+           WHERE state_hash = ?`
+        )
+          .bind(await stateHash(state, env))
+          .first<{
+            id: string;
+            return_to: string;
+            expires_at: number;
+            consumed_at: number | null;
+          }>()
+      : null;
 
-    if (!codeRow) {
-      return { body: { error: "That code is invalid or has expired." }, status: 401 };
+    if (
+      !stateRow ||
+      stateRow.consumed_at ||
+      stateRow.expires_at <= Date.now()
+    ) {
+      return {
+        body: { error: "Google sign-in state is invalid or expired." },
+        status: 400,
+      };
+    }
+
+    await env.DB.prepare(
+      "UPDATE google_oauth_states SET consumed_at = ? WHERE id = ?"
+    )
+      .bind(Date.now(), stateRow.id)
+      .run();
+
+    const oauthError = url.searchParams.get("error");
+    const code = url.searchParams.get("code");
+
+    if (oauthError || !code) {
+      return {
+        response: Response.redirect(
+          withQuery(
+            stateRow.return_to,
+            "auth_error",
+            oauthError || "Google sign-in was canceled."
+          ),
+          302
+        ),
+      };
+    }
+
+    const tokenResponse = await fetch(
+      "https://oauth2.googleapis.com/token",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          client_id: env.GOOGLE_CLIENT_ID!,
+          client_secret: env.GOOGLE_CLIENT_SECRET!,
+          code,
+          grant_type: "authorization_code",
+          redirect_uri: redirectUri(url, env),
+        }),
+      }
+    );
+
+    if (!tokenResponse.ok) {
+      return {
+        response: Response.redirect(
+          withQuery(
+            stateRow.return_to,
+            "auth_error",
+            "Google could not complete sign-in."
+          ),
+          302
+        ),
+      };
+    }
+
+    const tokens = await tokenResponse.json<{
+      id_token?: string;
+    }>();
+
+    if (!tokens.id_token) {
+      return {
+        response: Response.redirect(
+          withQuery(
+            stateRow.return_to,
+            "auth_error",
+            "Google did not return an identity token."
+          ),
+          302
+        ),
+      };
+    }
+
+    const verifyResponse = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokens.id_token)}`
+    );
+
+    if (!verifyResponse.ok) {
+      return {
+        response: Response.redirect(
+          withQuery(
+            stateRow.return_to,
+            "auth_error",
+            "Google identity verification failed."
+          ),
+          302
+        ),
+      };
+    }
+
+    const profile = await verifyResponse.json<{
+      aud?: string;
+      iss?: string;
+      sub?: string;
+      email?: string;
+      email_verified?: string | boolean;
+      name?: string;
+      picture?: string;
+    }>();
+
+    const email = normalizeEmail(profile.email);
+    const verified =
+      profile.email_verified === true ||
+      profile.email_verified === "true";
+    const issuerAllowed =
+      profile.iss === "accounts.google.com" ||
+      profile.iss === "https://accounts.google.com";
+
+    if (
+      profile.aud !== env.GOOGLE_CLIENT_ID ||
+      !issuerAllowed ||
+      !verified ||
+      !email
+    ) {
+      return {
+        response: Response.redirect(
+          withQuery(
+            stateRow.return_to,
+            "auth_error",
+            "Google account verification failed."
+          ),
+          302
+        ),
+      };
+    }
+
+    if (!emailAllowed(email, env)) {
+      return {
+        response: Response.redirect(
+          withQuery(
+            stateRow.return_to,
+            "auth_error",
+            "This Google account is not authorized for BrandSparQ."
+          ),
+          302
+        ),
+      };
     }
 
     let user = await env.DB.prepare(
@@ -221,47 +427,158 @@ export async function handleAuthRoute(
     if (!user) {
       const userId = crypto.randomUUID();
       await env.DB.prepare(
-        `INSERT INTO users (id, email, role)
-         VALUES (?, ?, 'owner')`
+        `INSERT INTO users
+         (id, email, name, role, google_sub, avatar_url)
+         VALUES (?, ?, ?, 'owner', ?, ?)`
       )
-        .bind(userId, email)
+        .bind(
+          userId,
+          email,
+          profile.name || null,
+          profile.sub || null,
+          profile.picture || null
+        )
         .run();
-      user = { id: userId, email, role: "owner" };
+
+      user = {
+        id: userId,
+        email,
+        name: profile.name || undefined,
+        role: "owner",
+      };
+    } else {
+      await env.DB.prepare(
+        `UPDATE users
+         SET name = COALESCE(?, name),
+             google_sub = COALESCE(?, google_sub),
+             avatar_url = COALESCE(?, avatar_url),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`
+      )
+        .bind(
+          profile.name || null,
+          profile.sub || null,
+          profile.picture || null,
+          user.id
+        )
+        .run();
     }
 
-    const token = randomToken();
-    const expiresAt = now + SESSION_TTL_MS;
+    const handoff = randomToken();
+    const now = Date.now();
 
-    await env.DB.batch([
-      env.DB.prepare(
-        "UPDATE auth_codes SET consumed_at = ? WHERE id = ?"
-      ).bind(now, codeRow.id),
-      env.DB.prepare(
-        `INSERT INTO sessions
-         (id, user_id, token_hash, expires_at, created_at, last_seen_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).bind(
+    await env.DB.prepare(
+      `INSERT INTO google_auth_handoffs
+       (id, user_id, handoff_hash, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+      .bind(
         crypto.randomUUID(),
         user.id,
-        await sessionHash(token, env),
-        expiresAt,
-        now,
+        await handoffHash(handoff, env),
+        now + HANDOFF_TTL_MS,
         now
-      ),
-    ]);
+      )
+      .run();
 
-    return { body: { token, expiresAt, user } };
+    return {
+      response: Response.redirect(
+        withQuery(stateRow.return_to, "handoff", handoff),
+        302
+      ),
+    };
   }
 
-  if (request.method === "GET" && url.pathname === "/v1/auth/session") {
+  if (
+    request.method === "POST" &&
+    url.pathname === "/v1/auth/google/complete"
+  ) {
+    const payload = await request
+      .json<{ handoff?: string }>()
+      .catch(() => ({}));
+    const handoff =
+      typeof payload.handoff === "string" ? payload.handoff : "";
+
+    if (!handoff) {
+      return {
+        body: { error: "Google sign-in handoff is required." },
+        status: 400,
+      };
+    }
+
+    const now = Date.now();
+    const row = await env.DB.prepare(
+      `SELECT h.id, h.user_id, h.expires_at, h.consumed_at,
+              u.email, u.name, u.role
+       FROM google_auth_handoffs h
+       JOIN users u ON u.id = h.user_id
+       WHERE h.handoff_hash = ?`
+    )
+      .bind(await handoffHash(handoff, env))
+      .first<{
+        id: string;
+        user_id: string;
+        expires_at: number;
+        consumed_at: number | null;
+        email: string;
+        name?: string;
+        role: string;
+      }>();
+
+    if (!row || row.consumed_at || row.expires_at <= now) {
+      return {
+        body: {
+          error: "Google sign-in handoff is invalid or expired.",
+        },
+        status: 401,
+      };
+    }
+
+    await env.DB.prepare(
+      "UPDATE google_auth_handoffs SET consumed_at = ? WHERE id = ?"
+    )
+      .bind(now, row.id)
+      .run();
+
+    const user: SessionUser = {
+      id: row.user_id,
+      email: row.email,
+      name: row.name,
+      role: row.role,
+    };
+
+    const session = await createSession(env, user);
+
+    return {
+      body: {
+        token: session.token,
+        expiresAt: session.expiresAt,
+        user,
+      },
+    };
+  }
+
+  if (
+    request.method === "GET" &&
+    url.pathname === "/v1/auth/session"
+  ) {
     const user = await getSessionUser(request, env);
-    if (!user) return { body: { error: "Authentication required." }, status: 401 };
+    if (!user) {
+      return {
+        body: { error: "Authentication required." },
+        status: 401,
+      };
+    }
     return { body: { user } };
   }
 
-  if (request.method === "POST" && url.pathname === "/v1/auth/logout") {
+  if (
+    request.method === "POST" &&
+    url.pathname === "/v1/auth/logout"
+  ) {
     const authorization = request.headers.get("authorization") || "";
     const match = authorization.match(/^Bearer\s+(.+)$/i);
+
     if (match) {
       const hash = await sessionHash(match[1], env);
       await env.DB.prepare(
@@ -270,6 +587,7 @@ export async function handleAuthRoute(
         .bind(Date.now(), hash)
         .run();
     }
+
     return { body: { ok: true } };
   }
 

@@ -1,157 +1,111 @@
-import { Redirect } from "expo-router";
-import { useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { Redirect, useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
+  Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useAuth } from "@/auth/context";
 import { BrandLogo } from "@/components/brand";
-import { Button, Card, PageScroll } from "@/components/ui";
-import { useResponsive } from "@/hooks/useResponsive";
+import { Card, PageScroll } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";
 
 export default function LoginScreen() {
-  const { user, requestCode, verifyCode } = useAuth();
-  const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [sent, setSent] = useState(false);
+  const { user, signInWithGoogle, completeGoogleSignIn } = useAuth();
+  const { handoff, auth_error: authError } =
+    useLocalSearchParams<{ handoff?: string; auth_error?: string }>();
   const [working, setWorking] = useState(false);
-  const { wide } = useResponsive();
+  const [handoffHandled, setHandoffHandled] = useState(false);
 
-  if (user) return <Redirect href="/(tabs)" />;
-
-  async function sendCode() {
-    const normalized = email.trim().toLowerCase();
-    if (!normalized.includes("@")) {
-      Alert.alert(
-        "Enter your email",
-        "Use the email address authorized for BrandSparQ."
-      );
+  useEffect(() => {
+    if (
+      user ||
+      handoffHandled ||
+      typeof handoff !== "string" ||
+      !handoff
+    ) {
       return;
     }
 
+    setHandoffHandled(true);
     setWorking(true);
-    try {
-      const result = await requestCode(normalized);
-      setSent(true);
-      if (result.devCode) {
-        Alert.alert("Development code", result.devCode);
-      }
-    } catch (error) {
-      Alert.alert(
-        "Unable to send code",
-        error instanceof Error ? error.message : "Try again."
-      );
-    } finally {
-      setWorking(false);
-    }
-  }
+    void completeGoogleSignIn(handoff)
+      .catch((error) => {
+        Alert.alert(
+          "Google sign-in failed",
+          error instanceof Error ? error.message : "Please try again."
+        );
+      })
+      .finally(() => setWorking(false));
+  }, [completeGoogleSignIn, handoff, handoffHandled, user]);
 
-  async function signIn() {
+  useEffect(() => {
+    if (typeof authError === "string" && authError) {
+      Alert.alert("Google sign-in canceled", authError);
+    }
+  }, [authError]);
+
+  if (user) return <Redirect href="/(tabs)" />;
+
+  async function startGoogleSignIn() {
     setWorking(true);
     try {
-      await verifyCode(email.trim().toLowerCase(), code.trim());
+      await signInWithGoogle();
     } catch (error) {
       Alert.alert(
-        "Sign-in failed",
-        error instanceof Error
-          ? error.message
-          : "Check the code and try again."
+        "Google sign-in failed",
+        error instanceof Error ? error.message : "Please try again."
       );
-    } finally {
       setWorking(false);
     }
   }
 
   return (
     <PageScroll contentStyle={styles.page}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={[styles.shell, wide && styles.shellWide]}
-      >
-        <View style={styles.brandPanel}>
-          <BrandLogo showTagline />
-          <View style={styles.brandCopy}>
-            <Text style={styles.kicker}>AI MARKETING PRODUCTION</Text>
-            <Text style={styles.title}>
-              Create faster. Keep control.
-            </Text>
-            <Text style={styles.sub}>
-              Upload images, generate branded campaigns, approve the work,
-              and manage publishing from anywhere.
-            </Text>
-          </View>
-          <View style={styles.sparkRow}>
-            <View style={[styles.spark, { backgroundColor: colors.primary }]} />
-            <View style={[styles.spark, { backgroundColor: colors.cyan }]} />
-            <View style={[styles.spark, { backgroundColor: colors.orange }]} />
-          </View>
+      <View style={styles.shell}>
+        <View style={styles.logoWrap}>
+          <BrandLogo compact />
         </View>
 
         <Card style={styles.loginCard}>
-          <Text style={styles.cardTitle}>Sign in to BrandSparQ</Text>
-          <Text style={styles.cardSub}>
-            We’ll send a six-digit code to an authorized email.
-          </Text>
-
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            autoComplete="email"
-            placeholder="you@example.com"
-            placeholderTextColor={colors.muted}
-            style={styles.input}
-            editable={!sent}
-          />
-
-          {sent && (
-            <>
-              <Text style={styles.label}>Six-digit code</Text>
-              <TextInput
-                value={code}
-                onChangeText={setCode}
-                keyboardType="number-pad"
-                autoComplete="one-time-code"
-                maxLength={6}
-                placeholder="000000"
-                placeholderTextColor={colors.muted}
-                style={styles.input}
-              />
-            </>
-          )}
-
-          <Button
-            label={
-              working
-                ? "Working…"
-                : sent
-                  ? "Sign in"
-                  : "Send sign-in code"
-            }
-            onPress={working ? undefined : sent ? signIn : sendCode}
-          />
-
-          {sent && (
-            <Text
-              onPress={() => {
-                setSent(false);
-                setCode("");
-              }}
-              style={styles.link}
-            >
-              Use a different email
+          <View style={styles.heading}>
+            <Text style={styles.title}>Sign in</Text>
+            <Text style={styles.sub}>
+              Continue with an authorized Google account to access BrandSparQ.
             </Text>
-          )}
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            disabled={working}
+            onPress={working ? undefined : startGoogleSignIn}
+            style={({ pressed }) => [
+              styles.googleButton,
+              working && styles.disabled,
+              pressed && !working && styles.pressed,
+            ]}
+          >
+            {working ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <Ionicons name="logo-google" size={20} color="#4285F4" />
+            )}
+            <Text style={styles.googleButtonText}>
+              {working ? "Signing in…" : "Continue with Google"}
+            </Text>
+          </Pressable>
+
+          <Text style={styles.helper}>
+            Only Google accounts authorized for this BrandSparQ workspace can sign in.
+          </Text>
         </Card>
-      </KeyboardAvoidingView>
+
+        <Text style={styles.tagline}>CREATE. CAPTION. POST.</Text>
+      </View>
     </PageScroll>
   );
 }
@@ -162,88 +116,71 @@ const styles = StyleSheet.create({
   },
   shell: {
     flex: 1,
-    minHeight: 620,
+    minHeight: 520,
+    width: "100%",
+    maxWidth: 430,
+    alignSelf: "center",
     justifyContent: "center",
-    gap: spacing.xl,
+    gap: spacing.lg,
   },
-  shellWide: {
-    flexDirection: "row",
+  logoWrap: {
     alignItems: "center",
-    gap: spacing.xxl,
   },
-  brandPanel: {
-    flex: 1.15,
-    gap: spacing.xl,
-    paddingVertical: spacing.lg,
+  loginCard: {
+    width: "100%",
+    padding: spacing.lg,
+    gap: spacing.lg,
   },
-  brandCopy: {
-    gap: spacing.sm,
-    maxWidth: 620,
-  },
-  kicker: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 1.5,
+  heading: {
+    gap: 6,
   },
   title: {
     color: colors.text,
-    fontSize: 42,
-    lineHeight: 47,
+    fontSize: 26,
+    lineHeight: 31,
     fontWeight: "900",
-    letterSpacing: -1.1,
+    textAlign: "center",
   },
   sub: {
     color: colors.muted,
-    fontSize: 17,
-    lineHeight: 26,
-  },
-  sparkRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  spark: {
-    width: 34,
-    height: 7,
-    borderRadius: radius.pill,
-  },
-  loginCard: {
-    flex: 0.85,
-    width: "100%",
-    maxWidth: 470,
-    alignSelf: "center",
-    gap: spacing.md,
-  },
-  cardTitle: {
-    color: colors.text,
-    fontSize: 24,
-    fontWeight: "900",
-  },
-  cardSub: {
-    color: colors.muted,
+    fontSize: 14,
     lineHeight: 21,
+    textAlign: "center",
   },
-  label: {
-    color: colors.textSoft,
-    fontSize: 12,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
-  input: {
+  googleButton: {
     minHeight: 52,
-    color: colors.text,
-    backgroundColor: colors.surface2,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#D5DEEA",
+    backgroundColor: colors.white,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 11,
     paddingHorizontal: spacing.md,
-    fontSize: 16,
   },
-  link: {
-    color: colors.primary,
+  googleButtonText: {
+    color: "#24324A",
+    fontSize: 15,
     fontWeight: "800",
+  },
+  helper: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
     textAlign: "center",
-    padding: 8,
+  },
+  tagline: {
+    color: colors.text,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 2.8,
+    textAlign: "center",
+  },
+  disabled: {
+    opacity: 0.62,
+  },
+  pressed: {
+    backgroundColor: "#F7FAFD",
   },
 });
