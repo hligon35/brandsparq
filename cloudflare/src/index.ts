@@ -43,7 +43,9 @@ function cors(request: Request, env: Env) {
       .filter(Boolean)
   );
   const isLocal = !!origin && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
-  const allowed = !origin || configured.has(origin) || isLocal;
+  const requestOrigin = new URL(request.url).origin;
+  const sameOrigin = !!origin && origin === requestOrigin;
+  const allowed = !origin || sameOrigin || configured.has(origin) || isLocal;
   return {
     allowed,
     headers: {
