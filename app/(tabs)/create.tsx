@@ -247,7 +247,7 @@ const styles = StyleSheet.create({
   },
   chipText: {
     color: colors.textSoft,
-    fontWeight: "750",
+    fontWeight: "700",
   },
   chipTextActive: {
     color: colors.white,
