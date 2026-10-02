@@ -1,7 +1,9 @@
+import { Platform } from "react-native";
 import type { Asset, Client, MarketingPost, PrePublishDecision } from "@/types/domain";
 
+const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
 const API_URL =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ?? "http://localhost:8787";
+  configuredApiUrl ?? (Platform.OS === "web" ? "" : "http://localhost:8787");
 
 let sessionToken: string | null = null;
 
