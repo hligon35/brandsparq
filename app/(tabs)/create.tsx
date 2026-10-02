@@ -64,9 +64,14 @@ export default function CreateScreen() {
           )
         );
       }
+      const job = await api.createGenerationJob(
+        clientId,
+        objective,
+        uploaded.map((item) => item.id)
+      );
       Alert.alert(
-        "Uploaded",
-        `${uploaded.length} image${uploaded.length === 1 ? "" : "s"} added for ${selectedClient?.name ?? "this client"}. The AI generation queue connects next.`
+        "Campaign generation started",
+        `${uploaded.length} image${uploaded.length === 1 ? "" : "s"} uploaded for ${selectedClient?.name ?? "this client"}. BrandSparQ queued generation job ${job.jobId.slice(0, 8)}.`
       );
       setAssets([]);
     } catch (error) {
