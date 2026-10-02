@@ -194,7 +194,7 @@ const styles = StyleSheet.create({
   desktopNavText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "750",
+    fontWeight: "700",
   },
   desktopNavTextActive: {
     color: colors.primaryDark,
