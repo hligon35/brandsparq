@@ -36,6 +36,12 @@ type ApiPost = {
   prepublish_response?: PrePublishDecision | null;
 };
 
+export function resolveApiUrl(value?: string | null) {
+  if (!value) return undefined;
+  if (/^https?:\/\//i.test(value)) return value;
+  return API_URL + (value.startsWith("/") ? value : "/" + value);
+}
+
 function mapPost(row: ApiPost): MarketingPost {
   return {
     id: row.id,
@@ -47,7 +53,7 @@ function mapPost(row: ApiPost): MarketingPost {
     status: row.status,
     title: row.title,
     caption: row.caption,
-    imageUrl: row.image_url ?? undefined,
+    imageUrl: resolveApiUrl(row.image_url),
     suggestedPublishAt: row.suggested_publish_at ?? undefined,
     scheduledPublishAt: row.scheduled_publish_at ?? undefined,
     approvedAt: row.approved_at ?? undefined,
@@ -121,10 +127,13 @@ export const api = {
       body: JSON.stringify({ clientId, objective, assetIds }),
     }),
 
-  getPublicReview: (token: string) =>
-    jsonRequest<{ data: ApiPost & { client_name?: string } }>(
+  async getPublicReview(token: string) {
+    const result = await jsonRequest<{ data: ApiPost & { client_name?: string } }>(
       `/v1/public/review/${encodeURIComponent(token)}`
-    ),
+    );
+    if (result.data.image_url) result.data.image_url = resolveApiUrl(result.data.image_url);
+    return result;
+  },
 
   approvePublicReview: (token: string) =>
     jsonRequest<{ ok: true; postId: string; status: string }>(
@@ -178,6 +187,24 @@ export const api = {
     jsonRequest<{ ok: true; queued: true }>(
       `/v1/posts/${postId}/publish-now`,
       { method: "POST" }
+    ),
+
+  rewritePostCaption: (postId: string, instruction?: string) =>
+    jsonRequest<{ ok: true; data: { headline: string; caption: string; hashtags: string[] } }>(
+      `/v1/posts/${postId}/ai-rewrite-caption`,
+      { method: "POST", body: JSON.stringify({ instruction }) }
+    ),
+
+  editPostGraphic: (postId: string, instruction: string) =>
+    jsonRequest<{ ok: true; data: { postId: string; imageModel: string; responseId?: string } }>(
+      `/v1/posts/${postId}/ai-edit-image`,
+      { method: "POST", body: JSON.stringify({ instruction }) }
+    ),
+
+  regeneratePost: (postId: string, instruction?: string) =>
+    jsonRequest<{ ok: true; data: { postId: string; imageModel: string; responseId?: string } }>(
+      `/v1/posts/${postId}/ai-regenerate`,
+      { method: "POST", body: JSON.stringify({ instruction }) }
     ),
 
   async uploadAsset(
