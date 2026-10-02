@@ -1,1 +1,50 @@
-import{StyleSheet,Text}from"react-native";import{Card,Screen}from"@/components/ui";import{colors}from"@/theme/tokens";const items=["Clients & Brand Brain","Campaigns","Social connections","Notifications","Analytics","Settings"];export default function More(){return <Screen><Text style={s.title}>More</Text>{items.map(x=><Card key={x}><Text style={s.item}>{x}</Text></Card>)}</Screen>}const s=StyleSheet.create({title:{color:colors.text,fontSize:30,fontWeight:"800"},item:{color:colors.text,fontSize:17,fontWeight:"600"}});
+import { Link } from "expo-router";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useAuth } from "@/auth/context";
+import { Button, Card, Screen } from "@/components/ui";
+import { colors, spacing } from "@/theme/tokens";
+
+const items = [
+  { label: "Clients & Brand Brain", href: "/clients" as const },
+  { label: "Campaigns", href: null },
+  { label: "Social connections", href: null },
+  { label: "Notifications", href: null },
+  { label: "Analytics", href: null },
+  { label: "Settings", href: null },
+];
+
+export default function MoreScreen() {
+  const { user, signOut } = useAuth();
+
+  return (
+    <Screen>
+      <Text style={styles.title}>More</Text>
+      <Text style={styles.sub}>{user?.email}</Text>
+      <View style={styles.list}>
+        {items.map((item) =>
+          item.href ? (
+            <Link key={item.label} href={item.href} asChild>
+              <Pressable>
+                <Card><Text style={styles.item}>{item.label}</Text></Card>
+              </Pressable>
+            </Link>
+          ) : (
+            <Card key={item.label}>
+              <Text style={styles.item}>{item.label}</Text>
+              <Text style={styles.coming}>Coming in the next integration phase</Text>
+            </Card>
+          )
+        )}
+      </View>
+      <Button label="Sign out" secondary onPress={signOut} />
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  title:{color:colors.text,fontSize:30,fontWeight:"800"},
+  sub:{color:colors.muted,fontSize:14},
+  list:{gap:spacing.md},
+  item:{color:colors.text,fontSize:17,fontWeight:"700"},
+  coming:{color:colors.muted,fontSize:12}
+});

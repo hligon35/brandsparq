@@ -1,6 +1,21 @@
-name = "brandsparq-api"
+name = "brandsparq"
 main = "src/index.ts"
 compatibility_date = "2026-10-02"
+
+[vars]
+ENVIRONMENT = "production"
+OPENAI_TEXT_MODEL = "gpt-6.1-sol"
+OPENAI_FAST_MODEL = "gpt-6-luna"
+OPENAI_IMAGE_MODEL = "gpt-image-2.5-flare"
+OPENAI_IMAGE_EDIT_MODEL = "gpt-image-2.5-sunburst"
+OPENAI_IMAGE_QUALITY = "medium"
+OPENAI_IMAGE_SIZE = "1024x1280"
+
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = [ "/v1/*", "/health" ]
 
 [[d1_databases]]
 binding = "DB"
@@ -15,10 +30,19 @@ bucket_name = "brandsparq-media"
 binding = "PUBLISH_QUEUE"
 queue = "brandsparq-publish"
 
+[[queues.producers]]
+binding = "GENERATION_QUEUE"
+queue = "brandsparq-generation"
+
 [[queues.consumers]]
 queue = "brandsparq-publish"
 max_batch_size = 10
 max_retries = 3
+
+[[queues.consumers]]
+queue = "brandsparq-generation"
+max_batch_size = 2
+max_retries = 2
 
 [triggers]
 crons = ["* * * * *"]
