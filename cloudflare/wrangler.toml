@@ -2,6 +2,9 @@ name = "brandsparq-api"
 main = "src/index.ts"
 compatibility_date = "2026-10-02"
 
+[vars]
+ALLOWED_ORIGINS = "http://localhost:8081"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "brandsparq"

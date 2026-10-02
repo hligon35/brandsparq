@@ -1,1 +1,36 @@
-{"expo":{"name":"BrandSparQ","slug":"brandsparq","scheme":"brandsparq","version":"0.1.0","orientation":"portrait","userInterfaceStyle":"automatic","newArchEnabled":true,"ios":{"supportsTablet":true,"bundleIdentifier":"com.alphazonelabs.brandsparq"},"android":{"package":"com.alphazonelabs.brandsparq"},"web":{"bundler":"metro","output":"static"},"plugins":["expo-router"],"experiments":{"typedRoutes":true}}}
+{
+  "expo": {
+    "name": "BrandSparQ",
+    "slug": "brandsparq",
+    "scheme": "brandsparq",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.alphazonelabs.brandsparq"
+    },
+    "android": {
+      "package": "com.alphazonelabs.brandsparq"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "BrandSparQ uses your photos to create marketing content.",
+          "cameraPermission": "BrandSparQ uses your camera to capture marketing content.",
+          "microphonePermission": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

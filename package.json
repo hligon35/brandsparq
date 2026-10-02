@@ -13,6 +13,7 @@
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
     "expo": "~57.0.17",
+    "expo-image-picker": "~57.0.17",
     "expo-router": "~57.0.21",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
