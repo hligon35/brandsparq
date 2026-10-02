@@ -322,7 +322,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: colors.text,
     fontSize: 20,
-    fontWeight: "850",
+    fontWeight: "800",
   },
   sectionSubtitle: {
     color: colors.muted,
