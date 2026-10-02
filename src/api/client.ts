@@ -3,6 +3,19 @@ import type { Asset, Client, MarketingPost, PrePublishDecision } from "@/types/d
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ?? "http://localhost:8787";
 
+let sessionToken: string | null = null;
+
+export function setApiSessionToken(token: string | null) {
+  sessionToken = token;
+}
+
+type AuthUser = {
+  id: string;
+  email: string;
+  name?: string;
+  role: string;
+};
+
 type ApiPost = {
   id: string;
   client_id: string;
@@ -41,13 +54,21 @@ function mapPost(row: ApiPost): MarketingPost {
   };
 }
 
+function authHeaders(extra?: HeadersInit): Headers {
+  const headers = new Headers(extra);
+  if (sessionToken) headers.set("authorization", `Bearer ${sessionToken}`);
+  return headers;
+}
+
 async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = authHeaders(init?.headers);
+  if (init?.body && !(init.body instanceof FormData)) {
+    headers.set("content-type", "application/json");
+  }
+
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: {
-      "content-type": "application/json",
-      ...init?.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -62,6 +83,27 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  requestAuthCode: (email: string) =>
+    jsonRequest<{ ok: true; devCode?: string }>("/v1/auth/request-code", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  verifyAuthCode: (email: string, code: string) =>
+    jsonRequest<{ token: string; expiresAt: number; user: AuthUser }>(
+      "/v1/auth/verify-code",
+      {
+        method: "POST",
+        body: JSON.stringify({ email, code }),
+      }
+    ),
+
+  getSession: () =>
+    jsonRequest<{ user: AuthUser }>("/v1/auth/session"),
+
+  signOut: () =>
+    jsonRequest<{ ok: true }>("/v1/auth/logout", { method: "POST" }),
+
   async getClients(): Promise<Client[]> {
     const result = await jsonRequest<{ data: Client[] }>("/v1/clients");
     return result.data;
@@ -118,13 +160,15 @@ export const api = {
   ): Promise<Asset> {
     const source = await fetch(uri);
     const blob = await source.blob();
+    const headers = authHeaders({
+      "content-type": blob.type || contentType,
+      "x-client-id": clientId,
+      "x-file-name": filename,
+    });
+
     const response = await fetch(`${API_URL}/v1/assets`, {
       method: "POST",
-      headers: {
-        "content-type": blob.type || contentType,
-        "x-client-id": clientId,
-        "x-file-name": filename,
-      },
+      headers,
       body: blob,
     });
 
