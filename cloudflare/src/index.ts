@@ -1,5 +1,11 @@
 import { getSessionUser, handleAuthRoute } from "./auth";
-import { hashReviewToken, runGenerationJob } from "./generation";
+import {
+  editPostGraphicWithAI,
+  hashReviewToken,
+  regeneratePostWithAI,
+  rewritePostCaptionWithAI,
+  runGenerationJob,
+} from "./generation";
 
 interface Env {
   DB: D1Database;
@@ -17,6 +23,11 @@ interface Env {
   REVIEW_BASE_URL?: string;
   OPENAI_API_KEY?: string;
   OPENAI_TEXT_MODEL?: string;
+  OPENAI_FAST_MODEL?: string;
+  OPENAI_IMAGE_MODEL?: string;
+  OPENAI_IMAGE_EDIT_MODEL?: string;
+  OPENAI_IMAGE_QUALITY?: "low" | "medium" | "high" | "xhigh" | "max" | "auto";
+  OPENAI_IMAGE_SIZE?: string;
 }
 
 type PublishMessage = {
@@ -134,7 +145,31 @@ export default {
       if (!row || row.expires_at <= Date.now()) {
         return response(request, env, { error: "This review link is invalid or expired." }, { status: 404 });
       }
+      row.image_url = row.graphic_key
+        ? "/v1/public/review/" + encodeURIComponent(publicReviewMatch[1]) + "/media"
+        : null;
       return response(request, env, { data: row });
+    }
+
+    const publicMediaMatch = url.pathname.match(/^\/v1\/public\/review\/([^/]+)\/media$/);
+    if (publicMediaMatch && request.method === "GET") {
+      const tokenHash = await hashReviewToken(publicMediaMatch[1], env);
+      const row = await env.DB.prepare(
+        "SELECT p.graphic_key, rt.expires_at FROM review_tokens rt JOIN posts p ON p.id = rt.post_id WHERE rt.token_hash = ?"
+      ).bind(tokenHash).first<{ graphic_key?: string | null; expires_at: number }>();
+      if (!row || row.expires_at <= Date.now() || !row.graphic_key) {
+        return response(request, env, { error: "Review image unavailable." }, { status: 404 });
+      }
+      const object = await env.MEDIA.get(row.graphic_key);
+      if (!object) return response(request, env, { error: "Review image unavailable." }, { status: 404 });
+      return new Response(object.body, {
+        headers: {
+          "content-type": object.httpMetadata?.contentType || "image/jpeg",
+          "cache-control": "private, max-age=300",
+          etag: object.httpEtag,
+          ...policy.headers,
+        },
+      });
     }
 
     const publicApproveMatch = url.pathname.match(/^\/v1\/public\/review\/([^/]+)\/approve$/);
@@ -199,6 +234,21 @@ export default {
         { error: "Authentication required." },
         { status: 401 }
       );
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/v1/media/")) {
+      const key = decodeURIComponent(url.pathname.slice("/v1/media/".length));
+      if (!key) return response(request, env, { error: "Media key is required." }, { status: 400 });
+      const object = await env.MEDIA.get(key);
+      if (!object) return response(request, env, { error: "Media not found." }, { status: 404 });
+      return new Response(object.body, {
+        headers: {
+          "content-type": object.httpMetadata?.contentType || "application/octet-stream",
+          "cache-control": "private, max-age=300",
+          etag: object.httpEtag,
+          ...policy.headers,
+        },
+      });
     }
 
     const brandMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/brand$/);
@@ -500,6 +550,47 @@ export default {
       await audit(env, postId, "post.publish_now");
 
       return response(request, env, { ok: true, queued: true, postId });
+    }
+
+
+    const rewriteCaptionMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-rewrite-caption$/);
+    if (rewriteCaptionMatch && request.method === "POST") {
+      const payload = await request.json<{ instruction?: string }>().catch(() => ({}));
+      const instruction = payload.instruction?.trim().slice(0, 2000);
+      try {
+        const data = await rewritePostCaptionWithAI(env, rewriteCaptionMatch[1], instruction);
+        await audit(env, rewriteCaptionMatch[1], "post.ai_caption_rewritten", { instruction: instruction || null });
+        return response(request, env, { ok: true, data });
+      } catch (error) {
+        return response(request, env, { error: error instanceof Error ? error.message : "Unable to rewrite caption." }, { status: 502 });
+      }
+    }
+
+    const editImageMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-edit-image$/);
+    if (editImageMatch && request.method === "POST") {
+      const payload = await request.json<{ instruction?: string }>().catch(() => ({}));
+      const instruction = payload.instruction?.trim().slice(0, 2000) || "";
+      if (!instruction) return response(request, env, { error: "instruction is required." }, { status: 400 });
+      try {
+        const data = await editPostGraphicWithAI(env, editImageMatch[1], instruction);
+        await audit(env, editImageMatch[1], "post.ai_graphic_edited", { instruction });
+        return response(request, env, { ok: true, data });
+      } catch (error) {
+        return response(request, env, { error: error instanceof Error ? error.message : "Unable to edit graphic." }, { status: 502 });
+      }
+    }
+
+    const regenerateMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-regenerate$/);
+    if (regenerateMatch && request.method === "POST") {
+      const payload = await request.json<{ instruction?: string }>().catch(() => ({}));
+      const instruction = payload.instruction?.trim().slice(0, 2000);
+      try {
+        const data = await regeneratePostWithAI(env, regenerateMatch[1], instruction);
+        await audit(env, regenerateMatch[1], "post.ai_regenerated", { instruction: instruction || null });
+        return response(request, env, { ok: true, data });
+      } catch (error) {
+        return response(request, env, { error: error instanceof Error ? error.message : "Unable to regenerate post." }, { status: 502 });
+      }
     }
 
     return response(request, env, { error: "Not found" }, { status: 404 });
