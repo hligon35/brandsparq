@@ -5,7 +5,8 @@
     "scheme": "brandsparq",
     "version": "0.1.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F4F8FF",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
@@ -15,7 +16,10 @@
       }
     },
     "android": {
-      "package": "com.alphazonelabs.brandsparq"
+      "package": "com.alphazonelabs.brandsparq",
+      "adaptiveIcon": {
+        "backgroundColor": "#F4F8FF"
+      }
     },
     "web": {
       "bundler": "metro",
