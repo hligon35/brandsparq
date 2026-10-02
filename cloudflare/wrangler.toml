@@ -1,0 +1,24 @@
+name = "brandsparq-api"
+main = "src/index.ts"
+compatibility_date = "2026-10-02"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "brandsparq"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "brandsparq-media"
+
+[[queues.producers]]
+binding = "PUBLISH_QUEUE"
+queue = "brandsparq-publish"
+
+[[queues.consumers]]
+queue = "brandsparq-publish"
+max_batch_size = 10
+max_retries = 3
+
+[triggers]
+crons = ["* * * * *"]
