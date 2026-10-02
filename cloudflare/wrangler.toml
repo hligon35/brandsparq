@@ -3,7 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2026-10-02"
 
 [vars]
+ENVIRONMENT = "development"
 ALLOWED_ORIGINS = "http://localhost:8081"
+REVIEW_BASE_URL = "http://localhost:8081"
+OPENAI_TEXT_MODEL = "gpt-5.6-sol"
 
 [[d1_databases]]
 binding = "DB"
@@ -18,10 +21,19 @@ bucket_name = "brandsparq-media"
 binding = "PUBLISH_QUEUE"
 queue = "brandsparq-publish"
 
+[[queues.producers]]
+binding = "GENERATION_QUEUE"
+queue = "brandsparq-generation"
+
 [[queues.consumers]]
 queue = "brandsparq-publish"
 max_batch_size = 10
 max_retries = 3
+
+[[queues.consumers]]
+queue = "brandsparq-generation"
+max_batch_size = 2
+max_retries = 2
 
 [triggers]
 crons = ["* * * * *"]
