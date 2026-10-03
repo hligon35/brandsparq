@@ -1,3 +1,4 @@
+import { resolveDefaultSocialAccount } from "./social";
 import {
   AI_PROMPT_VERSION,
   CAPTION_REWRITE_INSTRUCTIONS,
@@ -321,15 +322,22 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
     const suggested=p.suggestedPublishAt&&Date.parse(p.suggestedPublishAt)>Date.now()
       ?new Date(p.suggestedPublishAt).toISOString():fallbackSlot(index);
 
+    const defaultSocial = await resolveDefaultSocialAccount(
+      env,
+      job.client_id,
+      p.platform
+    );
+
     await env.DB.prepare(
       `INSERT INTO posts
       (id,client_id,campaign_id,platform,status,title,headline,caption,hashtags,objective,
-       suggested_publish_at,sparq_score,generation_job_id,review_requested_at,ai_caption_response_id,created_at,updated_at)
-       VALUES (?,?,?,?,'awaiting_approval',?,?,?,?,?,?,?,?,?,?,?,?)`
+       suggested_publish_at,sparq_score,generation_job_id,review_requested_at,
+       ai_caption_response_id,social_account_id,created_at,updated_at)
+       VALUES (?,?,?,?,'awaiting_approval',?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       postId,job.client_id,campaignId,p.platform,p.headline,p.headline,p.caption,
       JSON.stringify(p.hashtags||[]),p.objective,suggested,clamp(p.sparqScore),
-      jobId,now,campaignCall.responseId||null,now,now
+      jobId,now,campaignCall.responseId||null,defaultSocial?.id||null,now,now
     ).run();
 
     for(const assetId of assetIds){
