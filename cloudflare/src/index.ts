@@ -431,6 +431,60 @@ export default {
       });
     }
 
+    const brandAssetsMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/brand-assets$/);
+    if (brandAssetsMatch && request.method === "GET") {
+      const denied = await authorize(env, sessionUser!, "read", brandAssetsMatch[1]);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      const rows = await env.DB.prepare(
+        `SELECT ba.id, ba.role, ba.label, ba.created_at,
+                a.id AS asset_id, a.filename, a.content_type, a.size_bytes
+         FROM brand_assets ba
+         JOIN assets a ON a.id = ba.asset_id
+         WHERE ba.client_id = ?
+         ORDER BY ba.created_at DESC`
+      ).bind(brandAssetsMatch[1]).all<any>();
+
+      return response(request, env, { data: rows.results });
+    }
+
+    if (brandAssetsMatch && request.method === "POST") {
+      const denied = await authorize(env, sessionUser!, "brand_manage", brandAssetsMatch[1]);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      const payload = await request.json<{ assetId?: string; role?: string; label?: string }>()
+        .catch(() => ({} as any));
+      if (!payload.assetId) {
+        return response(request, env, { error: "assetId is required." }, { status: 400 });
+      }
+
+      const asset = await env.DB.prepare(
+        "SELECT id FROM assets WHERE id = ? AND client_id = ?"
+      ).bind(payload.assetId, brandAssetsMatch[1]).first();
+      if (!asset) return response(request, env, { error: "Brand asset not found." }, { status: 404 });
+
+      const role = (payload.role || "reference").trim().toLowerCase();
+      if (!["logo","alternate_logo","reference","approved_image"].includes(role)) {
+        return response(request, env, { error: "Invalid brand asset role." }, { status: 400 });
+      }
+
+      const id = crypto.randomUUID();
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO brand_assets
+         (id, client_id, asset_id, role, label)
+         VALUES (?, ?, ?, ?, ?)`
+      ).bind(id, brandAssetsMatch[1], payload.assetId, role, payload.label?.trim() || null).run();
+
+      if (role === "logo" || role === "alternate_logo") {
+        const column = role === "logo" ? "logo_asset_id" : "alternate_logo_asset_id";
+        await env.DB.prepare(
+          `UPDATE brand_profiles SET ${column} = ?, updated_at = CURRENT_TIMESTAMP WHERE client_id = ?`
+        ).bind(payload.assetId, brandAssetsMatch[1]).run();
+      }
+
+      return response(request, env, { ok: true, id });
+    }
+
     const brandMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/brand$/);
     if (brandMatch && request.method === "GET") {
       const denied = await authorize(env, sessionUser!, "read", brandMatch[1]);
