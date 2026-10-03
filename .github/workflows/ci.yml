@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - production-readiness
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Install Worker dependencies
+        run: npm ci --prefix cloudflare
+
+      - name: Typecheck app
+        run: npm run typecheck
+
+      - name: Typecheck Worker
+        run: npm --prefix cloudflare run typecheck
+
+      - name: Build web
+        run: npm run build:web
