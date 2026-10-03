@@ -52,8 +52,12 @@ export default function RescheduleScreen() {
 
     const date = optionDate(kind);
     try {
-      await api.reschedulePost(postId, date.toISOString());
-      Alert.alert("Rescheduled", `New time: ${date.toLocaleString()}`);
+      const result = await api.reschedulePost(postId, date.toISOString());
+      const scheduled = new Date(result.scheduledPublishAt);
+      Alert.alert(
+        result.adjusted ? "Rescheduled to next available slot" : "Rescheduled",
+        `New time: ${scheduled.toLocaleString()}`
+      );
       router.dismissAll();
     } catch (error) {
       Alert.alert(
@@ -68,7 +72,7 @@ export default function RescheduleScreen() {
       <PageHeader
         eyebrow="Calendar control"
         title="Reschedule"
-        subtitle="Choose a quick option now. A full date/time picker can be layered into the calendar editor next."
+        subtitle="Choose a quick option. BrandSparQ will automatically move it to the nearest valid slot if the requested time conflicts with your scheduling rules."
       />
 
       <View style={styles.grid}>
