@@ -14,7 +14,12 @@ export async function ensurePublishJob(
   postId: string,
   scheduledFor?: string | null
 ): Promise<{ jobId: string; executionKey: string; shouldEnqueue: boolean }> {
-  const executionKey = `post:${postId}:publish:v1`;
+  const post = await env.DB.prepare(
+    "SELECT publish_version FROM posts WHERE id = ?"
+  ).bind(postId).first<{ publish_version: number }>();
+  if (!post) throw new Error("Post not found while creating publish job.");
+
+  const executionKey = `post:${postId}:publish:v${post.publish_version}`;
   const candidateId = crypto.randomUUID();
 
   await env.DB.prepare(
