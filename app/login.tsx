@@ -81,6 +81,7 @@ export default function LoginScreen() {
               resizeMode="contain"
               accessibilityLabel="BrandSparQ"
             />
+            <Text style={styles.appName}>BrandSparQ</Text>
           </View>
 
           <View style={styles.card}>
@@ -144,11 +145,21 @@ const styles = StyleSheet.create({
   },
   logoWrap: {
     alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 10,
     marginBottom: 4,
   },
   favicon: {
-    width: 96,
-    height: 96,
+    width: 56,
+    height: 56,
+  },
+  appName: {
+    color: colors.text,
+    fontSize: 27,
+    lineHeight: 32,
+    fontWeight: "900",
+    letterSpacing: -0.7,
   },
   card: {
     width: "100%",
