@@ -2,7 +2,8 @@ import { getSessionUser, handleAuthRoute } from "./auth";
 import { handleManagementRoute } from "./management";
 import { notifyPostOwners } from "./notifications";
 import { hashSecret } from "./security";
-import { publishPostToSocial, syncAccountAnalytics } from "./social";
+import { publishPostToSocial, socialOAuthCallback, syncAccountAnalytics } from "./social";
+import { findNextAvailableSlot } from "./scheduling";
 import {
   editPostGraphicWithAI,
   hashReviewToken,
@@ -220,7 +221,7 @@ export default {
       const tokenHash = await hashReviewToken(publicApproveMatch[1], env);
       const row = await env.DB.prepare(
         `SELECT rt.id AS review_token_id, rt.post_id, rt.expires_at, rt.used_at,
-                p.status, p.suggested_publish_at
+                p.status, p.client_id, p.suggested_publish_at
          FROM review_tokens rt
          JOIN posts p ON p.id = rt.post_id
          WHERE rt.token_hash = ?`
@@ -234,16 +235,21 @@ export default {
       }
 
       const now = new Date().toISOString();
+      const scheduledAt = await findNextAvailableSlot(
+        env,
+        row.client_id,
+        row.suggested_publish_at
+      );
       await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
              status = 'calendar_scheduled',
              approved_at = ?,
              calendar_added_at = ?,
-             scheduled_publish_at = suggested_publish_at,
+             scheduled_publish_at = ?,
              updated_at = ?
            WHERE id = ?`
-        ).bind(now, now, now, row.post_id),
+        ).bind(now, now, scheduledAt, now, row.post_id),
         env.DB.prepare(
           "UPDATE review_tokens SET used_at = ? WHERE id = ?"
         ).bind(Date.now(), row.review_token_id),
@@ -255,6 +261,21 @@ export default {
       ]);
       await audit(env, row.post_id, "post.approved_via_review_link");
       return response(request, env, { ok: true, postId: row.post_id, status: "calendar_scheduled" });
+    }
+
+    const socialCallbackMatch = url.pathname.match(/^\/v1\/social\/(meta|linkedin|tiktok|x)\/callback$/);
+    if (request.method === "GET" && socialCallbackMatch) {
+      try {
+        const destination = await socialOAuthCallback(env, url, socialCallbackMatch[1] as any);
+        return Response.redirect(destination, 302);
+      } catch (error) {
+        return response(
+          request,
+          env,
+          { error: error instanceof Error ? error.message : "Social connection failed." },
+          { status: 400 }
+        );
+      }
     }
 
     const authRoute = await handleAuthRoute(request, url, env);
@@ -530,7 +551,7 @@ export default {
       const postId = approvalMatch[1];
       const now = new Date().toISOString();
       const post = await env.DB.prepare(
-        "SELECT status, suggested_publish_at FROM posts WHERE id = ?"
+        "SELECT status, client_id, suggested_publish_at FROM posts WHERE id = ?"
       ).bind(postId).first<{ status: string; suggested_publish_at: string | null }>();
 
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
@@ -538,16 +559,21 @@ export default {
         return response(request, env, { error: "Post does not have a proposed publishing slot" }, { status: 409 });
       }
 
+      const scheduledAt = await findNextAvailableSlot(
+        env,
+        (post as any).client_id,
+        post.suggested_publish_at
+      );
       await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
            status = 'calendar_scheduled',
            approved_at = ?,
            calendar_added_at = ?,
-           scheduled_publish_at = suggested_publish_at,
+           scheduled_publish_at = ?,
            updated_at = ?
            WHERE id = ?`
-        ).bind(now, now, now, postId),
+        ).bind(now, now, scheduledAt, now, postId),
         env.DB.prepare(
           `INSERT INTO approvals (id, post_id, decision, previous_status)
            VALUES (?, ?, 'approved', ?)`
@@ -697,15 +723,54 @@ export default {
     }
 
     const due = await env.DB.prepare(
-      `SELECT id FROM posts
-       WHERE status IN ('calendar_scheduled','pre_publish','rescheduled')
-         AND scheduled_publish_at IS NOT NULL
-         AND scheduled_publish_at <= ?
-       ORDER BY scheduled_publish_at ASC
+      `SELECT p.id, p.prepublish_response,
+              COALESCE(cs.no_response_policy, np.no_response_policy,
+                       ws.default_no_response_policy, 'auto_publish') AS no_response_policy
+       FROM posts p
+       JOIN workspace_settings ws ON ws.id = 'default'
+       LEFT JOIN client_settings cs ON cs.client_id = p.client_id
+       LEFT JOIN users u ON u.role = 'owner'
+       LEFT JOIN notification_preferences np ON np.user_id = u.id
+       WHERE p.status IN ('calendar_scheduled','pre_publish','rescheduled')
+         AND p.scheduled_publish_at IS NOT NULL
+         AND p.scheduled_publish_at <= ?
+       ORDER BY p.scheduled_publish_at ASC
        LIMIT 100`
-    ).bind(nowIso).all<{ id: string }>();
+    ).bind(nowIso).all<any>();
 
     for (const row of due.results) {
+      const policy = row.prepublish_response
+        ? "auto_publish"
+        : row.no_response_policy || "auto_publish";
+
+      if (policy === "hold") {
+        await env.DB.prepare(
+          "UPDATE posts SET status = 'paused', updated_at = ? WHERE id = ?"
+        ).bind(nowIso, row.id).run();
+        await notifyPostOwners(
+          env,
+          row.id,
+          "publish_held",
+          "Post held for confirmation",
+          "This post reached its scheduled time without a response, so BrandSparQ held it."
+        );
+        continue;
+      }
+
+      if (policy === "skip") {
+        await env.DB.prepare(
+          "UPDATE posts SET status = 'canceled', updated_at = ? WHERE id = ?"
+        ).bind(nowIso, row.id).run();
+        await notifyPostOwners(
+          env,
+          row.id,
+          "publish_skipped",
+          "Scheduled post skipped",
+          "This post reached its scheduled time without a response and was skipped by your workspace policy."
+        );
+        continue;
+      }
+
       await env.PUBLISH_QUEUE.send({
         kind: "publish",
         postId: row.id,
