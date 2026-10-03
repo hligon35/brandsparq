@@ -187,3 +187,16 @@ Verify:
 10. Publish Now creates a live provider post.
 11. Analytics sync stores a metric snapshot.
 12. A failed provider request produces a readable failure notification.
+
+
+## Cloudflare Workers Builds configuration
+
+Configure the connected Worker with:
+
+```text
+Root directory: /
+Build command: npm run build:cloudflare
+Deploy command: npm run deploy:cloudflare
+```
+
+Workers Builds already installs the root package dependencies. The build script only performs the additional nested Worker install and the Expo web export.
