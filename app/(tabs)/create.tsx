@@ -18,6 +18,7 @@ export default function CreateScreen(){
   const [objective,setObjective]=useState("Auto");
   const [assets,setAssets]=useState<ImagePicker.ImagePickerAsset[]>([]);
   const [uploading,setUploading]=useState(false);
+  const [uploadProgress,setUploadProgress]=useState({done:0,total:0});
   const {wide}=useResponsive();
 
   async function loadClients(){
@@ -44,36 +45,63 @@ export default function CreateScreen(){
   async function upload(){
     if(!clientId||!assets.length)return;
     setUploading(true);
+    setUploadProgress({done:0,total:assets.length});
     try{
-      const uploaded=[];
-      for(const [index,asset] of assets.entries()){
-        const prepared=await prepareCampaignAsset(asset,index);
-        const original=await api.uploadAsset(
-          clientId,
-          asset.uri,
-          asset.fileName||`brandsparq-${Date.now()}-${index+1}.jpg`,
-          asset.mimeType||"image/jpeg",
-          asset.width,
-          asset.height
-        );
-        await api.uploadAssetDerivative(
-          clientId,
-          original.id,
-          prepared.analysisUri,
-          "analysis",
-          prepared.analysisFilename,
-          prepared.analysisMimeType,
-          prepared.analysisWidth,
-          prepared.analysisHeight
-        );
-        uploaded.push(original);
+      const uploaded=new Array(assets.length);
+      let cursor=0;
+
+      async function worker(){
+        while(true){
+          const index=cursor++;
+          if(index>=assets.length)return;
+          const asset=assets[index];
+          const prepared=await prepareCampaignAsset(asset,index);
+          const original=await api.uploadAsset(
+            clientId,
+            asset.uri,
+            asset.fileName||`brandsparq-${Date.now()}-${index+1}.jpg`,
+            asset.mimeType||"image/jpeg",
+            asset.width,
+            asset.height
+          );
+          await api.uploadAssetDerivative(
+            clientId,
+            original.id,
+            prepared.analysisUri,
+            "analysis",
+            prepared.analysisFilename,
+            prepared.analysisMimeType,
+            prepared.analysisWidth,
+            prepared.analysisHeight
+          );
+          uploaded[index]=original;
+          setUploadProgress(progress=>({
+            ...progress,
+            done:progress.done+1,
+          }));
+        }
       }
-      const job=await api.createGenerationJob(clientId,objective,uploaded.map(item=>item.id));
-      Alert.alert("Campaign generation started",`${uploaded.length} image${uploaded.length===1?"":"s"} uploaded for ${selectedClient?.name??"this client"}. Job ${job.jobId.slice(0,8)} is queued.`);
+
+      await Promise.all(
+        Array.from({length:Math.min(3,assets.length)},()=>worker())
+      );
+
+      const job=await api.createGenerationJob(
+        clientId,
+        objective,
+        uploaded.map(item=>item.id)
+      );
+      Alert.alert(
+        "Campaign generation started",
+        `${uploaded.length} image${uploaded.length===1?"":"s"} uploaded for ${selectedClient?.name??"this client"}. Job ${job.jobId.slice(0,8)} is queued.`
+      );
       setAssets([]);
+      setUploadProgress({done:0,total:0});
     }catch(error){
       Alert.alert("Campaign creation failed",error instanceof Error?error.message:"Unable to create campaign.");
-    }finally{setUploading(false);}
+    }finally{
+      setUploading(false);
+    }
   }
 
   return(
@@ -138,4 +166,5 @@ const styles=StyleSheet.create({
   chipActive:{backgroundColor:colors.primary,borderColor:colors.primary},chipText:{color:colors.textSoft,fontWeight:"700"},chipTextActive:{color:colors.white},
   assetCard:{minHeight:290},previewGrid:{flexDirection:"row",flexWrap:"wrap",gap:10},preview:{width:104,height:132,borderRadius:radius.md,backgroundColor:colors.surface2},
   errorTitle:{color:colors.text,fontSize:20,fontWeight:"900"},errorBody:{color:colors.muted,lineHeight:21},retry:{color:colors.primary,fontWeight:"800"},
+  progress:{color:colors.textSoft,fontWeight:"700"},
 });
