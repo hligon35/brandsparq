@@ -151,6 +151,28 @@ async function audit(env: Env, postId: string, action: string, metadata?: unknow
     .run();
 }
 
+async function syncDueAnalytics(env: Env) {
+  const settings = await env.DB.prepare(
+    "SELECT analytics_refresh_hours FROM workspace_settings WHERE id = 'default'"
+  ).first<{ analytics_refresh_hours: number }>();
+  const refreshMs = Number(settings?.analytics_refresh_hours || 6) * 60 * 60 * 1000;
+  const accounts = await env.DB.prepare(
+    `SELECT sa.id,
+        MAX(CASE WHEN ar.status = 'completed' THEN ar.completed_at END) AS last_sync
+     FROM social_accounts sa
+     LEFT JOIN analytics_sync_runs ar ON ar.social_account_id = sa.id
+     WHERE sa.status = 'connected'
+     GROUP BY sa.id`
+  ).all<{ id: string; last_sync: string | null }>();
+
+  for (const account of accounts.results) {
+    const last = account.last_sync ? Date.parse(account.last_sync) : 0;
+    if (!last || Date.now() - last >= refreshMs) {
+      try { await syncAccountAnalytics(env, account.id); } catch {}
+    }
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -738,7 +760,12 @@ export default {
     return response(request, env, { error: "Not found" }, { status: 404 });
   },
 
-  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+  async scheduled(event: ScheduledController, env: Env): Promise<void> {
+    if (event.cron === "7 */6 * * *") {
+      await syncDueAnalytics(env);
+      return;
+    }
+
     const now = new Date();
     const nowIso = now.toISOString();
 
@@ -842,25 +869,6 @@ export default {
       }
     }
 
-    const settings = await env.DB.prepare(
-      "SELECT analytics_refresh_hours FROM workspace_settings WHERE id = 'default'"
-    ).first<{ analytics_refresh_hours: number }>();
-    const refreshMs = Number(settings?.analytics_refresh_hours || 6) * 60 * 60 * 1000;
-    const accounts = await env.DB.prepare(
-      `SELECT sa.id,
-          MAX(CASE WHEN ar.status = 'completed' THEN ar.completed_at END) AS last_sync
-       FROM social_accounts sa
-       LEFT JOIN analytics_sync_runs ar ON ar.social_account_id = sa.id
-       WHERE sa.status = 'connected'
-       GROUP BY sa.id`
-    ).all<{ id: string; last_sync: string | null }>();
-
-    for (const account of accounts.results) {
-      const last = account.last_sync ? Date.parse(account.last_sync) : 0;
-      if (!last || Date.now() - last >= refreshMs) {
-        try { await syncAccountAnalytics(env, account.id); } catch {}
-      }
-    }
   },
 
   async queue(batch: MessageBatch<JobMessage>, env: Env): Promise<void> {
