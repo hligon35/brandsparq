@@ -1120,18 +1120,34 @@ export default {
           await runGenerationJob(env, message.body.jobId);
           message.ack();
         } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message.slice(0, 1500) : "Generation failed";
+          const terminal = message.attempts >= 3;
+          const now = new Date().toISOString();
+
           await env.DB.prepare(
             `UPDATE generation_jobs SET
-             status = 'retrying',
+             status = ?,
              error_message = ?,
-             stage_updated_at = ?
+             stage_updated_at = ?,
+             completed_at = CASE WHEN ? THEN ? ELSE completed_at END
              WHERE id = ?`
           ).bind(
-            error instanceof Error ? error.message.slice(0, 1500) : "Generation failed",
-            new Date().toISOString(),
+            terminal ? "failed" : "retrying",
+            errorMessage,
+            now,
+            terminal ? 1 : 0,
+            terminal ? now : null,
             message.body.jobId
           ).run();
-          message.retry();
+
+          if (terminal) {
+            message.ack();
+          } else {
+            message.retry({
+              delaySeconds: Math.min(900, 60 * 2 ** Math.max(0, message.attempts - 1)),
+            });
+          }
         }
         continue;
       }
