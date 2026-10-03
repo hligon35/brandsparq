@@ -1,23 +1,24 @@
-import { Ionicons } from "@expo/vector-icons";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Pressable,
+  SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { useAuth } from "@/auth/context";
 import { BrandLogo } from "@/components/brand";
-import { Card, PageScroll } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";
 
 export default function LoginScreen() {
   const { user, signInWithGoogle, completeGoogleSignIn } = useAuth();
   const { handoff, auth_error: authError } =
     useLocalSearchParams<{ handoff?: string; auth_error?: string }>();
+
   const [working, setWorking] = useState(false);
   const [handoffHandled, setHandoffHandled] = useState(false);
 
@@ -33,6 +34,7 @@ export default function LoginScreen() {
 
     setHandoffHandled(true);
     setWorking(true);
+
     void completeGoogleSignIn(handoff)
       .catch((error) => {
         Alert.alert(
@@ -45,7 +47,7 @@ export default function LoginScreen() {
 
   useEffect(() => {
     if (typeof authError === "string" && authError) {
-      Alert.alert("Google sign-in canceled", authError);
+      Alert.alert("Google sign-in failed", authError);
     }
   }, [authError]);
 
@@ -53,6 +55,7 @@ export default function LoginScreen() {
 
   async function startGoogleSignIn() {
     setWorking(true);
+
     try {
       await signInWithGoogle();
     } catch (error) {
@@ -65,99 +68,135 @@ export default function LoginScreen() {
   }
 
   return (
-    <PageScroll contentStyle={styles.page}>
-      <View style={styles.shell}>
-        <View style={styles.logoWrap}>
-          <BrandLogo compact />
-        </View>
+    <SafeAreaView style={styles.screen}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.wrapper}>
+          <View style={styles.logoWrap}>
+            <BrandLogo compact />
+          </View>
 
-        <Card style={styles.loginCard}>
-          <View style={styles.heading}>
+          <View style={styles.card}>
             <Text style={styles.title}>Sign in</Text>
-            <Text style={styles.sub}>
-              Continue with an authorized Google account to access BrandSparQ.
+            <Text style={styles.subtitle}>
+              Continue with your authorized Google account.
+            </Text>
+
+            <Pressable
+              accessibilityRole="button"
+              disabled={working}
+              onPress={working ? undefined : startGoogleSignIn}
+              style={({ pressed }) => [
+                styles.googleButton,
+                working && styles.disabled,
+                pressed && !working && styles.pressed,
+              ]}
+            >
+              {working ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <View style={styles.googleMark}>
+                  <Text style={styles.googleMarkText}>G</Text>
+                </View>
+              )}
+
+              <Text style={styles.googleButtonText}>
+                {working ? "Signing in…" : "Continue with Google"}
+              </Text>
+            </Pressable>
+
+            <Text style={styles.helper}>
+              Only approved Google accounts can access this BrandSparQ workspace.
             </Text>
           </View>
 
-          <Pressable
-            accessibilityRole="button"
-            disabled={working}
-            onPress={working ? undefined : startGoogleSignIn}
-            style={({ pressed }) => [
-              styles.googleButton,
-              working && styles.disabled,
-              pressed && !working && styles.pressed,
-            ]}
-          >
-            {working ? (
-              <ActivityIndicator color={colors.primary} />
-            ) : (
-              <Ionicons name="logo-google" size={20} color="#4285F4" />
-            )}
-            <Text style={styles.googleButtonText}>
-              {working ? "Signing in…" : "Continue with Google"}
-            </Text>
-          </Pressable>
-
-          <Text style={styles.helper}>
-            Only Google accounts authorized for this BrandSparQ workspace can sign in.
-          </Text>
-        </Card>
-
-        <Text style={styles.tagline}>CREATE. CAPTION. POST.</Text>
-      </View>
-    </PageScroll>
+          <Text style={styles.tagline}>CREATE. CAPTION. POST.</Text>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: {
-    justifyContent: "center",
-  },
-  shell: {
+  screen: {
     flex: 1,
-    minHeight: 520,
-    width: "100%",
-    maxWidth: 430,
-    alignSelf: "center",
+    backgroundColor: colors.bg,
+  },
+  scroll: {
+    flexGrow: 1,
     justifyContent: "center",
-    gap: spacing.lg,
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 28,
+  },
+  wrapper: {
+    width: "100%",
+    maxWidth: 380,
+    alignSelf: "center",
+    gap: spacing.md,
   },
   logoWrap: {
     alignItems: "center",
+    marginBottom: 4,
   },
-  loginCard: {
+  card: {
     width: "100%",
-    padding: spacing.lg,
-    gap: spacing.lg,
-  },
-  heading: {
-    gap: 6,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingHorizontal: 24,
+    paddingVertical: 26,
+    gap: 16,
+    shadowColor: "#0A2A66",
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
   },
   title: {
     color: colors.text,
-    fontSize: 26,
-    lineHeight: 31,
+    fontSize: 25,
+    lineHeight: 30,
     fontWeight: "900",
     textAlign: "center",
   },
-  sub: {
+  subtitle: {
     color: colors.muted,
     fontSize: 14,
-    lineHeight: 21,
+    lineHeight: 20,
     textAlign: "center",
+    marginBottom: 2,
   },
   googleButton: {
-    minHeight: 52,
-    borderRadius: radius.md,
+    width: "100%",
+    minHeight: 50,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#D5DEEA",
-    backgroundColor: colors.white,
+    backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 11,
-    paddingHorizontal: spacing.md,
+    gap: 10,
+    paddingHorizontal: 16,
+  },
+  googleMark: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E1E6EE",
+  },
+  googleMarkText: {
+    color: "#4285F4",
+    fontSize: 15,
+    fontWeight: "900",
   },
   googleButtonText: {
     color: "#24324A",
@@ -166,19 +205,19 @@ const styles = StyleSheet.create({
   },
   helper: {
     color: colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 17,
     textAlign: "center",
   },
   tagline: {
     color: colors.text,
     fontSize: 9,
     fontWeight: "800",
-    letterSpacing: 2.8,
+    letterSpacing: 2.5,
     textAlign: "center",
   },
   disabled: {
-    opacity: 0.62,
+    opacity: 0.6,
   },
   pressed: {
     backgroundColor: "#F7FAFD",
