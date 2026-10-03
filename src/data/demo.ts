@@ -1,3 +1,0 @@
-import type{Client,MarketingPost}from"@/types/domain";
-export const clients:Client[]=[{id:"alpha",name:"AlphaZoneLabs",color:"#A56CFF"},{id:"lifeprep",name:"LifePrep",color:"#4D9FFF"},{id:"b3u",name:"B3 Unstoppable",color:"#FF9E58"}];
-export const posts:MarketingPost[]=[{id:"post-1",clientId:"lifeprep",platform:"instagram",status:"awaiting_approval",title:"Youth Soccer Registration",caption:"A new season starts with one great opportunity. Get ready to play.",suggestedPublishAt:"2026-10-14T18:00:00-04:00",sparqScore:92},{id:"post-2",clientId:"alpha",platform:"linkedin",status:"calendar_scheduled",title:"Build Better Systems",caption:"Turn repetitive work into a system your team can actually scale.",scheduledPublishAt:"2026-10-15T09:00:00-04:00",sparqScore:90}];
