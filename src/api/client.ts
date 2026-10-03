@@ -34,6 +34,8 @@ type ApiPost = {
   approved_at?: string | null;
   sparq_score?: number | null;
   prepublish_response?: PrePublishDecision | null;
+  social_account_id?: string | null;
+  social_account_name?: string | null;
 };
 
 export function resolveApiUrl(value?: string | null) {
@@ -59,6 +61,8 @@ function mapPost(row: ApiPost): MarketingPost {
     approvedAt: row.approved_at ?? undefined,
     sparqScore: row.sparq_score ?? undefined,
     prepublishResponse: row.prepublish_response ?? undefined,
+    socialAccountId: row.social_account_id ?? undefined,
+    socialAccountName: row.social_account_name ?? undefined,
   };
 }
 
