@@ -15,26 +15,38 @@ export async function ensurePublishJob(
   scheduledFor?: string | null
 ): Promise<{ jobId: string; executionKey: string; shouldEnqueue: boolean }> {
   const executionKey = `post:${postId}:publish:v1`;
-  const existing = await env.DB.prepare(
-    "SELECT id, status FROM publish_jobs WHERE execution_key = ?"
-  ).bind(executionKey).first<{ id: string; status: string }>();
+  const candidateId = crypto.randomUUID();
 
-  if (existing) {
-    return {
-      jobId: existing.id,
-      executionKey,
-      shouldEnqueue: false,
-    };
-  }
-
-  const id = crypto.randomUUID();
   await env.DB.prepare(
-    `INSERT INTO publish_jobs
+    `INSERT OR IGNORE INTO publish_jobs
      (id, post_id, execution_key, status, scheduled_for)
      VALUES (?, ?, ?, 'queued', ?)`
-  ).bind(id, postId, executionKey, scheduledFor || null).run();
+  ).bind(
+    candidateId,
+    postId,
+    executionKey,
+    scheduledFor || null
+  ).run();
 
-  return { jobId: id, executionKey, shouldEnqueue: true };
+  const row = await env.DB.prepare(
+    `SELECT id, status, claimed_at
+     FROM publish_jobs
+     WHERE execution_key = ?`
+  ).bind(executionKey).first<{
+    id: string;
+    status: string;
+    claimed_at: string | null;
+  }>();
+
+  if (!row) {
+    throw new Error("Unable to create or resolve publish job.");
+  }
+
+  return {
+    jobId: row.id,
+    executionKey,
+    shouldEnqueue: row.status === "queued" && !row.claimed_at,
+  };
 }
 
 export async function claimPublishJob(
