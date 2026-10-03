@@ -9,8 +9,10 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "build:web": "expo export --platform web",
-    "deploy:worker": "npm run build:web && npm ci --prefix cloudflare && npm --prefix cloudflare run deploy",
-    "typecheck": "tsc --noEmit"
+    "deploy:worker": "npm run build:cloudflare && npm run deploy:cloudflare",
+    "typecheck": "tsc --noEmit",
+    "build:cloudflare": "npm ci --prefix cloudflare && npm run build:web",
+    "deploy:cloudflare": "npm --prefix cloudflare run deploy"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
