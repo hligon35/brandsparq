@@ -387,19 +387,36 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
     ]);
   }
 
-  const existingPosts=await env.DB.prepare(
-    `SELECT id,platform,title,headline,caption,suggested_publish_at,graphic_key
-     FROM posts
-     WHERE generation_job_id=?
-     ORDER BY created_at ASC,id ASC`
-  ).bind(jobId).all<any>();
+  const savedPostIds:string[]=job.post_ids
+    ? JSON.parse(job.post_ids)
+    : [];
+
+  const existingPosts=savedPostIds.length
+    ? await env.DB.prepare(
+        `SELECT id,platform,title,headline,caption,suggested_publish_at,graphic_key
+         FROM posts
+         WHERE generation_job_id=?`
+      ).bind(jobId).all<any>()
+    : await env.DB.prepare(
+        `SELECT id,platform,title,headline,caption,suggested_publish_at,graphic_key
+         FROM posts
+         WHERE generation_job_id=?
+         ORDER BY created_at ASC`
+      ).bind(jobId).all<any>();
+
+  const existingById=new Map(
+    existingPosts.results.map((row:any)=>[row.id,row])
+  );
 
   const postIds:string[]=[];
   const imageErrors:Array<{postId:string;error:string}>=[];
   const now=new Date().toISOString();
 
   for(const [index,p] of generated.posts.entries()){
-    let existing=existingPosts.results[index];
+    const savedId=savedPostIds[index];
+    let existing=savedId
+      ? existingById.get(savedId)
+      : existingPosts.results[index];
     let postId:string;
 
     if(existing){
