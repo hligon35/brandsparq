@@ -13,9 +13,7 @@ Create or verify:
 - Queue: `brandsparq-generation`
 - Custom domain: `brandsparq.getsparqd.com`
 
-Replace `REPLACE_WITH_D1_DATABASE_ID` in `cloudflare/wrangler.toml` with the real D1 database ID.
-
-Apply every migration:
+Apply every pending migration before deploying the Worker:
 
 ```bash
 cd cloudflare
@@ -181,3 +179,15 @@ Verify:
 10. Publish Now creates a live provider post.
 11. Analytics sync stores a metric snapshot.
 12. A failed provider request produces a readable failure notification.
+
+
+## Client and Brand Brain production data
+
+BrandSparQ now uses live API data only. Client setup includes:
+- client name and timezone
+- active/archive lifecycle
+- expanded Brand Brain fields
+- primary and alternate logos
+- approved reference images
+
+The canonical schema is the ordered migration set in `cloudflare/migrations/`; the obsolete standalone `schema.sql` file was removed.
