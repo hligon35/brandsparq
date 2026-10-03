@@ -91,7 +91,7 @@ export default function PostReviewScreen() {
   async function approve() {
     setSaving(true);
     try {
-      await api.approvePost(post.id);
+      await api.approvePost(post!.id);
       Alert.alert(
         "Approved",
         "This post is now on the marketing calendar."
@@ -120,14 +120,14 @@ export default function PostReviewScreen() {
     try {
       if (action === "rewrite") {
         await api.rewritePostCaption(
-          post.id,
+          post!.id,
           instruction.trim() || undefined
         );
       } else if (action === "image") {
-        await api.editPostGraphic(post.id, instruction.trim());
+        await api.editPostGraphic(post!.id, instruction.trim());
       } else {
         await api.regeneratePost(
-          post.id,
+          post!.id,
           instruction.trim() || undefined
         );
       }

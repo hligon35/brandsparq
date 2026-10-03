@@ -8,20 +8,21 @@ routes = [
 
 [vars]
 ENVIRONMENT = "production"
-PUBLIC_BASE_URL = "https://brandsparq.getsparqd.com"
-REVIEW_BASE_URL = "https://brandsparq.getsparqd.com"
+GOOGLE_CLIENT_ID = "1096231725383-7lrjdhj0p4gp8ipbi6228tf03dhg5jqe.apps.googleusercontent.com"
+# GOOGLE_CLIENT_SECRET is set via `wrangler secret put GOOGLE_CLIENT_SECRET`, not committed here
 GOOGLE_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/auth/google/callback"
-META_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/meta/callback"
 LINKEDIN_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/linkedin/callback"
-TIKTOK_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/tiktok/callback"
-X_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/x/callback"
-OPENAI_TEXT_MODEL = "gpt-6.1-sol"
+META_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/meta/callback"
 OPENAI_FAST_MODEL = "gpt-6-luna"
-OPENAI_IMAGE_MODEL = "gpt-image-2.5-flare"
 OPENAI_IMAGE_EDIT_MODEL = "gpt-image-2.5-sunburst"
+OPENAI_IMAGE_MODEL = "gpt-image-2.5-flare"
 OPENAI_IMAGE_QUALITY = "medium"
 OPENAI_IMAGE_SIZE = "1024x1280"
-
+OPENAI_TEXT_MODEL = "gpt-6.1-sol"
+PUBLIC_BASE_URL = "https://brandsparq.getsparqd.com"
+REVIEW_BASE_URL = "https://brandsparq.getsparqd.com"
+TIKTOK_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/tiktok/callback"
+X_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/x/callback"
 [assets]
 directory = "../dist"
 binding = "ASSETS"
@@ -57,3 +58,17 @@ max_retries = 2
 
 [triggers]
 crons = ["* * * * *"]
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 1
+persist = true
+
+[observability.issue_detection]
+enabled = true

@@ -35,7 +35,7 @@ export default function PublishDecisionScreen() {
   async function keep() {
     setWorking(true);
     try {
-      await api.keepSchedule(post.id);
+      await api.keepSchedule(post!.id);
       Alert.alert(
         "Schedule kept",
         "BrandSparQ will publish at the scheduled time."
@@ -54,7 +54,7 @@ export default function PublishDecisionScreen() {
   async function publishNow() {
     setWorking(true);
     try {
-      await api.publishNow(post.id);
+      await api.publishNow(post!.id);
       Alert.alert(
         "Queued to publish",
         "BrandSparQ has started the publishing job."

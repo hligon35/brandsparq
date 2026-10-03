@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Link } from "expo-router";
+import { Link, type Href } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useAuth } from "@/auth/context";
 import {
@@ -10,42 +10,47 @@ import {
 } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";
 
-const items = [
+const items: {
+  label: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  href: Href;
+}[] = [
   {
     label: "Clients & Brand Brain",
     description: "Voice, audience, colors, CTAs, and brand rules.",
-    icon: "color-palette-outline" as const,
-    href: "/clients" as const,
+    icon: "color-palette-outline",
+    href: "/clients" as Href,
   },
   {
     label: "Campaigns",
     description: "Group generated content around goals and deadlines.",
-    icon: "layers-outline" as const,
-    href: "/campaigns" as const,
+    icon: "layers-outline",
+    href: "/campaigns" as Href,
   },
   {
     label: "Social connections",
     description: "Connect and verify publishing destinations.",
-    icon: "share-social-outline" as const,
-    href: "/social" as const,
+    icon: "share-social-outline",
+    href: "/social" as Href,
   },
   {
     label: "Notifications",
     description: "Control review and pre-publish alerts.",
-    icon: "notifications-outline" as const,
-    href: "/notifications" as const,
+    icon: "notifications-outline",
+    href: "/notifications" as Href,
   },
   {
     label: "Analytics",
     description: "Measure published content and campaign results.",
-    icon: "analytics-outline" as const,
-    href: "/analytics" as const,
+    icon: "analytics-outline",
+    href: "/analytics" as Href,
   },
   {
     label: "Settings",
     description: "Workspace, account, and publishing preferences.",
-    icon: "settings-outline" as const,
-    href: "/settings" as const,
+    icon: "settings-outline",
+    href: "/settings" as Href,
   },
 ];
 

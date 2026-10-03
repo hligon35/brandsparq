@@ -347,7 +347,7 @@ export default {
     }
 
     if (brandMatch && request.method === "POST") {
-      const payload = await request.json<any>().catch(() => ({}));
+      const payload = await request.json<any>().catch(() => ({} as any));
       const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ?")
         .bind(brandMatch[1]).first();
       if (!client) return response(request, env, { error: "Client not found" }, { status: 404 });
@@ -399,7 +399,7 @@ export default {
         clientId?: string;
         objective?: string;
         assetIds?: string[];
-      }>().catch(() => ({}));
+      }>().catch(() => ({} as any));
 
       if (!payload.clientId || !payload.assetIds?.length) {
         return response(request, env, { error: "clientId and assetIds are required." }, { status: 400 });
@@ -598,7 +598,7 @@ export default {
     const rescheduleMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/reschedule$/);
     if (request.method === "POST" && rescheduleMatch) {
       const postId = rescheduleMatch[1];
-      const payload = await request.json<{ scheduledPublishAt?: string }>().catch(() => ({}));
+      const payload = await request.json<{ scheduledPublishAt?: string }>().catch(() => ({} as any));
       if (!payload.scheduledPublishAt || Number.isNaN(Date.parse(payload.scheduledPublishAt))) {
         return response(request, env, { error: "A valid scheduledPublishAt value is required" }, { status: 400 });
       }
@@ -640,7 +640,7 @@ export default {
 
     const rewriteCaptionMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-rewrite-caption$/);
     if (rewriteCaptionMatch && request.method === "POST") {
-      const payload = await request.json<{ instruction?: string }>().catch(() => ({}));
+      const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
         const data = await rewritePostCaptionWithAI(env, rewriteCaptionMatch[1], instruction);
@@ -653,7 +653,7 @@ export default {
 
     const editImageMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-edit-image$/);
     if (editImageMatch && request.method === "POST") {
-      const payload = await request.json<{ instruction?: string }>().catch(() => ({}));
+      const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
       const instruction = payload.instruction?.trim().slice(0, 2000) || "";
       if (!instruction) return response(request, env, { error: "instruction is required." }, { status: 400 });
       try {
@@ -667,7 +667,7 @@ export default {
 
     const regenerateMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-regenerate$/);
     if (regenerateMatch && request.method === "POST") {
-      const payload = await request.json<{ instruction?: string }>().catch(() => ({}));
+      const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
         const data = await regeneratePostWithAI(env, regenerateMatch[1], instruction);
@@ -681,7 +681,7 @@ export default {
     return response(request, env, { error: "Not found" }, { status: 404 });
   },
 
-  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
     const now = new Date();
     const nowIso = now.toISOString();
 

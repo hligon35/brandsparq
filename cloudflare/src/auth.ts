@@ -515,7 +515,7 @@ export async function handleAuthRoute(
   ) {
     const payload = await request
       .json<{ handoff?: string }>()
-      .catch(() => ({}));
+      .catch(() => ({} as any));
     const handoff =
       typeof payload.handoff === "string" ? payload.handoff : "";
 

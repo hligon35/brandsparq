@@ -95,7 +95,7 @@ export async function handleManagementRoute(
   }
 
   if (campaignMatch && request.method === "POST") {
-    const payload = await request.json<any>().catch(() => ({}));
+    const payload = await request.json<any>().catch(() => ({} as any));
     await env.DB.prepare(
       `UPDATE campaigns SET
        name = COALESCE(?, name),
@@ -167,7 +167,7 @@ export async function handleManagementRoute(
 
   const assignMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/social-account$/);
   if (assignMatch && request.method === "POST") {
-    const payload = await request.json<{ socialAccountId?: string }>().catch(() => ({}));
+    const payload = await request.json<{ socialAccountId?: string }>().catch(() => ({} as any));
     if (!payload.socialAccountId) return { body: { error: "socialAccountId is required." }, status: 400 };
     const account = await env.DB.prepare(
       `SELECT sa.id FROM social_accounts sa
@@ -191,7 +191,7 @@ export async function handleManagementRoute(
   }
 
   if (request.method === "POST" && url.pathname === "/v1/push-token") {
-    const payload = await request.json<any>().catch(() => ({}));
+    const payload = await request.json<any>().catch(() => ({} as any));
     if (!payload.token) return { body: { error: "token is required." }, status: 400 };
     await env.DB.prepare(
       `INSERT INTO device_push_tokens
@@ -239,7 +239,7 @@ export async function handleManagementRoute(
   }
 
   if (request.method === "POST" && url.pathname === "/v1/settings") {
-    const payload = await request.json<any>().catch(() => ({}));
+    const payload = await request.json<any>().catch(() => ({} as any));
     const w = payload.workspace || {};
     const n = payload.notifications || {};
 
@@ -328,7 +328,7 @@ export async function handleManagementRoute(
   }
 
   if (request.method === "POST" && url.pathname === "/v1/analytics/sync") {
-    const payload = await request.json<{ accountId?: string }>().catch(() => ({}));
+    const payload = await request.json<{ accountId?: string }>().catch(() => ({} as any));
     if (payload.accountId) {
       await syncAccountAnalytics(env, payload.accountId);
     } else {
@@ -344,14 +344,14 @@ export async function handleManagementRoute(
 
   const validateMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/schedule\/validate$/);
   if (validateMatch && request.method === "POST") {
-    const payload = await request.json<{ scheduledAt?: string }>().catch(() => ({}));
+    const payload = await request.json<{ scheduledAt?: string }>().catch(() => ({} as any));
     if (!payload.scheduledAt) return { body: { error: "scheduledAt is required." }, status: 400 };
     return { body: { data: await validateSchedule(env, validateMatch[1], payload.scheduledAt) } };
   }
 
   const recommendMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/schedule\/recommend$/);
   if (recommendMatch && request.method === "POST") {
-    const payload = await request.json<{ desiredAt?: string }>().catch(() => ({}));
+    const payload = await request.json<{ desiredAt?: string }>().catch(() => ({} as any));
     return { body: { data: { scheduledAt: await findNextAvailableSlot(env, recommendMatch[1], payload.desiredAt) } } };
   }
 
