@@ -23,6 +23,8 @@ export interface Client {
   name: string;
   color: string;
   timezone?: string;
+  status?: "active" | "archived";
+  archivedAt?: string;
 }
 
 export interface BrandProfile {
