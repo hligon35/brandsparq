@@ -26,12 +26,14 @@ The publish scheduler runs every minute. Analytics has a separate six-hour cron 
 
 ## Workers Builds settings
 
-Use the repository root as the Workers Builds root directory. Cloudflare installs the root dependencies automatically, so do not run a second root `npm ci` in the build command.
+BrandSparQ is a small monorepo: the Expo app is at the repository root and the Worker project (including `wrangler.toml`) is in `cloudflare/`.
+
+Configure Workers Builds like this:
 
 ```text
-Root directory: /
-Build command: npm run build:cloudflare
-Deploy command: npm run deploy:cloudflare
+Root directory: /cloudflare
+Build command: npm run build
+Deploy command: npm run deploy
 ```
 
-`build:cloudflare` installs the nested `cloudflare/` dependencies and then exports the Expo web app to `dist/`. The deploy script runs Wrangler from `cloudflare/`, where `wrangler.toml` lives.
+Cloudflare installs the Worker dependencies from `cloudflare/package.json`. The Worker build script then installs the parent Expo app dependencies from the repository root and exports the web app to `../dist`, which matches the assets directory configured in `wrangler.toml`.
