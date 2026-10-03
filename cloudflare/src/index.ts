@@ -337,7 +337,8 @@ export default {
       const scheduledAt = await findNextAvailableSlot(
         env,
         row.client_id,
-        row.suggested_publish_at
+        row.suggested_publish_at,
+        row.post_id
       );
       await env.DB.batch([
         env.DB.prepare(
