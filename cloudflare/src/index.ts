@@ -786,15 +786,26 @@ export default {
         postId
       );
 
-      await env.DB.prepare(
-        `UPDATE posts SET
-         scheduled_publish_at = ?,
-         prepublish_response = 'reschedule',
-         prepublish_alert_at = NULL,
-         status = 'rescheduled',
-         updated_at = ?
-         WHERE id = ?`
-      ).bind(scheduledAt, new Date().toISOString(), postId).run();
+      const now = new Date().toISOString();
+      await env.DB.batch([
+        env.DB.prepare(
+          `UPDATE publish_jobs SET
+           status = 'canceled',
+           completed_at = ?,
+           updated_at = ?
+           WHERE post_id = ? AND status IN ('queued','retrying')`
+        ).bind(now, now, postId),
+        env.DB.prepare(
+          `UPDATE posts SET
+           scheduled_publish_at = ?,
+           prepublish_response = 'reschedule',
+           prepublish_alert_at = NULL,
+           publish_version = publish_version + 1,
+           status = 'rescheduled',
+           updated_at = ?
+           WHERE id = ?`
+        ).bind(scheduledAt, now, postId),
+      ]);
 
       await audit(env, postId, "post.rescheduled", {
         requestedPublishAt: payload.scheduledPublishAt,
