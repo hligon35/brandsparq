@@ -440,7 +440,11 @@ export default {
         `SELECT c.id AS client_id, c.name, c.timezone,
                 bp.id, bp.voice, bp.audience, bp.primary_color, bp.secondary_color,
                 bp.website, bp.social_handles, bp.restricted_words, bp.tagline,
-                bp.preferred_ctas, bp.imagery_preferences, bp.posting_rules
+                bp.preferred_ctas, bp.imagery_preferences, bp.posting_rules,
+                bp.fonts, bp.brand_examples, bp.prohibited_visual_styles,
+                bp.competitor_references, bp.brand_vocabulary, bp.hashtag_policy,
+                bp.target_locations, bp.platform_rules, bp.logo_asset_id,
+                bp.alternate_logo_asset_id
          FROM clients c
          LEFT JOIN brand_profiles bp ON bp.client_id = c.id
          WHERE c.id = ?`
@@ -466,8 +470,11 @@ export default {
         `INSERT INTO brand_profiles
          (id, client_id, voice, audience, primary_color, secondary_color, website,
           social_handles, restricted_words, tagline, preferred_ctas,
-          imagery_preferences, posting_rules, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          imagery_preferences, posting_rules, fonts, brand_examples,
+          prohibited_visual_styles, competitor_references, brand_vocabulary,
+          hashtag_policy, target_locations, platform_rules, logo_asset_id,
+          alternate_logo_asset_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          ON CONFLICT(client_id) DO UPDATE SET
            voice = excluded.voice,
            audience = excluded.audience,
@@ -480,6 +487,16 @@ export default {
            preferred_ctas = excluded.preferred_ctas,
            imagery_preferences = excluded.imagery_preferences,
            posting_rules = excluded.posting_rules,
+           fonts = excluded.fonts,
+           brand_examples = excluded.brand_examples,
+           prohibited_visual_styles = excluded.prohibited_visual_styles,
+           competitor_references = excluded.competitor_references,
+           brand_vocabulary = excluded.brand_vocabulary,
+           hashtag_policy = excluded.hashtag_policy,
+           target_locations = excluded.target_locations,
+           platform_rules = excluded.platform_rules,
+           logo_asset_id = excluded.logo_asset_id,
+           alternate_logo_asset_id = excluded.alternate_logo_asset_id,
            updated_at = CURRENT_TIMESTAMP`
       ).bind(
         id,
@@ -494,7 +511,17 @@ export default {
         payload.tagline || null,
         payload.preferredCtas || null,
         payload.imageryPreferences || null,
-        payload.postingRules || null
+        payload.postingRules || null,
+        payload.fonts || null,
+        payload.brandExamples || null,
+        payload.prohibitedVisualStyles || null,
+        payload.competitorReferences || null,
+        payload.brandVocabulary || null,
+        payload.hashtagPolicy || null,
+        payload.targetLocations || null,
+        payload.platformRules || null,
+        payload.logoAssetId || null,
+        payload.alternateLogoAssetId || null
       ).run();
 
       return response(request, env, { ok: true, id });
@@ -541,23 +568,137 @@ export default {
       return response(request, env, { ok: true, jobId, status: "queued" }, { status: 202 });
     }
 
+    if (request.method === "GET" && url.pathname === "/v1/dashboard") {
+      const denied = await authorize(env, sessionUser!, "read");
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      const allowedClients = await accessibleClientIds(env.DB, sessionUser!);
+      const whereClients = allowedClients === null
+        ? ""
+        : allowedClients.length
+          ? ` AND p.client_id IN (${allowedClients.map(() => "?").join(",")})`
+          : " AND 1 = 0";
+
+      const bindings = allowedClients === null ? [] : allowedClients;
+      const now = new Date();
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+
+      const stats = await env.DB.prepare(
+        `SELECT
+          SUM(CASE WHEN p.status = 'awaiting_approval' THEN 1 ELSE 0 END) AS needs_review,
+          SUM(CASE WHEN p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued') THEN 1 ELSE 0 END) AS scheduled,
+          SUM(CASE WHEN p.scheduled_publish_at >= ? AND p.scheduled_publish_at < ? AND p.status NOT IN ('canceled','failed','published') THEN 1 ELSE 0 END) AS publishing_today,
+          SUM(CASE WHEN p.status = 'failed' THEN 1 ELSE 0 END) AS failed
+         FROM posts p
+         WHERE 1 = 1 ${whereClients}`
+      ).bind(todayStart.toISOString(), tomorrow.toISOString(), ...bindings).first<any>();
+
+      const nextStatement = env.DB.prepare(
+        `SELECT p.*, c.name AS client_name, sa.account_name AS social_account_name
+         FROM posts p
+         JOIN clients c ON c.id = p.client_id
+         LEFT JOIN social_accounts sa ON sa.id = p.social_account_id
+         WHERE p.scheduled_publish_at IS NOT NULL
+           AND p.scheduled_publish_at >= ?
+           AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued')
+           ${whereClients}
+         ORDER BY p.scheduled_publish_at ASC
+         LIMIT 1`
+      );
+      const next = bindings.length
+        ? await nextStatement.bind(now.toISOString(), ...bindings).first<any>()
+        : await nextStatement.bind(now.toISOString()).first<any>();
+
+      return response(request, env, {
+        data: {
+          needsReview: Number(stats?.needs_review || 0),
+          scheduled: Number(stats?.scheduled || 0),
+          publishingToday: Number(stats?.publishing_today || 0),
+          failed: Number(stats?.failed || 0),
+          nextPost: next || null,
+        },
+      });
+    }
+
     if (request.method === "GET" && url.pathname === "/v1/clients") {
       const denied = await authorize(env, sessionUser!, "read");
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
       const allowedClients = await accessibleClientIds(env.DB, sessionUser!);
+      const includeArchived = url.searchParams.get("includeArchived") === "1";
       const result = await env.DB.prepare(
-        `SELECT c.id, c.name, c.timezone, COALESCE(bp.primary_color, '#A56CFF') AS color
+        `SELECT c.id, c.name, c.timezone, c.status, c.archived_at,
+                COALESCE(bp.primary_color, '#A56CFF') AS color
          FROM clients c
          LEFT JOIN brand_profiles bp ON bp.client_id = c.id
+         WHERE (? = 1 OR c.status = 'active')
          ORDER BY c.name`
-      ).all<any>();
+      ).bind(includeArchived ? 1 : 0).all<any>();
 
       return response(request, env, {
         data: allowedClients === null
           ? result.results
           : result.results.filter((row) => allowedClients.includes(row.id)),
       });
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/clients") {
+      const denied = await authorize(env, sessionUser!, "client_manage");
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      const payload = await request.json<{ name?: string; timezone?: string }>().catch(() => ({} as any));
+      const name = payload.name?.trim();
+      if (!name) return response(request, env, { error: "Client name is required." }, { status: 400 });
+
+      const id = crypto.randomUUID();
+      const timezone = payload.timezone?.trim() || "America/Indiana/Indianapolis";
+      await env.DB.batch([
+        env.DB.prepare(
+          "INSERT INTO clients (id, name, timezone, status, created_at, updated_at) VALUES (?, ?, ?, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ).bind(id, name, timezone),
+        env.DB.prepare(
+          "INSERT INTO brand_profiles (id, client_id, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ).bind(crypto.randomUUID(), id),
+      ]);
+
+      return response(request, env, { ok: true, id, name, timezone }, { status: 201 });
+    }
+
+    const clientMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)$/);
+    if (clientMatch && request.method === "POST") {
+      const denied = await authorize(env, sessionUser!, "client_manage", clientMatch[1]);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      const payload = await request.json<{ name?: string; timezone?: string }>().catch(() => ({} as any));
+      const current = await env.DB.prepare("SELECT id FROM clients WHERE id = ?")
+        .bind(clientMatch[1]).first();
+      if (!current) return response(request, env, { error: "Client not found." }, { status: 404 });
+
+      await env.DB.prepare(
+        `UPDATE clients SET
+         name = COALESCE(NULLIF(?, ''), name),
+         timezone = COALESCE(NULLIF(?, ''), timezone),
+         updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`
+      ).bind(payload.name || null, payload.timezone || null, clientMatch[1]).run();
+
+      return response(request, env, { ok: true });
+    }
+
+    const archiveClientMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/archive$/);
+    if (archiveClientMatch && request.method === "POST") {
+      const denied = await authorize(env, sessionUser!, "client_manage", archiveClientMatch[1]);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      const now = new Date().toISOString();
+      await env.DB.prepare(
+        `UPDATE clients SET status = 'archived', archived_at = ?, updated_at = ?
+         WHERE id = ?`
+      ).bind(now, now, archiveClientMatch[1]).run();
+
+      return response(request, env, { ok: true });
     }
 
     if (request.method === "POST" && url.pathname === "/v1/assets") {
