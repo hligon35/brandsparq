@@ -292,6 +292,33 @@ export const api = {
     return result.data.map(mapPost);
   },
 
+  getPostCreative: (postId: string) =>
+    jsonRequest<{
+      data: {
+        variants: Array<{
+          id: string;
+          variant_key: string;
+          aspect_ratio: string;
+          width?: number;
+          height?: number;
+          url?: string;
+          is_primary: number;
+          composition?: unknown;
+        }>;
+        score: null | {
+          overall: number;
+          brand_match: number;
+          readability: number;
+          platform_fit: number;
+          cta_strength: number;
+          composition: number;
+          caption_quality: number;
+          compliance: number;
+          rationale?: string;
+        };
+      };
+    }>(`/v1/posts/${postId}/creative`),
+
   async getPost(postId: string): Promise<MarketingPost> {
     const result = await jsonRequest<{ data: ApiPost }>(`/v1/posts/${postId}`);
     return mapPost(result.data);
