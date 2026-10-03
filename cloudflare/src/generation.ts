@@ -271,80 +271,148 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
   ).bind(jobId).first<any>();
   if(!job)throw new Error("Generation job not found.");
 
-  await env.DB.prepare("UPDATE generation_jobs SET status='processing',started_at=? WHERE id=?")
-    .bind(new Date().toISOString(),jobId).run();
+  if(job.status==="completed"&&job.campaign_id){
+    const count=await env.DB.prepare("SELECT COUNT(*) AS count FROM posts WHERE generation_job_id=?")
+      .bind(jobId).first<{count:number}>();
+    return {campaignId:job.campaign_id,postCount:Number(count?.count||0),imageFailures:0,emailSent:false,resumed:true};
+  }
+
+  await env.DB.prepare(
+    "UPDATE generation_jobs SET status='processing',started_at=COALESCE(started_at,?),error_message=NULL WHERE id=?"
+  ).bind(new Date().toISOString(),jobId).run();
 
   const assetIds:string[]=JSON.parse(job.asset_ids||"[]");
   const assets=await loadAssets(env,assetIds);
   const imageInputs=await toImageInputs(env,assets);
-  const content:InputContent[]=[
-    {type:"input_text",text:[
-      "Create a coherent campaign of 3 to 5 social posts.",
-      `Current time: ${new Date().toISOString()}`,
-      `Campaign objective: ${job.objective||"Auto"}`,
-      "Brand context JSON:",JSON.stringify(brandContext(job)),
-      "Use only facts supplied in the context or visibly supported by the images."
-    ].join("\n")},
-    ...imageInputs
-  ];
 
-  const campaignCall=await createStructuredResponse<GeneratedCampaign>(env,{
-    instructions:CREATIVE_DIRECTOR_INSTRUCTIONS,
-    content,
-    schemaName:"brandsparq_campaign",
-    schema:CAMPAIGN_SCHEMA,
-    reasoningEffort:"low"
-  }).catch(async error=>{
-    await logAiRun(env,{jobId,kind:"campaign_plan",model:env.OPENAI_TEXT_MODEL||"gpt-6.1-sol",status:"failed",error:err(error)});
-    throw error;
-  });
+  let generated:GeneratedCampaign|null=null;
+  let campaignModel=job.model||env.OPENAI_TEXT_MODEL||"gpt-6.1-sol";
+  let campaignResponseId:string|null=null;
 
-  await logAiRun(env,{
-    jobId,kind:"campaign_plan",model:campaignCall.model,responseId:campaignCall.responseId,
-    requestId:campaignCall.requestId,status:"completed",usage:campaignCall.usage
-  });
+  if(job.result_json){
+    try{
+      const stored=JSON.parse(job.result_json);
+      if(stored?.campaignName&&Array.isArray(stored?.posts))generated=stored as GeneratedCampaign;
+    }catch{}
+  }
 
-  const generated=campaignCall.data;
+  if(!generated){
+    const connected=await env.DB.prepare(
+      "SELECT DISTINCT platform FROM social_accounts WHERE client_id=? AND status='connected'"
+    ).bind(job.client_id).all<{platform:string}>();
+    const connectedPlatforms=connected.results.map(row=>row.platform);
+
+    const content:InputContent[]=[
+      {type:"input_text",text:[
+        "Create a coherent campaign of 3 to 5 social posts.",
+        `Current time: ${new Date().toISOString()}`,
+        `Campaign objective: ${job.objective||"Auto"}`,
+        connectedPlatforms.length
+          ? `Connected publishing platforms: ${connectedPlatforms.join(", ")}. Prefer these destinations.`
+          : "No social publishing destination is currently connected; create the campaign but it must not be approved for publishing until an account is assigned.",
+        "Brand context JSON:",JSON.stringify(brandContext(job)),
+        "Use only facts supplied in the context or visibly supported by the images."
+      ].join("\n")},
+      ...imageInputs
+    ];
+
+    const campaignCall=await createStructuredResponse<GeneratedCampaign>(env,{
+      instructions:CREATIVE_DIRECTOR_INSTRUCTIONS,
+      content,
+      schemaName:"brandsparq_campaign",
+      schema:CAMPAIGN_SCHEMA,
+      reasoningEffort:"low"
+    }).catch(async error=>{
+      await logAiRun(env,{jobId,kind:"campaign_plan",model:env.OPENAI_TEXT_MODEL||"gpt-6.1-sol",status:"failed",error:err(error)});
+      throw error;
+    });
+
+    await logAiRun(env,{
+      jobId,kind:"campaign_plan",model:campaignCall.model,responseId:campaignCall.responseId,
+      requestId:campaignCall.requestId,status:"completed",usage:campaignCall.usage
+    });
+
+    generated=campaignCall.data;
+    campaignModel=campaignCall.model;
+    campaignResponseId=campaignCall.responseId||null;
+
+    if(!generated.posts?.length)throw new Error("Generated campaign contains no posts.");
+
+    // Persist the plan before creating child records so queue replay resumes rather than replans.
+    await env.DB.prepare(
+      "UPDATE generation_jobs SET provider='openai',model=?,result_json=? WHERE id=?"
+    ).bind(campaignModel,JSON.stringify(generated),jobId).run();
+  }
+
   if(!generated.posts?.length)throw new Error("Generated campaign contains no posts.");
 
-  const campaignId=crypto.randomUUID();
+  let campaignId=job.campaign_id as string|null;
   const now=new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO campaigns (id,client_id,name,objective,status,created_at,updated_at) VALUES (?,?,?,?,'active',?,?)"
-  ).bind(campaignId,job.client_id,generated.campaignName,job.objective,now,now).run();
+  if(!campaignId){
+    campaignId=crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO campaigns (id,client_id,name,objective,status,created_at,updated_at) VALUES (?,?,?,?,'active',?,?)"
+    ).bind(campaignId,job.client_id,generated.campaignName,job.objective,now,now).run();
+    await env.DB.prepare("UPDATE generation_jobs SET campaign_id=? WHERE id=?")
+      .bind(campaignId,jobId).run();
+  }
+
+  const connectedAccounts=await env.DB.prepare(
+    `SELECT id,platform FROM social_accounts
+     WHERE client_id=? AND status='connected'
+     ORDER BY updated_at DESC, created_at DESC`
+  ).bind(job.client_id).all<{id:string;platform:string}>();
+  const accountByPlatform=new Map<string,string>();
+  for(const account of connectedAccounts.results){
+    if(!accountByPlatform.has(account.platform))accountByPlatform.set(account.platform,account.id);
+  }
 
   const reviewItems:Array<{title:string;platform:string;time:string;token:string}>=[];
   const imageErrors:Array<{postId:string;error:string}>=[];
 
   for(const [index,p] of generated.posts.entries()){
-    const postId=crypto.randomUUID();
     const suggested=p.suggestedPublishAt&&Date.parse(p.suggestedPublishAt)>Date.now()
       ?new Date(p.suggestedPublishAt).toISOString():fallbackSlot(index);
 
-    await env.DB.prepare(
-      `INSERT INTO posts
-      (id,client_id,campaign_id,platform,status,title,headline,caption,hashtags,objective,
-       suggested_publish_at,sparq_score,generation_job_id,review_requested_at,ai_caption_response_id,created_at,updated_at)
-       VALUES (?,?,?,?,'awaiting_approval',?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).bind(
-      postId,job.client_id,campaignId,p.platform,p.headline,p.headline,p.caption,
-      JSON.stringify(p.hashtags||[]),p.objective,suggested,clamp(p.sparqScore),
-      jobId,now,campaignCall.responseId||null,now,now
-    ).run();
+    let existing=await env.DB.prepare(
+      "SELECT id,graphic_key,social_account_id FROM posts WHERE generation_job_id=? AND generation_index=?"
+    ).bind(jobId,index).first<{id:string;graphic_key:string|null;social_account_id:string|null}>();
+
+    let postId=existing?.id;
+    if(!postId){
+      postId=crypto.randomUUID();
+      await env.DB.prepare(
+        `INSERT INTO posts
+        (id,client_id,campaign_id,platform,status,title,headline,caption,hashtags,objective,
+         suggested_publish_at,sparq_score,generation_job_id,generation_index,social_account_id,
+         review_requested_at,ai_caption_response_id,created_at,updated_at)
+         VALUES (?,?,?,?,'awaiting_approval',?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(
+        postId,job.client_id,campaignId,p.platform,p.headline,p.headline,p.caption,
+        JSON.stringify(p.hashtags||[]),p.objective,suggested,clamp(p.sparqScore),
+        jobId,index,accountByPlatform.get(p.platform)||null,now,campaignResponseId,now,now
+      ).run();
+      existing={id:postId,graphic_key:null,social_account_id:accountByPlatform.get(p.platform)||null};
+    }else if(!existing.social_account_id&&accountByPlatform.get(p.platform)){
+      await env.DB.prepare("UPDATE posts SET social_account_id=?,updated_at=? WHERE id=?")
+        .bind(accountByPlatform.get(p.platform),new Date().toISOString(),postId).run();
+    }
 
     for(const assetId of assetIds){
       await env.DB.prepare("INSERT OR IGNORE INTO post_assets (post_id,asset_id,role) VALUES (?,?,'source')")
         .bind(postId,assetId).run();
     }
 
-    const postContext={...job,id:postId,client_id:job.client_id};
-    try{
-      await generateGraphic(env,postContext,p,imageInputs);
-    }catch(error){
-      const message=err(error);imageErrors.push({postId,error:message});
-      await env.DB.prepare("UPDATE posts SET ai_last_error=?,updated_at=? WHERE id=?")
-        .bind(message.slice(0,1500),new Date().toISOString(),postId).run();
-      await logAiRun(env,{jobId,postId,kind:"image_generation",model:env.OPENAI_IMAGE_MODEL||"gpt-image-2.5-flare",status:"failed",error:message});
+    if(!existing.graphic_key){
+      const postContext={...job,id:postId,client_id:job.client_id};
+      try{
+        await generateGraphic(env,postContext,p,imageInputs);
+      }catch(error){
+        const message=err(error);imageErrors.push({postId,error:message});
+        await env.DB.prepare("UPDATE posts SET ai_last_error=?,updated_at=? WHERE id=?")
+          .bind(message.slice(0,1500),new Date().toISOString(),postId).run();
+        await logAiRun(env,{jobId,postId,kind:"image_generation",model:env.OPENAI_IMAGE_MODEL||"gpt-image-2.5-flare",status:"failed",error:message});
+      }
     }
 
     const token=randomToken();
@@ -362,15 +430,17 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
     await env.DB.prepare(`UPDATE assets SET status='ready' WHERE id IN (${marks})`).bind(...assetIds).run();
   }
 
+  // Email is deliberately last. A Resend failure can replay this stage without
+  // recreating the campaign, posts, or graphics.
   const emailSent=await sendReviewEmail(env,job.client_name,generated.campaignName,reviewItems);
   await env.DB.prepare(
-    "UPDATE generation_jobs SET status='completed',provider='openai',model=?,campaign_id=?,result_json=?,completed_at=? WHERE id=?"
+    "UPDATE generation_jobs SET status='completed',provider='openai',model=?,campaign_id=?,result_json=?,completed_at=?,error_message=NULL WHERE id=?"
   ).bind(
-    campaignCall.model,campaignId,JSON.stringify({...generated,promptVersion:AI_PROMPT_VERSION,imageErrors}),
+    campaignModel,campaignId,JSON.stringify({...generated,promptVersion:AI_PROMPT_VERSION,imageErrors}),
     new Date().toISOString(),jobId
   ).run();
 
-  return {campaignId,postCount:generated.posts.length,imageFailures:imageErrors.length,emailSent};
+  return {campaignId,postCount:generated.posts.length,imageFailures:imageErrors.length,emailSent,resumed:!!job.campaign_id};
 }
 
 export async function rewritePostCaptionWithAI(env:GenerationEnv,postId:string,instruction?:string){
