@@ -3,6 +3,7 @@ import { Link } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
+import { prepareCampaignAsset } from "@/media/prepareUpload";
 import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";
 import { useResponsive } from "@/hooks/useResponsive";
 import { colors, radius, spacing } from "@/theme/tokens";
@@ -46,7 +47,26 @@ export default function CreateScreen(){
     try{
       const uploaded=[];
       for(const [index,asset] of assets.entries()){
-        uploaded.push(await api.uploadAsset(clientId,asset.uri,asset.fileName||`brandsparq-${Date.now()}-${index+1}.jpg`,asset.mimeType||"image/jpeg"));
+        const prepared=await prepareCampaignAsset(asset,index);
+        const original=await api.uploadAsset(
+          clientId,
+          asset.uri,
+          asset.fileName||`brandsparq-${Date.now()}-${index+1}.jpg`,
+          asset.mimeType||"image/jpeg",
+          asset.width,
+          asset.height
+        );
+        await api.uploadAssetDerivative(
+          clientId,
+          original.id,
+          prepared.analysisUri,
+          "analysis",
+          prepared.analysisFilename,
+          prepared.analysisMimeType,
+          prepared.analysisWidth,
+          prepared.analysisHeight
+        );
+        uploaded.push(original);
       }
       const job=await api.createGenerationJob(clientId,objective,uploaded.map(item=>item.id));
       Alert.alert("Campaign generation started",`${uploaded.length} image${uploaded.length===1?"":"s"} uploaded for ${selectedClient?.name??"this client"}. Job ${job.jobId.slice(0,8)} is queued.`);
