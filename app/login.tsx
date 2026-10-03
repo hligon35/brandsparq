@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -11,7 +12,6 @@ import {
   View,
 } from "react-native";
 import { useAuth } from "@/auth/context";
-import { BrandLogo } from "@/components/brand";
 import { colors, radius, spacing } from "@/theme/tokens";
 
 export default function LoginScreen() {
@@ -75,7 +75,12 @@ export default function LoginScreen() {
       >
         <View style={styles.wrapper}>
           <View style={styles.logoWrap}>
-            <BrandLogo compact />
+            <Image
+              source={require("../assets/brandsparqFavicon.png")}
+              style={styles.favicon}
+              resizeMode="contain"
+              accessibilityLabel="BrandSparQ"
+            />
           </View>
 
           <View style={styles.card}>
@@ -140,6 +145,10 @@ const styles = StyleSheet.create({
   logoWrap: {
     alignItems: "center",
     marginBottom: 4,
+  },
+  favicon: {
+    width: 96,
+    height: 96,
   },
   card: {
     width: "100%",
