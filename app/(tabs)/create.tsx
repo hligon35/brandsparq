@@ -151,7 +151,21 @@ export default function CreateScreen(){
               <SectionTitle title="3. Add source images" subtitle="Select up to 20 images from your phone, tablet, or browser." />
               <Button label={assets.length?"Change images":"Choose images"} onPress={chooseImages} secondary={!!assets.length}/>
               {!!assets.length&&<View style={styles.previewGrid}>{assets.map(asset=><Image key={asset.assetId||asset.uri} source={{uri:asset.uri}} style={styles.preview}/>)}</View>}
-              {!!assets.length&&<Button label={uploading?"Uploading…":`Create campaign from ${assets.length} image${assets.length===1?"":"s"}`} onPress={uploading?undefined:upload}/>}
+              {!!assets.length&&uploading&&(
+                <Text style={styles.progress}>
+                  Preparing and uploading {uploadProgress.done} of {uploadProgress.total}…
+                </Text>
+              )}
+              {!!assets.length&&(
+                <Button
+                  label={
+                    uploading
+                      ? `Uploading ${uploadProgress.done}/${uploadProgress.total}…`
+                      : `Create campaign from ${assets.length} image${assets.length===1?"":"s"}`
+                  }
+                  onPress={uploading?undefined:upload}
+                />
+              )}
             </Card>
           </View>
         </View>
