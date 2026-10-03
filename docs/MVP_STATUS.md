@@ -1,30 +1,102 @@
-# BrandSparQ MVP scaffold status
+# BrandSparQ implementation status
 
-## Implemented foundation
+## Implemented
 
-- Expo SDK 57 universal app: iOS, Android and web.
-- Mobile-first tab shell for Home, Review, Create, Calendar and More.
-- Multi-image selection with Expo Image Picker.
-- R2-backed original image upload endpoint.
-- D1 clients, brand profiles, assets, campaigns, approvals, social accounts and notifications.
-- Review queue API and mobile review screen.
-- Approval promotes a post from review into the official calendar.
-- Two-week mobile agenda calendar backed by the API.
-- Pre-publish decision screen with Keep Schedule, Reschedule and Publish Now.
-- Queue-backed publishing jobs with idempotency protection.
-- Cron-generated pre-publish notification records.
-- Audit events for approval and publish decisions.
-- OpenAI Responses API integration with versioned prompts and structured campaign output.
-- GPT-6.1 Sol campaign planning, GPT-6 Luna caption rewrites, GPT Image 2.5 Flare generation, and Sunburst image editing.
-- R2-backed generated graphics, AI usage/provenance logging, and graceful image-failure handling.
-- Review-screen AI actions for caption rewrite, precise graphic edits, and full post regeneration.
+### Hybrid application
+- Expo SDK 57 universal app for iOS, Android, and web.
+- Responsive phone, tablet, and desktop layouts.
+- BrandSparQ production visual identity and app assets.
+- Google OAuth sign-in with server-issued BrandSparQ sessions.
 
-## Intentionally not locked yet
+### Brand intelligence and AI
+- Per-client Brand Brain.
+- Multi-image R2 upload.
+- AI campaign planning and structured post generation.
+- AI-generated graphics stored in R2.
+- Caption rewrite, image editing, and full-post regeneration.
+- SparQ Score support.
 
-- Authentication provider and account model enforcement.
-- Email/push notification providers.
-- Social OAuth token storage and platform adapters.
-- Desktop drag/drop week calendar.
-- Analytics ingestion.
+### Review and calendar
+- Review queue.
+- Secure review-email tokens.
+- Approval into the official marketing calendar.
+- Day, week, and month calendar ranges.
+- Client and platform filters.
+- Conflict-aware scheduling.
+- Preferred windows, blackout windows, spacing, and daily limits.
 
-Those integrations stay behind the current API/domain boundaries so they can be added without redesigning the application.
+### Campaigns
+- Campaign list and progress counts.
+- Campaign detail with all generated posts.
+- Campaign status, objective, dates, priority, and notes API support.
+
+### Social publishing
+- Social connection management.
+- Encrypted social tokens.
+- Meta Page/Instagram discovery.
+- LinkedIn member connections.
+- TikTok creator connections.
+- X OAuth2/PKCE connections.
+- Publishing-account assignment during post review.
+- Queue-backed Instagram, Facebook, LinkedIn, TikTok, and X publishing.
+- Idempotent attempts, retries, publish receipts, and readable failures.
+
+### Notifications
+- Resend email delivery.
+- Expo Push Service delivery.
+- Native Expo push-token registration.
+- In-app notification history.
+- Pre-publish alerts.
+- Publish success/failure alerts.
+- Test notification action.
+- Auto-publish / hold / skip no-response policies.
+
+### Analytics
+- Analytics overview.
+- Manual sync.
+- Scheduled background sync.
+- Metric snapshot history.
+- X and Instagram metric ingestion where provider APIs expose the requested metrics.
+- Graceful provider-specific metric gaps.
+
+### Settings
+- Workspace timezone.
+- Pre-publish timing.
+- No-response policy.
+- Minimum post spacing.
+- Maximum posts per day.
+- Preferred and blackout windows.
+- Analytics refresh cadence.
+- Email, push, in-app, and review-email preferences.
+
+### Production architecture
+- One Cloudflare Worker serves Expo web and API.
+- D1, R2, two Queues, and cron bindings.
+- brandsparq.getsparqd.com production route.
+- Production callback URLs for Google and all social providers.
+- Dedicated token-encryption secret.
+- Production runbook in docs/PRODUCTION.md.
+
+## External configuration still required
+
+These are account-specific values or provider approvals and cannot be safely committed into source control:
+
+- Real D1 database ID in wrangler.toml.
+- Cloudflare resources must exist in the target account.
+- Worker secrets listed in docs/PRODUCTION.md.
+- Google OAuth client credentials.
+- Meta app permissions/review as required.
+- LinkedIn app/product permissions as required.
+- TikTok Content Posting API approval/account eligibility as required.
+- X developer app permissions/plan as required.
+- EAS project and APNs/FCM credentials for installed-app push notifications.
+
+## Next-phase enhancements
+
+Not required for the current production workflow, but useful later:
+
+- Desktop drag-and-drop calendar interactions.
+- Organization-level LinkedIn publishing in addition to member publishing.
+- Deeper provider-specific analytics dashboards.
+- Team invitations and granular reviewer roles.
+- Automatic campaign gap-filling based on historical engagement.
