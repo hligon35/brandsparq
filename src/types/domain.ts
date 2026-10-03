@@ -60,6 +60,8 @@ export interface MarketingPost {
   approvedAt?: string;
   sparqScore?: number;
   prepublishResponse?: PrePublishDecision;
+  socialAccountId?: string;
+  socialAccountName?: string;
 }
 
 export interface NotificationItem {
