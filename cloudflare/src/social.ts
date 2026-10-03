@@ -269,6 +269,18 @@ async function upsertAccount(
     )
     .run();
 
+  const defaultAccount = await env.DB.prepare(
+    `SELECT id FROM social_accounts
+     WHERE client_id = ? AND platform = ? AND is_default = 1 AND status = 'connected'
+     LIMIT 1`
+  ).bind(input.clientId, input.platform).first<{ id: string }>();
+
+  if (!defaultAccount) {
+    await env.DB.prepare(
+      "UPDATE social_accounts SET is_default = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    ).bind(id).run();
+  }
+
   return id;
 }
 
@@ -864,4 +876,31 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
   }
 
   return { runId };
+}
+
+export async function resolveDefaultSocialAccount(
+  env: SocialEnv,
+  clientId: string,
+  platform: Platform
+) {
+  const preferred = await env.DB.prepare(
+    `SELECT id, account_name
+     FROM social_accounts
+     WHERE client_id = ? AND platform = ? AND status = 'connected'
+     ORDER BY is_default DESC, created_at ASC
+     LIMIT 2`
+  ).bind(clientId, platform).all<{ id: string; account_name: string | null }>();
+
+  if (!preferred.results.length) return null;
+
+  const explicitDefault = await env.DB.prepare(
+    `SELECT id, account_name
+     FROM social_accounts
+     WHERE client_id = ? AND platform = ? AND status = 'connected' AND is_default = 1
+     LIMIT 1`
+  ).bind(clientId, platform).first<{ id: string; account_name: string | null }>();
+
+  if (explicitDefault) return explicitDefault;
+  if (preferred.results.length === 1) return preferred.results[0];
+  return null;
 }
