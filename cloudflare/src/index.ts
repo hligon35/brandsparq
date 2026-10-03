@@ -1,7 +1,7 @@
 import { getSessionUser, handleAuthRoute } from "./auth";
 import { handleManagementRoute } from "./management";
 import { notifyPostOwners } from "./notifications";
-import { hashSecret } from "./security";
+import { createSignedMediaToken, hashSecret, verifySignedMediaToken } from "./security";
 import { publishPostToSocial, socialOAuthCallback, syncAccountAnalytics } from "./social";
 import { findNextAvailableSlot } from "./scheduling";
 import {
@@ -83,7 +83,7 @@ function cors(request: Request, env: Env) {
     allowed,
     headers: {
       "access-control-allow-origin": origin && allowed ? origin : "",
-      "access-control-allow-methods": "GET,POST,OPTIONS",
+      "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
       "access-control-allow-headers": "authorization,content-type,x-client-id,x-file-name",
       "access-control-max-age": "86400",
       vary: "Origin",
@@ -97,6 +97,10 @@ function response(request: Request, env: Env, body: unknown, init: ResponseInit 
     ...init,
     headers: {
       "content-type": "application/json",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "strict-origin-when-cross-origin",
+      "permissions-policy": "camera=(), microphone=(), geolocation=()",
+      "content-security-policy": "default-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' https:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
       ...policy.headers,
       ...init.headers,
     },
@@ -117,8 +121,20 @@ function postSelect(where = "") {
     ${where}`;
 }
 
+async function decoratePostMedia(env: Env, post: any) {
+  if (post?.graphic_key) {
+    post.image_url = `/v1/public/media/${encodeURIComponent(await createSignedMediaToken(post.graphic_key, env))}`;
+  }
+  return post;
+}
+
+async function decoratePostList(env: Env, rows: any[]) {
+  return Promise.all(rows.map((row) => decoratePostMedia(env, row)));
+}
+
 async function getPost(env: Env, postId: string) {
-  return env.DB.prepare(postSelect("WHERE p.id = ?")).bind(postId).first();
+  const post = await env.DB.prepare(postSelect("WHERE p.id = ?")).bind(postId).first<any>();
+  return decoratePostMedia(env, post);
 }
 
 async function audit(env: Env, postId: string, action: string, metadata?: unknown, actorId = "system") {
@@ -150,6 +166,25 @@ export default {
 
     if (url.pathname === "/health") {
       return response(request, env, { ok: true, service: "brandsparq-api" });
+    }
+
+    const signedMediaMatch = url.pathname.match(/^\/v1\/public\/media\/([^/]+)$/);
+    if (signedMediaMatch && request.method === "GET") {
+      const verified = await verifySignedMediaToken(decodeURIComponent(signedMediaMatch[1]), env).catch(() => null);
+      if (!verified) {
+        return response(request, env, { error: "Media link is invalid or expired." }, { status: 404 });
+      }
+      const object = await env.MEDIA.get(verified.key);
+      if (!object) return response(request, env, { error: "Media not found." }, { status: 404 });
+      return new Response(object.body, {
+        headers: {
+          "content-type": object.httpMetadata?.contentType || "application/octet-stream",
+          "cache-control": "private, max-age=300",
+          "x-content-type-options": "nosniff",
+          etag: object.httpEtag,
+          ...policy.headers,
+        },
+      });
     }
 
     const publicPublishMediaMatch = url.pathname.match(/^\/v1\/public\/publish-media\/([^/]+)$/);
@@ -521,7 +556,7 @@ export default {
       const result = await env.DB.prepare(
         postSelect("WHERE p.status = ? ORDER BY p.suggested_publish_at ASC")
       ).bind("awaiting_approval").all();
-      return response(request, env, { data: result.results });
+      return response(request, env, { data: await decoratePostList(env, result.results as any[]) });
     }
 
     if (request.method === "GET" && url.pathname === "/v1/posts/calendar") {
@@ -539,7 +574,7 @@ export default {
         )
       ).bind(from, to).all();
 
-      return response(request, env, { data: result.results });
+      return response(request, env, { data: await decoratePostList(env, result.results as any[]) });
     }
 
     const postMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)$/);
