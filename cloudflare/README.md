@@ -22,3 +22,16 @@ npm run deploy
 ```
 
 The publish scheduler runs every minute. Analytics has a separate six-hour cron so provider metric collection does not run inside every publishing tick.
+
+
+## Workers Builds settings
+
+Use the repository root as the Workers Builds root directory. Cloudflare installs the root dependencies automatically, so do not run a second root `npm ci` in the build command.
+
+```text
+Root directory: /
+Build command: npm run build:cloudflare
+Deploy command: npm run deploy:cloudflare
+```
+
+`build:cloudflare` installs the nested `cloudflare/` dependencies and then exports the Expo web app to `dist/`. The deploy script runs Wrangler from `cloudflare/`, where `wrangler.toml` lives.
