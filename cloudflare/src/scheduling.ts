@@ -47,8 +47,16 @@ function localParts(date: Date, timeZone: string) {
   };
 }
 
-function inWindows(minuteOfDay: number, windows: string[]) {
+function inPreferredWindow(minuteOfDay: number, windows: string[]) {
   if (!windows.length) return true;
+  return windows.some((window) => {
+    const [start, end] = window.split("-");
+    return minuteOfDay >= minutes(start) && minuteOfDay <= minutes(end);
+  });
+}
+
+function inBlackoutWindow(minuteOfDay: number, windows: string[]) {
+  if (!windows.length) return false;
   return windows.some((window) => {
     const [start, end] = window.split("-");
     return minuteOfDay >= minutes(start) && minuteOfDay <= minutes(end);
@@ -100,8 +108,8 @@ export async function findNextAvailableSlot(
 
     if (
       rules.allowedWeekdays.includes(local.weekday) &&
-      inWindows(local.minuteOfDay, rules.preferredWindows) &&
-      !inWindows(local.minuteOfDay, rules.blackoutWindows)
+      inPreferredWindow(local.minuteOfDay, rules.preferredWindows) &&
+      !inBlackoutWindow(local.minuteOfDay, rules.blackoutWindows)
     ) {
       const nearby = await env.DB.prepare(
         `SELECT scheduled_publish_at FROM posts
