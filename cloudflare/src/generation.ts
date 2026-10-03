@@ -401,7 +401,7 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
         `SELECT id,platform,title,headline,caption,suggested_publish_at,graphic_key
          FROM posts
          WHERE generation_job_id=?
-         ORDER BY created_at ASC`
+         ORDER BY rowid ASC`
       ).bind(jobId).all<any>();
 
   const existingById=new Map(
