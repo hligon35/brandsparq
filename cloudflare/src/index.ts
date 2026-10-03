@@ -22,9 +22,11 @@ import { findNextAvailableSlot } from "./scheduling";
 import {
   editPostGraphicWithAI,
   hashReviewToken,
+  markGraphicJobFailure,
   regeneratePostWithAI,
   rewritePostCaptionWithAI,
   runGenerationJob,
+  runGraphicJob,
 } from "./generation";
 
 interface Env {
@@ -74,7 +76,12 @@ type GenerationMessage = {
   jobId: string;
 };
 
-type JobMessage = PublishMessage | GenerationMessage;
+type GraphicMessage = {
+  kind: "graphic";
+  graphicJobId: string;
+};
+
+type JobMessage = PublishMessage | GenerationMessage | GraphicMessage;
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -1389,6 +1396,36 @@ export default {
 
   async queue(batch: MessageBatch<JobMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
+      if (message.body.kind === "graphic") {
+        try {
+          await runGraphicJob(env, message.body.graphicJobId);
+          message.ack();
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message.slice(0, 1500) : "Graphic generation failed";
+          const terminal = message.attempts >= 3;
+
+          await markGraphicJobFailure(
+            env,
+            message.body.graphicJobId,
+            errorMessage,
+            terminal
+          );
+
+          if (terminal) {
+            message.ack();
+          } else {
+            message.retry({
+              delaySeconds: Math.min(
+                900,
+                60 * 2 ** Math.max(0, message.attempts - 1)
+              ),
+            });
+          }
+        }
+        continue;
+      }
+
       if (message.body.kind === "generate") {
         try {
           await runGenerationJob(env, message.body.jobId);
