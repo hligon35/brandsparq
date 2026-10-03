@@ -259,7 +259,12 @@ export const api = {
     ),
 
   reschedulePost: (postId: string, scheduledPublishAt: string) =>
-    jsonRequest<{ ok: true; status: string }>(
+    jsonRequest<{
+      ok: true;
+      status: string;
+      scheduledPublishAt: string;
+      adjusted: boolean;
+    }>(
       `/v1/posts/${postId}/reschedule`,
       {
         method: "POST",
