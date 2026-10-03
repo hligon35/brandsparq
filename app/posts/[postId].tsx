@@ -33,6 +33,7 @@ export default function PostReviewScreen() {
   const [aiAction, setAiAction] = useState<AiAction>(null);
   const [instruction, setInstruction] = useState("");
   const [socialAccounts, setSocialAccounts] = useState<any[]>([]);
+  const [creative, setCreative] = useState<any>(null);
   const [assigningAccount, setAssigningAccount] = useState(false);
   const { wide } = useResponsive();
 
@@ -40,7 +41,12 @@ export default function PostReviewScreen() {
     if (!postId) return;
     setLoadError("");
     try {
-      setPost(await api.getPost(postId));
+      const [nextPost, nextCreative] = await Promise.all([
+        api.getPost(postId),
+        api.getPostCreative(postId),
+      ]);
+      setPost(nextPost);
+      setCreative(nextCreative.data);
     } catch (error) {
       setPost(undefined);
       setLoadError(error instanceof Error ? error.message : "Unable to load post.");
@@ -51,8 +57,11 @@ export default function PostReviewScreen() {
   useEffect(() => {
     if (!postId) return;
     setLoadError("");
-    api.getPost(postId)
-      .then(setPost)
+    Promise.all([api.getPost(postId), api.getPostCreative(postId)])
+      .then(([nextPost, nextCreative]) => {
+        setPost(nextPost);
+        setCreative(nextCreative.data);
+      })
       .catch((error) => {
         setPost(undefined);
         setLoadError(error instanceof Error ? error.message : "Unable to load post.");
@@ -227,6 +236,31 @@ export default function PostReviewScreen() {
               </Text>
             )}
           </Card>
+
+          {!!creative?.score && (
+            <Card>
+              <SectionTitle
+                title={`SparQ Score · ${creative.score.overall}`}
+                subtitle={creative.score.rationale || "Independent creative quality evaluation"}
+              />
+              <View style={styles.scoreGrid}>
+                {[
+                  ["Brand match", creative.score.brand_match],
+                  ["Readability", creative.score.readability],
+                  ["Platform fit", creative.score.platform_fit],
+                  ["CTA", creative.score.cta_strength],
+                  ["Composition", creative.score.composition],
+                  ["Caption", creative.score.caption_quality],
+                  ["Compliance", creative.score.compliance],
+                ].map(([label, value]) => (
+                  <View key={String(label)} style={styles.scoreMetric}>
+                    <Text style={styles.scoreMetricValue}>{String(value)}</Text>
+                    <Text style={styles.scoreMetricLabel}>{String(label)}</Text>
+                  </View>
+                ))}
+              </View>
+            </Card>
+          )}
 
           <Card subtle>
             <Text style={styles.label}>Recommended slot</Text>
@@ -414,6 +448,28 @@ const styles = StyleSheet.create({
   aiButton: {
     flexGrow: 1,
     flexBasis: 190,
+  },
+  scoreGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  scoreMetric: {
+    flexGrow: 1,
+    flexBasis: 110,
+    padding: 10,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface2,
+  },
+  scoreMetricValue: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  scoreMetricLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
   },
   retry: {
     color: colors.primary,
