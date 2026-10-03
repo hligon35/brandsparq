@@ -812,21 +812,53 @@ export default {
     const publishNowMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/publish-now$/);
     if (request.method === "POST" && publishNowMatch) {
       const postId = publishNowMatch[1];
-      const post = await env.DB.prepare("SELECT id FROM posts WHERE id = ?").bind(postId).first();
+      const post = await env.DB.prepare(
+        "SELECT id, client_id, social_account_id, scheduled_publish_at FROM posts WHERE id = ?"
+      ).bind(postId).first<any>();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
+      const denied = await authorize(env, sessionUser!, "publish", post.client_id);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      if (!post.social_account_id) {
+        return response(
+          request,
+          env,
+          { error: "Assign a connected social account before publishing." },
+          { status: 409 }
+        );
+      }
+
+      const job = await ensurePublishJob(
+        env,
+        postId,
+        post.scheduled_publish_at || new Date().toISOString()
+      );
+
       await env.DB.prepare(
-        "UPDATE posts SET prepublish_response = 'publish_now', updated_at = ? WHERE id = ?"
+        `UPDATE posts SET
+         prepublish_response = 'publish_now',
+         status = CASE WHEN status = 'published' THEN status ELSE 'publish_queued' END,
+         updated_at = ?
+         WHERE id = ?`
       ).bind(new Date().toISOString(), postId).run();
 
-      await env.PUBLISH_QUEUE.send({
-        kind: "publish",
-        postId,
-        idempotencyKey: `manual:${postId}:${crypto.randomUUID()}`,
-      });
-      await audit(env, postId, "post.publish_now");
+      if (job.shouldEnqueue) {
+        await env.PUBLISH_QUEUE.send({
+          kind: "publish",
+          publishJobId: job.jobId,
+          postId,
+          executionKey: job.executionKey,
+        });
+      }
 
-      return response(request, env, { ok: true, queued: true, postId });
+      await audit(env, postId, "post.publish_now");
+      return response(request, env, {
+        ok: true,
+        queued: job.shouldEnqueue,
+        postId,
+        publishJobId: job.jobId,
+      });
     }
 
 
@@ -981,11 +1013,28 @@ export default {
         continue;
       }
 
-      await env.PUBLISH_QUEUE.send({
-        kind: "publish",
-        postId: row.id,
-        idempotencyKey: `scheduled:${row.id}:${nowIso.slice(0, 16)}`,
-      });
+      const scheduled = await env.DB.prepare(
+        "SELECT scheduled_publish_at FROM posts WHERE id = ?"
+      ).bind(row.id).first<{ scheduled_publish_at: string | null }>();
+
+      const job = await ensurePublishJob(
+        env,
+        row.id,
+        scheduled?.scheduled_publish_at || nowIso
+      );
+
+      if (job.shouldEnqueue) {
+        await env.DB.prepare(
+          "UPDATE posts SET status = 'publish_queued', updated_at = ? WHERE id = ? AND status != 'published'"
+        ).bind(nowIso, row.id).run();
+
+        await env.PUBLISH_QUEUE.send({
+          kind: "publish",
+          publishJobId: job.jobId,
+          postId: row.id,
+          executionKey: job.executionKey,
+        });
+      }
     }
 
     const settings = await env.DB.prepare(
@@ -1028,50 +1077,73 @@ export default {
         continue;
       }
 
-      const existing = await env.DB.prepare(
-        "SELECT id FROM publish_attempts WHERE idempotency_key = ?"
-      ).bind(message.body.idempotencyKey).first();
-
-      if (existing) {
+      const claim = await claimPublishJob(env, message.body.publishJobId);
+      if (!claim.claimed) {
         message.ack();
         continue;
       }
 
       const post = await env.DB.prepare(
-        "SELECT id, social_account_id, publish_retry_count FROM posts WHERE id = ?"
+        "SELECT id, social_account_id FROM posts WHERE id = ?"
       ).bind(message.body.postId).first<any>();
 
       if (!post?.social_account_id) {
-        await env.DB.prepare(
-          `UPDATE posts SET status = 'failed', failure_code = 'SOCIAL_ACCOUNT_REQUIRED',
-             failure_message = 'Connect and assign a social account before publishing.',
-             updated_at = ? WHERE id = ?`
-        ).bind(new Date().toISOString(), message.body.postId).run();
+        const errorMessage = "Connect and assign a social account before publishing.";
+        await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE posts SET status = 'failed', failure_code = 'SOCIAL_ACCOUNT_REQUIRED',
+               failure_message = ?, updated_at = ? WHERE id = ?`
+          ).bind(errorMessage, new Date().toISOString(), message.body.postId),
+          env.DB.prepare(
+            `INSERT INTO publish_attempts
+             (id, post_id, publish_job_id, idempotency_key, attempt, status, error_message)
+             VALUES (?, ?, ?, ?, ?, 'failed', ?)`
+          ).bind(
+            crypto.randomUUID(),
+            message.body.postId,
+            message.body.publishJobId,
+            `${message.body.executionKey}:attempt:${claim.attempt}`,
+            claim.attempt,
+            errorMessage
+          ),
+        ]);
+        await markPublishJobFailed(env, message.body.publishJobId, errorMessage);
         await notifyPostOwners(
           env,
           message.body.postId,
           "publish_failed",
           "BrandSparQ could not publish this post",
-          "A connected social account must be assigned before publishing."
+          errorMessage
         );
         message.ack();
         continue;
       }
 
       const attemptId = crypto.randomUUID();
+      const attemptKey = `${message.body.executionKey}:attempt:${claim.attempt}`;
+      const now = new Date().toISOString();
+
       await env.DB.batch([
         env.DB.prepare(
           `INSERT INTO publish_attempts
-           (id, post_id, idempotency_key, status)
-           VALUES (?, ?, ?, 'publishing')`
-        ).bind(attemptId, message.body.postId, message.body.idempotencyKey),
-        env.DB.prepare(
-          `UPDATE posts SET status = 'publishing', publish_started_at = ?,
-             last_publish_attempt_at = ?, updated_at = ? WHERE id = ?`
+           (id, post_id, publish_job_id, idempotency_key, attempt, status)
+           VALUES (?, ?, ?, ?, ?, 'publishing')`
         ).bind(
-          new Date().toISOString(),
-          new Date().toISOString(),
-          new Date().toISOString(),
+          attemptId,
+          message.body.postId,
+          message.body.publishJobId,
+          attemptKey,
+          claim.attempt
+        ),
+        env.DB.prepare(
+          `UPDATE posts SET status = 'publishing', publish_started_at = COALESCE(publish_started_at, ?),
+             publish_retry_count = ?, last_publish_attempt_at = ?, failure_code = NULL,
+             failure_message = NULL, updated_at = ? WHERE id = ?`
+        ).bind(
+          now,
+          Math.max(0, claim.attempt - 1),
+          now,
+          now,
           message.body.postId
         ),
       ]);
@@ -1081,6 +1153,7 @@ export default {
         await env.DB.prepare(
           "UPDATE publish_attempts SET status = 'published' WHERE id = ?"
         ).bind(attemptId).run();
+        await markPublishJobCompleted(env, message.body.publishJobId);
         await notifyPostOwners(
           env,
           message.body.postId,
@@ -1090,25 +1163,28 @@ export default {
         );
         message.ack();
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message.slice(0, 1500) : "Publishing failed";
-        const retryCount = Number(post.publish_retry_count || 0) + 1;
+        const errorMessage =
+          error instanceof Error ? error.message.slice(0, 1500) : "Publishing failed";
+        const exhausted = claim.attempt >= claim.maxAttempts;
+
         await env.DB.batch([
           env.DB.prepare(
-            `UPDATE publish_attempts SET status = 'failed', error_message = ? WHERE id = ?`
+            "UPDATE publish_attempts SET status = 'failed', error_message = ? WHERE id = ?"
           ).bind(errorMessage, attemptId),
           env.DB.prepare(
             `UPDATE posts SET status = ?, publish_retry_count = ?, failure_code = 'PROVIDER_ERROR',
                failure_message = ?, updated_at = ? WHERE id = ?`
           ).bind(
-            retryCount >= 3 ? "failed" : "publishing",
-            retryCount,
+            exhausted ? "failed" : "publish_queued",
+            claim.attempt,
             errorMessage,
             new Date().toISOString(),
             message.body.postId
           ),
         ]);
 
-        if (retryCount >= 3) {
+        if (exhausted) {
+          await markPublishJobFailed(env, message.body.publishJobId, errorMessage);
           await notifyPostOwners(
             env,
             message.body.postId,
@@ -1118,8 +1194,12 @@ export default {
           );
           message.ack();
         } else {
-          message.retry({ delaySeconds: Math.min(3600, 60 * 2 ** retryCount) });
+          await markPublishJobRetry(env, message.body.publishJobId, errorMessage);
+          message.retry({
+            delaySeconds: Math.min(3600, 60 * 2 ** claim.attempt),
+          });
         }
+      }
       }
     }
   },
