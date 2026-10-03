@@ -424,6 +424,9 @@ export default {
 
     const brandMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/brand$/);
     if (brandMatch && request.method === "GET") {
+      const denied = await authorize(env, sessionUser!, "read", brandMatch[1]);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
       const row = await env.DB.prepare(
         `SELECT c.id AS client_id, c.name, c.timezone,
                 bp.id, bp.voice, bp.audience, bp.primary_color, bp.secondary_color,
@@ -438,6 +441,9 @@ export default {
     }
 
     if (brandMatch && request.method === "POST") {
+      const denied = await authorize(env, sessionUser!, "brand_manage", brandMatch[1]);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
       const payload = await request.json<any>().catch(() => ({} as any));
       const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ?")
         .bind(brandMatch[1]).first();
@@ -496,6 +502,9 @@ export default {
         return response(request, env, { error: "clientId and assetIds are required." }, { status: 400 });
       }
 
+      const denied = await authorize(env, sessionUser!, "generate", payload.clientId);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
       const placeholders = payload.assetIds.map(() => "?").join(",");
       const owned = await env.DB.prepare(
         `SELECT COUNT(*) AS count FROM assets
@@ -524,13 +533,22 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/v1/clients") {
+      const denied = await authorize(env, sessionUser!, "read");
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      const allowedClients = await accessibleClientIds(env.DB, sessionUser!);
       const result = await env.DB.prepare(
         `SELECT c.id, c.name, c.timezone, COALESCE(bp.primary_color, '#A56CFF') AS color
          FROM clients c
          LEFT JOIN brand_profiles bp ON bp.client_id = c.id
          ORDER BY c.name`
-      ).all();
-      return response(request, env, { data: result.results });
+      ).all<any>();
+
+      return response(request, env, {
+        data: allowedClients === null
+          ? result.results
+          : result.results.filter((row) => allowedClients.includes(row.id)),
+      });
     }
 
     if (request.method === "POST" && url.pathname === "/v1/assets") {
@@ -540,6 +558,10 @@ export default {
       const declaredSize = Number(request.headers.get("content-length") || "0");
 
       if (!clientId) return response(request, env, { error: "x-client-id is required" }, { status: 400 });
+
+      const denied = await authorize(env, sessionUser!, "upload", clientId);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
       if (!contentType.startsWith("image/")) {
         return response(request, env, { error: "Only image uploads are accepted" }, { status: 415 });
       }
@@ -588,9 +610,12 @@ export default {
     const assetMatch = url.pathname.match(/^\/v1\/assets\/([^/]+)$/);
     if (request.method === "GET" && assetMatch) {
       const row = await env.DB.prepare(
-        "SELECT r2_key, content_type FROM assets WHERE id = ?"
-      ).bind(assetMatch[1]).first<{ r2_key: string; content_type: string }>();
+        "SELECT client_id, r2_key, content_type FROM assets WHERE id = ?"
+      ).bind(assetMatch[1]).first<{ client_id: string; r2_key: string; content_type: string }>();
       if (!row) return response(request, env, { error: "Asset not found" }, { status: 404 });
+
+      const denied = await authorize(env, sessionUser!, "read", row.client_id);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
 
       const object = await env.MEDIA.get(row.r2_key);
       if (!object) return response(request, env, { error: "Asset object not found" }, { status: 404 });
@@ -671,18 +696,33 @@ export default {
       const postId = approvalMatch[1];
       const now = new Date().toISOString();
       const post = await env.DB.prepare(
-        "SELECT status, client_id, suggested_publish_at FROM posts WHERE id = ?"
-      ).bind(postId).first<{ status: string; suggested_publish_at: string | null }>();
+        "SELECT id, status, client_id, platform, social_account_id, suggested_publish_at FROM posts WHERE id = ?"
+      ).bind(postId).first<any>();
 
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
+
+      const denied = await authorize(env, sessionUser!, "review", post.client_id);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
       if (!post.suggested_publish_at) {
         return response(request, env, { error: "Post does not have a proposed publishing slot" }, { status: 409 });
       }
 
+      const destination = await ensurePostSocialDestination(env, post);
+      if (!destination) {
+        return response(
+          request,
+          env,
+          { error: `Connect or choose a ${post.platform} publishing account before approval.` },
+          { status: 409 }
+        );
+      }
+
       const scheduledAt = await findNextAvailableSlot(
         env,
-        (post as any).client_id,
-        post.suggested_publish_at
+        post.client_id,
+        post.suggested_publish_at,
+        postId
       );
       await env.DB.batch([
         env.DB.prepare(
@@ -707,6 +747,14 @@ export default {
     const keepMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/keep-schedule$/);
     if (request.method === "POST" && keepMatch) {
       const postId = keepMatch[1];
+      const post = await env.DB.prepare(
+        "SELECT client_id FROM posts WHERE id = ?"
+      ).bind(postId).first<{ client_id: string }>();
+      if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
+
+      const denied = await authorize(env, sessionUser!, "calendar_manage", post.client_id);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
       const now = new Date().toISOString();
       await env.DB.prepare(
         `UPDATE posts SET prepublish_response = 'keep', status = 'calendar_scheduled', updated_at = ? WHERE id = ?`
@@ -723,6 +771,21 @@ export default {
         return response(request, env, { error: "A valid scheduledPublishAt value is required" }, { status: 400 });
       }
 
+      const post = await env.DB.prepare(
+        "SELECT client_id FROM posts WHERE id = ?"
+      ).bind(postId).first<{ client_id: string }>();
+      if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
+
+      const denied = await authorize(env, sessionUser!, "calendar_manage", post.client_id);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      const scheduledAt = await findNextAvailableSlot(
+        env,
+        post.client_id,
+        payload.scheduledPublishAt,
+        postId
+      );
+
       await env.DB.prepare(
         `UPDATE posts SET
          scheduled_publish_at = ?,
@@ -731,10 +794,19 @@ export default {
          status = 'rescheduled',
          updated_at = ?
          WHERE id = ?`
-      ).bind(payload.scheduledPublishAt, new Date().toISOString(), postId).run();
+      ).bind(scheduledAt, new Date().toISOString(), postId).run();
 
-      await audit(env, postId, "post.rescheduled", { scheduledPublishAt: payload.scheduledPublishAt });
-      return response(request, env, { ok: true, postId, status: "rescheduled" });
+      await audit(env, postId, "post.rescheduled", {
+        requestedPublishAt: payload.scheduledPublishAt,
+        scheduledPublishAt: scheduledAt,
+      });
+      return response(request, env, {
+        ok: true,
+        postId,
+        status: "rescheduled",
+        scheduledPublishAt: scheduledAt,
+        adjusted: scheduledAt !== new Date(payload.scheduledPublishAt).toISOString(),
+      });
     }
 
     const publishNowMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/publish-now$/);
@@ -760,6 +832,12 @@ export default {
 
     const rewriteCaptionMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-rewrite-caption$/);
     if (rewriteCaptionMatch && request.method === "POST") {
+      const accessPost = await env.DB.prepare(
+        "SELECT client_id FROM posts WHERE id = ?"
+      ).bind(rewriteCaptionMatch[1]).first<{ client_id: string }>();
+      if (!accessPost) return response(request, env, { error: "Post not found" }, { status: 404 });
+      const denied = await authorize(env, sessionUser!, "ai_edit", accessPost.client_id);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
       const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
@@ -773,6 +851,12 @@ export default {
 
     const editImageMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-edit-image$/);
     if (editImageMatch && request.method === "POST") {
+      const accessPost = await env.DB.prepare(
+        "SELECT client_id FROM posts WHERE id = ?"
+      ).bind(editImageMatch[1]).first<{ client_id: string }>();
+      if (!accessPost) return response(request, env, { error: "Post not found" }, { status: 404 });
+      const denied = await authorize(env, sessionUser!, "ai_edit", accessPost.client_id);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
       const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
       const instruction = payload.instruction?.trim().slice(0, 2000) || "";
       if (!instruction) return response(request, env, { error: "instruction is required." }, { status: 400 });
@@ -787,6 +871,12 @@ export default {
 
     const regenerateMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-regenerate$/);
     if (regenerateMatch && request.method === "POST") {
+      const accessPost = await env.DB.prepare(
+        "SELECT client_id FROM posts WHERE id = ?"
+      ).bind(regenerateMatch[1]).first<{ client_id: string }>();
+      if (!accessPost) return response(request, env, { error: "Post not found" }, { status: 404 });
+      const denied = await authorize(env, sessionUser!, "ai_edit", accessPost.client_id);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
       const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
