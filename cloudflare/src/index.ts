@@ -159,6 +159,10 @@ async function getPost(env: Env, postId: string) {
   return decoratePostMedia(env, post);
 }
 
+function roleAllowed(role: string | undefined, allowed: string[]) {
+  return !!role && allowed.includes(role);
+}
+
 async function audit(env: Env, postId: string, action: string, metadata?: unknown, actorId = "system") {
   await env.DB.prepare(
     "INSERT INTO audit_logs (id, post_id, actor_id, action, metadata) VALUES (?, ?, ?, ?, ?)"
@@ -419,7 +423,11 @@ export default {
         `SELECT c.id AS client_id, c.name, c.timezone,
                 bp.id, bp.voice, bp.audience, bp.primary_color, bp.secondary_color,
                 bp.website, bp.social_handles, bp.restricted_words, bp.tagline,
-                bp.preferred_ctas, bp.imagery_preferences, bp.posting_rules
+                bp.preferred_ctas, bp.imagery_preferences, bp.posting_rules,
+                bp.logo_asset_id, bp.alternate_logo_asset_id, bp.fonts,
+                bp.brand_examples, bp.prohibited_visual_styles, bp.competitor_references,
+                bp.brand_vocabulary, bp.hashtag_policy, bp.cta_library,
+                bp.campaign_goals, bp.target_locations, bp.platform_rules
          FROM clients c
          LEFT JOIN brand_profiles bp ON bp.client_id = c.id
          WHERE c.id = ?`
@@ -429,6 +437,9 @@ export default {
     }
 
     if (brandMatch && request.method === "POST") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin"])) {
+        return response(request, env, { error: "You do not have permission to update Brand Brain." }, { status: 403 });
+      }
       const payload = await request.json<any>().catch(() => ({} as any));
       const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ?")
         .bind(brandMatch[1]).first();
@@ -442,8 +453,11 @@ export default {
         `INSERT INTO brand_profiles
          (id, client_id, voice, audience, primary_color, secondary_color, website,
           social_handles, restricted_words, tagline, preferred_ctas,
-          imagery_preferences, posting_rules, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          imagery_preferences, posting_rules, logo_asset_id, alternate_logo_asset_id,
+          fonts, brand_examples, prohibited_visual_styles, competitor_references,
+          brand_vocabulary, hashtag_policy, cta_library, campaign_goals,
+          target_locations, platform_rules, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          ON CONFLICT(client_id) DO UPDATE SET
            voice = excluded.voice,
            audience = excluded.audience,
@@ -456,6 +470,18 @@ export default {
            preferred_ctas = excluded.preferred_ctas,
            imagery_preferences = excluded.imagery_preferences,
            posting_rules = excluded.posting_rules,
+           logo_asset_id = excluded.logo_asset_id,
+           alternate_logo_asset_id = excluded.alternate_logo_asset_id,
+           fonts = excluded.fonts,
+           brand_examples = excluded.brand_examples,
+           prohibited_visual_styles = excluded.prohibited_visual_styles,
+           competitor_references = excluded.competitor_references,
+           brand_vocabulary = excluded.brand_vocabulary,
+           hashtag_policy = excluded.hashtag_policy,
+           cta_library = excluded.cta_library,
+           campaign_goals = excluded.campaign_goals,
+           target_locations = excluded.target_locations,
+           platform_rules = excluded.platform_rules,
            updated_at = CURRENT_TIMESTAMP`
       ).bind(
         id,
@@ -470,13 +496,28 @@ export default {
         payload.tagline || null,
         payload.preferredCtas || null,
         payload.imageryPreferences || null,
-        payload.postingRules || null
+        payload.postingRules || null,
+        payload.logoAssetId || null,
+        payload.alternateLogoAssetId || null,
+        payload.fonts ? JSON.stringify(payload.fonts) : null,
+        payload.brandExamples ? JSON.stringify(payload.brandExamples) : null,
+        payload.prohibitedVisualStyles || null,
+        payload.competitorReferences || null,
+        payload.brandVocabulary || null,
+        payload.hashtagPolicy || null,
+        payload.ctaLibrary ? JSON.stringify(payload.ctaLibrary) : null,
+        payload.campaignGoals ? JSON.stringify(payload.campaignGoals) : null,
+        payload.targetLocations ? JSON.stringify(payload.targetLocations) : null,
+        payload.platformRules ? JSON.stringify(payload.platformRules) : null
       ).run();
 
       return response(request, env, { ok: true, id });
     }
 
     if (request.method === "POST" && url.pathname === "/v1/generation-jobs") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) {
+        return response(request, env, { error: "You do not have permission to create campaigns." }, { status: 403 });
+      }
       const payload = await request.json<{
         clientId?: string;
         objective?: string;
@@ -519,12 +560,16 @@ export default {
         `SELECT c.id, c.name, c.timezone, COALESCE(bp.primary_color, '#A56CFF') AS color
          FROM clients c
          LEFT JOIN brand_profiles bp ON bp.client_id = c.id
+         WHERE c.status != 'archived'
          ORDER BY c.name`
       ).all();
       return response(request, env, { data: result.results });
     }
 
     if (request.method === "POST" && url.pathname === "/v1/assets") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) {
+        return response(request, env, { error: "You do not have permission to upload brand assets." }, { status: 403 });
+      }
       const clientId = request.headers.get("x-client-id")?.trim();
       const filename = request.headers.get("x-file-name")?.trim() || "upload.jpg";
       const declaredContentType = request.headers.get("content-type") || "application/octet-stream";
@@ -666,6 +711,9 @@ export default {
 
     const approvalMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/approve$/);
     if (request.method === "POST" && approvalMatch) {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) {
+        return response(request, env, { error: "You do not have permission to approve content." }, { status: 403 });
+      }
       const postId = approvalMatch[1];
       const now = new Date().toISOString();
       const post = await env.DB.prepare(
@@ -708,6 +756,9 @@ export default {
 
     const keepMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/keep-schedule$/);
     if (request.method === "POST" && keepMatch) {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","publisher"])) {
+        return response(request, env, { error: "You do not have permission to control publishing." }, { status: 403 });
+      }
       const postId = keepMatch[1];
       const now = new Date().toISOString();
       await env.DB.prepare(
@@ -719,6 +770,9 @@ export default {
 
     const rescheduleMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/reschedule$/);
     if (request.method === "POST" && rescheduleMatch) {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","publisher"])) {
+        return response(request, env, { error: "You do not have permission to reschedule posts." }, { status: 403 });
+      }
       const postId = rescheduleMatch[1];
       const payload = await request.json<{ scheduledPublishAt?: string }>().catch(() => ({} as any));
       if (!payload.scheduledPublishAt || Number.isNaN(Date.parse(payload.scheduledPublishAt))) {
@@ -756,6 +810,9 @@ export default {
 
     const publishNowMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/publish-now$/);
     if (request.method === "POST" && publishNowMatch) {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","publisher"])) {
+        return response(request, env, { error: "You do not have permission to publish posts." }, { status: 403 });
+      }
       const postId = publishNowMatch[1];
       const post = await env.DB.prepare("SELECT id FROM posts WHERE id = ?").bind(postId).first();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
@@ -777,6 +834,7 @@ export default {
 
     const rewriteCaptionMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-rewrite-caption$/);
     if (rewriteCaptionMatch && request.method === "POST") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) return response(request, env, { error: "You do not have permission to edit content." }, { status: 403 });
       const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
@@ -790,6 +848,7 @@ export default {
 
     const editImageMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-edit-image$/);
     if (editImageMatch && request.method === "POST") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) return response(request, env, { error: "You do not have permission to edit content." }, { status: 403 });
       const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
       const instruction = payload.instruction?.trim().slice(0, 2000) || "";
       if (!instruction) return response(request, env, { error: "instruction is required." }, { status: 400 });
@@ -804,6 +863,7 @@ export default {
 
     const regenerateMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-regenerate$/);
     if (regenerateMatch && request.method === "POST") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) return response(request, env, { error: "You do not have permission to regenerate content." }, { status: 403 });
       const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
