@@ -110,7 +110,7 @@ export async function markPublishJobRetry(
 ) {
   await env.DB.prepare(
     `UPDATE publish_jobs
-     SET status = 'retrying', last_error = ?, updated_at = ?
+     SET status = 'retrying', claimed_at = NULL, last_error = ?, updated_at = ?
      WHERE id = ?`
   ).bind(error, new Date().toISOString(), publishJobId).run();
 }
