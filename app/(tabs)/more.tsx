@@ -21,31 +21,31 @@ const items = [
     label: "Campaigns",
     description: "Group generated content around goals and deadlines.",
     icon: "layers-outline" as const,
-    href: null,
+    href: "/campaigns" as const,
   },
   {
     label: "Social connections",
     description: "Connect and verify publishing destinations.",
     icon: "share-social-outline" as const,
-    href: null,
+    href: "/social" as const,
   },
   {
     label: "Notifications",
     description: "Control review and pre-publish alerts.",
     icon: "notifications-outline" as const,
-    href: null,
+    href: "/notifications" as const,
   },
   {
     label: "Analytics",
     description: "Measure published content and campaign results.",
     icon: "analytics-outline" as const,
-    href: null,
+    href: "/analytics" as const,
   },
   {
     label: "Settings",
     description: "Workspace, account, and publishing preferences.",
     icon: "settings-outline" as const,
-    href: null,
+    href: "/settings" as const,
   },
 ];
 
@@ -73,9 +73,7 @@ export default function MoreScreen() {
               </View>
               <Text style={styles.item}>{item.label}</Text>
               <Text style={styles.description}>{item.description}</Text>
-              {!item.href && (
-                <Text style={styles.coming}>Coming next</Text>
-              )}
+
             </Card>
           );
 
