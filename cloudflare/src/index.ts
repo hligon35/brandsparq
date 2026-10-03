@@ -1,8 +1,23 @@
-import { getSessionUser, handleAuthRoute } from "./auth";
+import { getSessionUser, handleAuthRoute, type SessionUser } from "./auth";
+import { accessibleClientIds, hasClientAccess, hasPermission, type Permission } from "./authz";
+import { issuePostMediaUrl, resolveMediaToken } from "./media";
+import {
+  claimPublishJob,
+  ensurePublishJob,
+  markPublishJobCompleted,
+  markPublishJobFailed,
+  markPublishJobRetry,
+  type PublishQueueMessage,
+} from "./publishing";
 import { handleManagementRoute } from "./management";
 import { notifyPostOwners } from "./notifications";
 import { hashSecret } from "./security";
-import { publishPostToSocial, socialOAuthCallback, syncAccountAnalytics } from "./social";
+import {
+  ensurePostSocialDestination,
+  publishPostToSocial,
+  socialOAuthCallback,
+  syncAccountAnalytics,
+} from "./social";
 import { findNextAvailableSlot } from "./scheduling";
 import {
   editPostGraphicWithAI,
@@ -52,11 +67,7 @@ interface Env {
   X_REDIRECT_URI?: string;
 }
 
-type PublishMessage = {
-  kind: "publish";
-  postId: string;
-  idempotencyKey: string;
-};
+type PublishMessage = PublishQueueMessage;
 
 type GenerationMessage = {
   kind: "generate";
@@ -109,7 +120,7 @@ function postSelect(where = "") {
     c.name AS client_name,
     COALESCE(bp.primary_color, '#A56CFF') AS client_color,
     sa.account_name AS social_account_name,
-    CASE WHEN p.graphic_key IS NOT NULL THEN '/v1/media/' || p.graphic_key ELSE NULL END AS image_url
+    NULL AS image_url
     FROM posts p
     JOIN clients c ON c.id = p.client_id
     LEFT JOIN brand_profiles bp ON bp.client_id = p.client_id
@@ -118,7 +129,53 @@ function postSelect(where = "") {
 }
 
 async function getPost(env: Env, postId: string) {
-  return env.DB.prepare(postSelect("WHERE p.id = ?")).bind(postId).first();
+  return env.DB.prepare(postSelect("WHERE p.id = ?")).bind(postId).first<any>();
+}
+
+async function signPostMedia(
+  env: Env,
+  requestUrl: string,
+  userId: string,
+  row: any
+) {
+  if (row?.graphic_key) {
+    row.image_url = await issuePostMediaUrl(
+      env,
+      requestUrl,
+      userId,
+      row.id,
+      row.graphic_key
+    );
+  } else {
+    row.image_url = null;
+  }
+  return row;
+}
+
+async function signPostRows(
+  env: Env,
+  requestUrl: string,
+  userId: string,
+  rows: any[]
+) {
+  return Promise.all(
+    rows.map((row) => signPostMedia(env, requestUrl, userId, row))
+  );
+}
+
+async function authorize(
+  env: Env,
+  user: SessionUser,
+  permission: Permission,
+  clientId?: string | null
+) {
+  if (!hasPermission(user, permission)) {
+    return "You do not have permission to perform this action.";
+  }
+  if (clientId && !(await hasClientAccess(env.DB, user, clientId))) {
+    return "You do not have access to this client.";
+  }
+  return null;
 }
 
 async function audit(env: Env, postId: string, action: string, metadata?: unknown) {
@@ -167,6 +224,25 @@ export default {
         headers: {
           "content-type": object.httpMetadata?.contentType || "image/jpeg",
           "cache-control": "public, max-age=900",
+          etag: object.httpEtag,
+        },
+      });
+    }
+
+    const signedMediaMatch = url.pathname.match(/^\/v1\/public\/media\/([^/]+)$/);
+    if (signedMediaMatch && request.method === "GET") {
+      const row = await resolveMediaToken(env, signedMediaMatch[1]);
+      if (!row || row.expires_at <= Date.now()) {
+        return response(request, env, { error: "Media link is invalid or expired." }, { status: 404 });
+      }
+      const object = await env.MEDIA.get(row.r2_key);
+      if (!object) {
+        return response(request, env, { error: "Media not found." }, { status: 404 });
+      }
+      return new Response(object.body, {
+        headers: {
+          "content-type": object.httpMetadata?.contentType || "image/jpeg",
+          "cache-control": "private, max-age=300",
           etag: object.httpEtag,
         },
       });
