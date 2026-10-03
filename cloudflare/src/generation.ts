@@ -238,8 +238,19 @@ async function generateGraphic(
   instruction?:string,
   edit=false
 ){
+  const profile=creativeProfile(generated.platform as CreativePlatform);
+  const composition=deterministicComposition({
+    platform:generated.platform as CreativePlatform,
+    headline:generated.headline,
+    cta:generated.cta,
+    primaryColor:post.primary_color,
+    secondaryColor:post.secondary_color,
+    logoAssetId:post.logo_asset_id,
+  });
+
   const prompt=[
-    "Create a polished 4:5 social-media graphic.",
+    `Create a polished ${profile.aspectRatio} social-media graphic.`,
+    `Target canvas: ${profile.width}x${profile.height}.`,
     `Platform: ${generated.platform}`,
     `Campaign objective: ${generated.objective}`,
     `Headline: ${generated.headline}`,
@@ -248,7 +259,11 @@ async function generateGraphic(
     instruction?`Requested change: ${instruction}`:"",
     "Brand context JSON:",
     JSON.stringify(brandContext(post)),
+    "Deterministic composition contract JSON:",
+    JSON.stringify(composition),
     "Use supplied images as source/reference material where appropriate.",
+    "Respect the composition safe areas and visual hierarchy.",
+    "Do not invent or mutate a logo. If a logo is supplied, reserve its specified location.",
     "Do not place the full caption inside the graphic."
   ].filter(Boolean).join("\n");
 
@@ -257,28 +272,170 @@ async function generateGraphic(
     prompt,
     images,
     action:edit?"edit":"auto",
-    imageModel:edit?(env.OPENAI_IMAGE_EDIT_MODEL||"gpt-image-2.5-sunburst"):(env.OPENAI_IMAGE_MODEL||"gpt-image-2.5-flare")
+    imageModel:edit
+      ?(env.OPENAI_IMAGE_EDIT_MODEL||"gpt-image-2.5-sunburst")
+      :(env.OPENAI_IMAGE_MODEL||"gpt-image-2.5-flare"),
+    size:profile.imageSize,
   });
 
-  const key=`generated/${post.client_id}/${post.id}/${crypto.randomUUID()}.jpg`;
+  const variantId=crypto.randomUUID();
+  const key=`generated/${post.client_id}/${post.id}/${profile.variantKey}/${variantId}.jpg`;
   await env.MEDIA.put(key,result.bytes,{
     httpMetadata:{contentType:result.mimeType},
     customMetadata:{
-      provider:"openai",model:result.imageModel,responseId:result.responseId||"",promptVersion:AI_PROMPT_VERSION
+      provider:"openai",
+      model:result.imageModel,
+      responseId:result.responseId||"",
+      promptVersion:AI_PROMPT_VERSION,
+      variantKey:profile.variantKey,
+      aspectRatio:profile.aspectRatio,
     }
   });
 
-  await env.DB.prepare(
-    "UPDATE posts SET graphic_key=?,ai_image_response_id=?,ai_image_prompt=?,ai_image_model=?,ai_last_error=NULL,graphic_version=COALESCE(graphic_version,0)+1,updated_at=? WHERE id=?"
-  ).bind(key,result.responseId||null,result.revisedPrompt||prompt,result.imageModel,new Date().toISOString(),post.id).run();
+  const imageUrl=`data:${result.mimeType};base64,${toBase64(
+    result.bytes.buffer.slice(
+      result.bytes.byteOffset,
+      result.bytes.byteOffset+result.bytes.byteLength
+    )
+  )}`;
 
-  await logAiRun(env,{
-    postId:post.id,kind:edit?"image_edit":"image_generation",model:result.imageModel,
-    responseId:result.responseId,requestId:result.requestId,status:"completed",usage:result.usage,
-    metadata:{orchestratorModel:result.model,revisedPrompt:result.revisedPrompt}
+  const scoreResult=await evaluateCreative(env,{
+    platform:generated.platform as CreativePlatform,
+    headline:generated.headline,
+    caption:generated.caption,
+    hashtags:generated.hashtags||[],
+    objective:generated.objective,
+    brandContext:brandContext(post),
+    composition,
+    imageUrl,
   });
 
-  return result;
+  const score=scoreResult.data;
+  const now=new Date().toISOString();
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO creative_variants
+       (id,post_id,platform,variant_key,aspect_ratio,width,height,r2_key,content_type,
+        is_primary,composition_json,model,response_id)
+       VALUES (?,?,?,?,?,?,?,?,?,1,?,?,?)
+       ON CONFLICT(post_id,variant_key) DO UPDATE SET
+         aspect_ratio=excluded.aspect_ratio,
+         width=excluded.width,
+         height=excluded.height,
+         r2_key=excluded.r2_key,
+         content_type=excluded.content_type,
+         is_primary=1,
+         composition_json=excluded.composition_json,
+         model=excluded.model,
+         response_id=excluded.response_id,
+         created_at=CURRENT_TIMESTAMP`
+    ).bind(
+      variantId,
+      post.id,
+      generated.platform,
+      profile.variantKey,
+      profile.aspectRatio,
+      profile.width,
+      profile.height,
+      key,
+      result.mimeType,
+      JSON.stringify(composition),
+      result.imageModel,
+      result.responseId||null
+    ),
+    env.DB.prepare(
+      `INSERT INTO sparq_scores
+       (post_id,overall,brand_match,readability,platform_fit,cta_strength,
+        composition,caption_quality,compliance,rationale,model,response_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(post_id) DO UPDATE SET
+         overall=excluded.overall,
+         brand_match=excluded.brand_match,
+         readability=excluded.readability,
+         platform_fit=excluded.platform_fit,
+         cta_strength=excluded.cta_strength,
+         composition=excluded.composition,
+         caption_quality=excluded.caption_quality,
+         compliance=excluded.compliance,
+         rationale=excluded.rationale,
+         model=excluded.model,
+         response_id=excluded.response_id,
+         updated_at=CURRENT_TIMESTAMP`
+    ).bind(
+      post.id,
+      score.overall,
+      score.brandMatch,
+      score.readability,
+      score.platformFit,
+      score.ctaStrength,
+      score.composition,
+      score.captionQuality,
+      score.compliance,
+      score.rationale,
+      scoreResult.model,
+      scoreResult.responseId||null
+    ),
+    env.DB.prepare(
+      `UPDATE posts SET
+       graphic_key=?,
+       primary_variant_id=?,
+       creative_composition=?,
+       sparq_score=?,
+       ai_image_response_id=?,
+       ai_image_prompt=?,
+       ai_image_model=?,
+       ai_last_error=NULL,
+       graphic_version=COALESCE(graphic_version,0)+1,
+       updated_at=?
+       WHERE id=?`
+    ).bind(
+      key,
+      variantId,
+      JSON.stringify(composition),
+      score.overall,
+      result.responseId||null,
+      result.revisedPrompt||prompt,
+      result.imageModel,
+      now,
+      post.id
+    ),
+  ]);
+
+  await logAiRun(env,{
+    postId:post.id,
+    kind:edit?"image_edit":"image_generation",
+    model:result.imageModel,
+    responseId:result.responseId,
+    requestId:result.requestId,
+    status:"completed",
+    usage:result.usage,
+    metadata:{
+      orchestratorModel:result.model,
+      revisedPrompt:result.revisedPrompt,
+      variantKey:profile.variantKey,
+      aspectRatio:profile.aspectRatio,
+    }
+  });
+
+  await logAiRun(env,{
+    postId:post.id,
+    kind:"sparq_score",
+    model:scoreResult.model,
+    responseId:scoreResult.responseId,
+    requestId:scoreResult.requestId,
+    status:"completed",
+    usage:scoreResult.usage,
+    metadata:score,
+  });
+
+  return {
+    ...result,
+    variantId,
+    profile,
+    composition,
+    sparqScore:score,
+  };
 }
 
 async function sendReviewEmail(
