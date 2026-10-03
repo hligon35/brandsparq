@@ -121,14 +121,14 @@ async function getPost(env: Env, postId: string) {
   return env.DB.prepare(postSelect("WHERE p.id = ?")).bind(postId).first();
 }
 
-async function audit(env: Env, postId: string, action: string, metadata?: unknown) {
+async function audit(env: Env, postId: string, action: string, metadata?: unknown, actorId = "system") {
   await env.DB.prepare(
     "INSERT INTO audit_logs (id, post_id, actor_id, action, metadata) VALUES (?, ?, ?, ?, ?)"
   )
     .bind(
       crypto.randomUUID(),
       postId,
-      "system",
+      actorId,
       action,
       metadata ? JSON.stringify(metadata) : null
     )
@@ -221,7 +221,7 @@ export default {
       const tokenHash = await hashReviewToken(publicApproveMatch[1], env);
       const row = await env.DB.prepare(
         `SELECT rt.id AS review_token_id, rt.post_id, rt.expires_at, rt.used_at,
-                p.status, p.client_id, p.suggested_publish_at
+                p.status, p.client_id, p.suggested_publish_at, p.social_account_id
          FROM review_tokens rt
          JOIN posts p ON p.id = rt.post_id
          WHERE rt.token_hash = ?`
@@ -232,6 +232,9 @@ export default {
       }
       if (!row.suggested_publish_at) {
         return response(request, env, { error: "This post does not have a proposed publishing slot." }, { status: 409 });
+      }
+      if (!row.social_account_id) {
+        return response(request, env, { error: "Assign a connected social account before approving this post." }, { status: 409 });
       }
 
       const now = new Date().toISOString();
@@ -531,7 +534,7 @@ export default {
           `WHERE p.scheduled_publish_at IS NOT NULL
            AND p.scheduled_publish_at >= ?
            AND p.scheduled_publish_at < ?
-           AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publishing','published','failed')
+           AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued','publishing','published','failed')
            ORDER BY p.scheduled_publish_at ASC`
         )
       ).bind(from, to).all();
@@ -551,18 +554,22 @@ export default {
       const postId = approvalMatch[1];
       const now = new Date().toISOString();
       const post = await env.DB.prepare(
-        "SELECT status, client_id, suggested_publish_at FROM posts WHERE id = ?"
-      ).bind(postId).first<{ status: string; suggested_publish_at: string | null }>();
+        "SELECT status, client_id, suggested_publish_at, social_account_id FROM posts WHERE id = ?"
+      ).bind(postId).first<{ status: string; client_id: string; suggested_publish_at: string | null; social_account_id: string | null }>();
 
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
       if (!post.suggested_publish_at) {
         return response(request, env, { error: "Post does not have a proposed publishing slot" }, { status: 409 });
       }
+      if (!post.social_account_id) {
+        return response(request, env, { error: "Assign a connected social account before approving this post." }, { status: 409 });
+      }
 
       const scheduledAt = await findNextAvailableSlot(
         env,
-        (post as any).client_id,
-        post.suggested_publish_at
+        post.client_id,
+        post.suggested_publish_at,
+        postId
       );
       await env.DB.batch([
         env.DB.prepare(
@@ -579,7 +586,7 @@ export default {
            VALUES (?, ?, 'approved', ?)`
         ).bind(crypto.randomUUID(), postId, post.status),
       ]);
-      await audit(env, postId, "post.approved");
+      await audit(env, postId, "post.approved", undefined, sessionUser?.id || "system");
 
       return response(request, env, { ok: true, postId, status: "calendar_scheduled" });
     }
@@ -591,7 +598,7 @@ export default {
       await env.DB.prepare(
         `UPDATE posts SET prepublish_response = 'keep', status = 'calendar_scheduled', updated_at = ? WHERE id = ?`
       ).bind(now, postId).run();
-      await audit(env, postId, "post.keep_schedule");
+      await audit(env, postId, "post.keep_schedule", undefined, sessionUser?.id || "system");
       return response(request, env, { ok: true, postId, status: "calendar_scheduled" });
     }
 
@@ -603,6 +610,18 @@ export default {
         return response(request, env, { error: "A valid scheduledPublishAt value is required" }, { status: 400 });
       }
 
+      const post = await env.DB.prepare(
+        "SELECT client_id FROM posts WHERE id = ?"
+      ).bind(postId).first<{ client_id: string }>();
+      if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
+
+      const scheduledAt = await findNextAvailableSlot(
+        env,
+        post.client_id,
+        payload.scheduledPublishAt,
+        postId
+      );
+
       await env.DB.prepare(
         `UPDATE posts SET
          scheduled_publish_at = ?,
@@ -611,10 +630,13 @@ export default {
          status = 'rescheduled',
          updated_at = ?
          WHERE id = ?`
-      ).bind(payload.scheduledPublishAt, new Date().toISOString(), postId).run();
+      ).bind(scheduledAt, new Date().toISOString(), postId).run();
 
-      await audit(env, postId, "post.rescheduled", { scheduledPublishAt: payload.scheduledPublishAt });
-      return response(request, env, { ok: true, postId, status: "rescheduled" });
+      await audit(env, postId, "post.rescheduled", {
+        requestedPublishAt: payload.scheduledPublishAt,
+        scheduledPublishAt: scheduledAt
+      }, sessionUser?.id || "system");
+      return response(request, env, { ok: true, postId, status: "rescheduled", scheduledPublishAt: scheduledAt });
     }
 
     const publishNowMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/publish-now$/);
@@ -632,7 +654,7 @@ export default {
         postId,
         idempotencyKey: `manual:${postId}:${crypto.randomUUID()}`,
       });
-      await audit(env, postId, "post.publish_now");
+      await audit(env, postId, "post.publish_now", undefined, sessionUser?.id || "system");
 
       return response(request, env, { ok: true, queued: true, postId });
     }
@@ -644,7 +666,7 @@ export default {
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
         const data = await rewritePostCaptionWithAI(env, rewriteCaptionMatch[1], instruction);
-        await audit(env, rewriteCaptionMatch[1], "post.ai_caption_rewritten", { instruction: instruction || null });
+        await audit(env, rewriteCaptionMatch[1], "post.ai_caption_rewritten", { instruction: instruction || null }, sessionUser?.id || "system");
         return response(request, env, { ok: true, data });
       } catch (error) {
         return response(request, env, { error: error instanceof Error ? error.message : "Unable to rewrite caption." }, { status: 502 });
@@ -658,7 +680,7 @@ export default {
       if (!instruction) return response(request, env, { error: "instruction is required." }, { status: 400 });
       try {
         const data = await editPostGraphicWithAI(env, editImageMatch[1], instruction);
-        await audit(env, editImageMatch[1], "post.ai_graphic_edited", { instruction });
+        await audit(env, editImageMatch[1], "post.ai_graphic_edited", { instruction }, sessionUser?.id || "system");
         return response(request, env, { ok: true, data });
       } catch (error) {
         return response(request, env, { error: error instanceof Error ? error.message : "Unable to edit graphic." }, { status: 502 });
@@ -671,7 +693,7 @@ export default {
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
         const data = await regeneratePostWithAI(env, regenerateMatch[1], instruction);
-        await audit(env, regenerateMatch[1], "post.ai_regenerated", { instruction: instruction || null });
+        await audit(env, regenerateMatch[1], "post.ai_regenerated", { instruction: instruction || null }, sessionUser?.id || "system");
         return response(request, env, { ok: true, data });
       } catch (error) {
         return response(request, env, { error: error instanceof Error ? error.message : "Unable to regenerate post." }, { status: 502 });
@@ -723,7 +745,7 @@ export default {
     }
 
     const due = await env.DB.prepare(
-      `SELECT p.id, p.prepublish_response,
+      `SELECT p.id, p.prepublish_response, p.scheduled_publish_at,
               COALESCE(cs.no_response_policy, np.no_response_policy,
                        ws.default_no_response_policy, 'auto_publish') AS no_response_policy
        FROM posts p
@@ -771,11 +793,18 @@ export default {
         continue;
       }
 
-      await env.PUBLISH_QUEUE.send({
-        kind: "publish",
-        postId: row.id,
-        idempotencyKey: `scheduled:${row.id}:${nowIso.slice(0, 16)}`,
-      });
+      const claimed = await env.DB.prepare(
+        `UPDATE posts SET status = 'publish_queued', updated_at = ?
+         WHERE id = ? AND status IN ('calendar_scheduled','pre_publish','rescheduled')`
+      ).bind(nowIso, row.id).run();
+
+      if (claimed.meta.changes === 1) {
+        await env.PUBLISH_QUEUE.send({
+          kind: "publish",
+          postId: row.id,
+          idempotencyKey: `scheduled:${row.id}:${row.scheduled_publish_at}`,
+        });
+      }
     }
 
     const settings = await env.DB.prepare(
@@ -818,11 +847,27 @@ export default {
         continue;
       }
 
-      const existing = await env.DB.prepare(
-        "SELECT id FROM publish_attempts WHERE idempotency_key = ?"
-      ).bind(message.body.idempotencyKey).first();
+      const executionKey = message.body.idempotencyKey;
+      const jobId = crypto.randomUUID();
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO publish_jobs (id, post_id, execution_key, state)
+         VALUES (?, ?, ?, 'queued')`
+      ).bind(jobId, message.body.postId, executionKey).run();
 
-      if (existing) {
+      const job = await env.DB.prepare(
+        "SELECT id, state, attempt_count FROM publish_jobs WHERE execution_key = ?"
+      ).bind(executionKey).first<{ id: string; state: string; attempt_count: number }>();
+
+      if (!job) {
+        message.retry({ delaySeconds: 60 });
+        continue;
+      }
+      if (job.state === "completed") {
+        message.ack();
+        continue;
+      }
+      if (job.state === "publishing") {
+        // A duplicate delivery is already being processed by another consumer.
         message.ack();
         continue;
       }
@@ -832,11 +877,16 @@ export default {
       ).bind(message.body.postId).first<any>();
 
       if (!post?.social_account_id) {
-        await env.DB.prepare(
-          `UPDATE posts SET status = 'failed', failure_code = 'SOCIAL_ACCOUNT_REQUIRED',
-             failure_message = 'Connect and assign a social account before publishing.',
-             updated_at = ? WHERE id = ?`
-        ).bind(new Date().toISOString(), message.body.postId).run();
+        await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE posts SET status = 'failed', failure_code = 'SOCIAL_ACCOUNT_REQUIRED',
+               failure_message = 'Connect and assign a social account before publishing.',
+               updated_at = ? WHERE id = ?`
+          ).bind(new Date().toISOString(), message.body.postId),
+          env.DB.prepare(
+            "UPDATE publish_jobs SET state='failed',last_error=?,updated_at=? WHERE id=?"
+          ).bind("SOCIAL_ACCOUNT_REQUIRED",new Date().toISOString(),job.id),
+        ]);
         await notifyPostOwners(
           env,
           message.body.postId,
@@ -848,29 +898,38 @@ export default {
         continue;
       }
 
+      const attemptNumber = Number(job.attempt_count || 0) + 1;
       const attemptId = crypto.randomUUID();
+      const attemptKey = `${executionKey}:attempt:${attemptNumber}`;
+      const attemptNow = new Date().toISOString();
+
       await env.DB.batch([
         env.DB.prepare(
-          `INSERT INTO publish_attempts
-           (id, post_id, idempotency_key, status)
-           VALUES (?, ?, ?, 'publishing')`
-        ).bind(attemptId, message.body.postId, message.body.idempotencyKey),
+          `UPDATE publish_jobs SET state='publishing',attempt_count=?,claimed_at=?,
+             updated_at=? WHERE id=?`
+        ).bind(attemptNumber,attemptNow,attemptNow,job.id),
         env.DB.prepare(
-          `UPDATE posts SET status = 'publishing', publish_started_at = ?,
+          `INSERT INTO publish_attempts
+           (id, post_id, idempotency_key, attempt, status)
+           VALUES (?, ?, ?, ?, 'publishing')`
+        ).bind(attemptId, message.body.postId, attemptKey, attemptNumber),
+        env.DB.prepare(
+          `UPDATE posts SET status = 'publishing', publish_started_at = COALESCE(publish_started_at, ?),
              last_publish_attempt_at = ?, updated_at = ? WHERE id = ?`
-        ).bind(
-          new Date().toISOString(),
-          new Date().toISOString(),
-          new Date().toISOString(),
-          message.body.postId
-        ),
+        ).bind(attemptNow,attemptNow,attemptNow,message.body.postId),
       ]);
 
       try {
         await publishPostToSocial(env, message.body.postId);
-        await env.DB.prepare(
-          "UPDATE publish_attempts SET status = 'published' WHERE id = ?"
-        ).bind(attemptId).run();
+        const completedAt = new Date().toISOString();
+        await env.DB.batch([
+          env.DB.prepare(
+            "UPDATE publish_attempts SET status = 'published' WHERE id = ?"
+          ).bind(attemptId),
+          env.DB.prepare(
+            "UPDATE publish_jobs SET state='completed',completed_at=?,last_error=NULL,updated_at=? WHERE id=?"
+          ).bind(completedAt,completedAt,job.id),
+        ]);
         await notifyPostOwners(
           env,
           message.body.postId,
@@ -882,18 +941,22 @@ export default {
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message.slice(0, 1500) : "Publishing failed";
         const retryCount = Number(post.publish_retry_count || 0) + 1;
+        const failedAt = new Date().toISOString();
         await env.DB.batch([
           env.DB.prepare(
             `UPDATE publish_attempts SET status = 'failed', error_message = ? WHERE id = ?`
           ).bind(errorMessage, attemptId),
           env.DB.prepare(
+            `UPDATE publish_jobs SET state=?,last_error=?,updated_at=? WHERE id=?`
+          ).bind(retryCount >= 3 ? "failed" : "retrying",errorMessage,failedAt,job.id),
+          env.DB.prepare(
             `UPDATE posts SET status = ?, publish_retry_count = ?, failure_code = 'PROVIDER_ERROR',
                failure_message = ?, updated_at = ? WHERE id = ?`
           ).bind(
-            retryCount >= 3 ? "failed" : "publishing",
+            retryCount >= 3 ? "failed" : "publish_queued",
             retryCount,
             errorMessage,
-            new Date().toISOString(),
+            failedAt,
             message.body.postId
           ),
         ]);
