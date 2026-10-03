@@ -48,7 +48,6 @@ type GeneratedPost = {
   objective: string;
   visualDirection: string;
   suggestedPublishAt: string;
-  sparqScore: number;
 };
 
 type GeneratedCampaign = {
@@ -71,7 +70,7 @@ const CAMPAIGN_SCHEMA = {
       items:{
         type:"object",
         additionalProperties:false,
-        required:["platform","headline","caption","hashtags","cta","objective","visualDirection","suggestedPublishAt","sparqScore"],
+        required:["platform","headline","caption","hashtags","cta","objective","visualDirection","suggestedPublishAt"],
         properties:{
           platform:{type:"string",enum:["instagram","facebook","linkedin","tiktok","x"]},
           headline:{type:"string"},
@@ -80,8 +79,7 @@ const CAMPAIGN_SCHEMA = {
           cta:{type:"string"},
           objective:{type:"string"},
           visualDirection:{type:"string"},
-          suggestedPublishAt:{type:"string"},
-          sparqScore:{type:"integer",minimum:0,maximum:100}
+          suggestedPublishAt:{type:"string"}
         }
       }
     }
@@ -659,7 +657,7 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
         JSON.stringify(p.hashtags||[]),
         p.objective,
         suggested,
-        clamp(p.sparqScore),
+        null,
         jobId,
         now,
         campaignResponseId,
@@ -1060,7 +1058,7 @@ export async function editPostGraphicWithAI(env:GenerationEnv,postId:string,inst
     platform:post.platform,headline:post.headline||post.title,caption:post.caption||"",
     hashtags:JSON.parse(post.hashtags||"[]"),cta:"",objective:post.objective||"",
     visualDirection:"Preserve the approved composition and brand identity.",
-    suggestedPublishAt:post.suggested_publish_at||fallbackSlot(0),sparqScore:post.sparq_score||0
+    suggestedPublishAt:post.suggested_publish_at||fallbackSlot(0)
   };
 
   const result=await generateGraphic(env,post,generated,images,instruction,edit);
@@ -1075,7 +1073,7 @@ export async function regeneratePostWithAI(env:GenerationEnv,postId:string,instr
     platform:post.platform,headline:post.headline||post.title,caption:post.caption||"",
     hashtags:JSON.parse(post.hashtags||"[]"),cta:"",objective:post.objective||"",
     visualDirection:instruction||"Create a fresh, polished on-brand visual variation using the source assets.",
-    suggestedPublishAt:post.suggested_publish_at||fallbackSlot(0),sparqScore:post.sparq_score||0
+    suggestedPublishAt:post.suggested_publish_at||fallbackSlot(0)
   };
   const result=await generateGraphic(env,post,generated,images,instruction,false);
   return {postId,imageModel:result.imageModel,responseId:result.responseId};
