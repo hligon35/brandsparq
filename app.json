@@ -18,12 +18,14 @@
     "android": {
       "package": "com.alphazonelabs.brandsparq",
       "adaptiveIcon": {
+        "foregroundImage": "./assets/brandsparqIcon.png",
         "backgroundColor": "#F4F8FF"
       }
     },
     "web": {
       "bundler": "metro",
-      "output": "single"
+      "output": "single",
+      "favicon": "./assets/brandsparqFavicon.png"
     },
     "plugins": [
       "expo-router",
@@ -35,10 +37,18 @@
           "microphonePermission": false
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/brandsparqFavicon.png",
+          "color": "#0B78F6"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "icon": "./assets/brandsparqIcon.png"
   }
 }
