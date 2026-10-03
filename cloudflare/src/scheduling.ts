@@ -25,21 +25,33 @@ function minutes(value: string) {
   return h * 60 + m;
 }
 
-function inWindow(date: Date, windows: string[]) {
-  if (!windows.length) return true;
-  const total = date.getHours() * 60 + date.getMinutes();
-  return windows.some((window) => {
-    const [start, end] = window.split("-");
-    return total >= minutes(start) && total <= minutes(end);
-  });
+function localParts(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const weekdayMap: Record<string, number> = {
+    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  };
+  return {
+    dateKey: `${map.year}-${map.month}-${map.day}`,
+    weekday: weekdayMap[map.weekday] ?? 0,
+    minuteOfDay: Number(map.hour) * 60 + Number(map.minute),
+  };
 }
 
-function inBlackout(date: Date, windows: string[]) {
-  if (!windows.length) return false;
-  const total = date.getHours() * 60 + date.getMinutes();
+function inWindows(minuteOfDay: number, windows: string[]) {
+  if (!windows.length) return true;
   return windows.some((window) => {
     const [start, end] = window.split("-");
-    return total >= minutes(start) && total <= minutes(end);
+    return minuteOfDay >= minutes(start) && minuteOfDay <= minutes(end);
   });
 }
 
@@ -84,40 +96,43 @@ export async function findNextAvailableSlot(
   candidate.setSeconds(0, 0);
 
   for (let attempt = 0; attempt < 14 * 24 * 4; attempt += 1) {
-    const weekday = candidate.getDay();
-    const dateKey = candidate.toISOString().slice(0, 10);
+    const local = localParts(candidate, rules.timezone);
 
     if (
-      rules.allowedWeekdays.includes(weekday) &&
-      inWindow(candidate, rules.preferredWindows) &&
-      !inBlackout(candidate, rules.blackoutWindows)
+      rules.allowedWeekdays.includes(local.weekday) &&
+      inWindows(local.minuteOfDay, rules.preferredWindows) &&
+      !inWindows(local.minuteOfDay, rules.blackoutWindows)
     ) {
-      const dayCount = await env.DB.prepare(
-        `SELECT COUNT(*) AS count FROM posts
+      const nearby = await env.DB.prepare(
+        `SELECT scheduled_publish_at FROM posts
          WHERE client_id = ?
+           AND scheduled_publish_at IS NOT NULL
            AND scheduled_publish_at >= ?
-           AND scheduled_publish_at < ?
+           AND scheduled_publish_at <= ?
            AND status NOT IN ('canceled','failed')`
       )
         .bind(
           clientId,
-          `${dateKey}T00:00:00.000Z`,
-          `${dateKey}T23:59:59.999Z`
+          new Date(candidate.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+          new Date(candidate.getTime() + 24 * 60 * 60 * 1000).toISOString()
         )
-        .first<{ count: number }>();
+        .all<{ scheduled_publish_at: string }>();
 
-      const collision = await env.DB.prepare(
-        `SELECT id FROM posts
-         WHERE client_id = ?
-           AND scheduled_publish_at IS NOT NULL
-           AND ABS(strftime('%s', scheduled_publish_at) - strftime('%s', ?)) < ?
-           AND status NOT IN ('canceled','failed')
-         LIMIT 1`
-      )
-        .bind(clientId, candidate.toISOString(), rules.minSpacing * 60)
-        .first();
+      const sameLocalDay = nearby.results.filter(
+        (row) =>
+          localParts(new Date(row.scheduled_publish_at), rules.timezone).dateKey ===
+          local.dateKey
+      ).length;
 
-      if (Number(dayCount?.count || 0) < rules.maxPerDay && !collision) {
+      const collision = nearby.results.some(
+        (row) =>
+          Math.abs(
+            Date.parse(row.scheduled_publish_at) - candidate.getTime()
+          ) <
+          rules.minSpacing * 60 * 1000
+      );
+
+      if (sameLocalDay < rules.maxPerDay && !collision) {
         return candidate.toISOString();
       }
     }
@@ -133,10 +148,11 @@ export async function validateSchedule(
   clientId: string,
   scheduledAt: string
 ) {
-  const suggested = await findNextAvailableSlot(env, clientId, scheduledAt);
+  const requested = new Date(scheduledAt).toISOString();
+  const suggested = await findNextAvailableSlot(env, clientId, requested);
   return {
-    requested: scheduledAt,
+    requested,
     suggested,
-    conflict: suggested !== new Date(scheduledAt).toISOString(),
+    conflict: suggested !== requested,
   };
 }
