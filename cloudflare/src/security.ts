@@ -1,5 +1,6 @@
 export interface SecurityEnv {
   SOCIAL_TOKEN_KEY?: string;
+  AUTH_PEPPER?: string;
 }
 
 function bytesToBase64(bytes: Uint8Array) {
@@ -72,4 +73,64 @@ export async function hashSecret(value: string, pepper = "") {
   return [...new Uint8Array(digest)]
     .map((v) => v.toString(16).padStart(2, "0"))
     .join("");
+}
+
+
+function base64UrlEncode(value: Uint8Array | string) {
+  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
+  return bytesToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlDecode(value: string) {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4);
+  return base64ToBytes(padded);
+}
+
+async function mediaSigningKey(env: SecurityEnv) {
+  if (!env.AUTH_PEPPER) throw new Error("AUTH_PEPPER is not configured.");
+  return crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(env.AUTH_PEPPER),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"]
+  );
+}
+
+export async function createSignedMediaToken(
+  r2Key: string,
+  env: SecurityEnv,
+  ttlMs = 15 * 60 * 1000
+) {
+  const payload = base64UrlEncode(JSON.stringify({ key: r2Key, expiresAt: Date.now() + ttlMs }));
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    await mediaSigningKey(env),
+    new TextEncoder().encode(payload)
+  );
+  return `${payload}.${base64UrlEncode(new Uint8Array(signature))}`;
+}
+
+export async function verifySignedMediaToken(token: string, env: SecurityEnv) {
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return null;
+
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    await mediaSigningKey(env),
+    base64UrlDecode(signature),
+    new TextEncoder().encode(payload)
+  );
+  if (!valid) return null;
+
+  try {
+    const decoded = JSON.parse(new TextDecoder().decode(base64UrlDecode(payload))) as {
+      key?: string;
+      expiresAt?: number;
+    };
+    if (!decoded.key || !decoded.expiresAt || decoded.expiresAt <= Date.now()) return null;
+    return { key: decoded.key, expiresAt: decoded.expiresAt };
+  } catch {
+    return null;
+  }
 }
