@@ -111,6 +111,87 @@ export const api = {
   signOut: () =>
     jsonRequest<{ ok: true }>("/v1/auth/logout", { method: "POST" }),
 
+
+  getCampaigns: (clientId?: string) =>
+    jsonRequest<{ data: any[] }>(
+      `/v1/campaigns${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`
+    ),
+
+  getCampaign: (campaignId: string) =>
+    jsonRequest<{ data: { campaign: any; posts: any[] } }>(
+      `/v1/campaigns/${campaignId}`
+    ),
+
+  updateCampaign: (campaignId: string, payload: Record<string, unknown>) =>
+    jsonRequest<{ ok: true }>(`/v1/campaigns/${campaignId}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getSocialAccounts: (clientId?: string) =>
+    jsonRequest<{ data: any[] }>(
+      `/v1/social/accounts${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`
+    ),
+
+  getSocialConnectUrl(platform: string, clientId: string, returnTo: string) {
+    return `${API_URL}/v1/social/connect?platform=${encodeURIComponent(platform)}&clientId=${encodeURIComponent(clientId)}&returnTo=${encodeURIComponent(returnTo)}`;
+  },
+
+  disconnectSocialAccount: (accountId: string) =>
+    jsonRequest<{ ok: true }>(`/v1/social/accounts/${accountId}/disconnect`, {
+      method: "POST",
+    }),
+
+  assignSocialAccount: (postId: string, socialAccountId: string) =>
+    jsonRequest<{ ok: true }>(`/v1/posts/${postId}/social-account`, {
+      method: "POST",
+      body: JSON.stringify({ socialAccountId }),
+    }),
+
+  getNotifications: () =>
+    jsonRequest<{ data: any[] }>("/v1/notifications"),
+
+  registerPushToken: (token: string, platform?: string, deviceName?: string) =>
+    jsonRequest<{ ok: true }>("/v1/push-token", {
+      method: "POST",
+      body: JSON.stringify({ token, platform, deviceName }),
+    }),
+
+  getSettings: () =>
+    jsonRequest<{ data: any }>("/v1/settings"),
+
+  saveSettings: (payload: Record<string, unknown>) =>
+    jsonRequest<{ ok: true }>("/v1/settings", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  testNotifications: () =>
+    jsonRequest<{ ok: true }>("/v1/notifications/test", { method: "POST" }),
+
+  getAnalyticsOverview: (clientId?: string) =>
+    jsonRequest<{ data: any }>(
+      `/v1/analytics/overview${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`
+    ),
+
+  syncAnalytics: (accountId?: string) =>
+    jsonRequest<{ ok: true }>("/v1/analytics/sync", {
+      method: "POST",
+      body: JSON.stringify({ accountId }),
+    }),
+
+  validateSchedule: (clientId: string, scheduledAt: string) =>
+    jsonRequest<{ data: { requested: string; suggested: string; conflict: boolean } }>(
+      `/v1/clients/${clientId}/schedule/validate`,
+      { method: "POST", body: JSON.stringify({ scheduledAt }) }
+    ),
+
+  recommendSchedule: (clientId: string, desiredAt?: string) =>
+    jsonRequest<{ data: { scheduledAt: string } }>(
+      `/v1/clients/${clientId}/schedule/recommend`,
+      { method: "POST", body: JSON.stringify({ desiredAt }) }
+    ),
+
   getBrand: (clientId: string) =>
     jsonRequest<{ data: any }>(`/v1/clients/${clientId}/brand`),
 
