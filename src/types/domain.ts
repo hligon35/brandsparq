@@ -5,6 +5,7 @@ export type PostStatus =
   | "approved"
   | "calendar_scheduled"
   | "pre_publish"
+  | "publish_queued"
   | "publishing"
   | "published"
   | "edit_requested"
