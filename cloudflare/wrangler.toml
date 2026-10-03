@@ -31,7 +31,7 @@ run_worker_first = [ "/v1/*", "/health" ]
 [[d1_databases]]
 binding = "DB"
 database_name = "brandsparq"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "1f6f0d67-1725-4f19-8fd9-0f80f600f5b1"
 
 [[r2_buckets]]
 binding = "MEDIA"
