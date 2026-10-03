@@ -1,5 +1,11 @@
 import { resolveDefaultSocialAccount } from "./social";
 import {
+  creativeProfile,
+  deterministicComposition,
+  evaluateCreative,
+  type CreativePlatform,
+} from "./creative";
+import {
   AI_PROMPT_VERSION,
   CAPTION_REWRITE_INSTRUCTIONS,
   CREATIVE_DIRECTOR_INSTRUCTIONS,
@@ -21,10 +27,17 @@ export type GenerationEnv = OpenAIEnv & {
   RESEND_FROM_NAME?: string;
   REVIEW_NOTIFICATION_EMAIL?: string;
   REVIEW_BASE_URL?: string;
+  GENERATION_QUEUE: Queue<any>;
 };
 
 type Platform = "instagram" | "facebook" | "linkedin" | "tiktok" | "x";
-type AssetRow = { id:string; r2_key:string; filename:string; content_type:string; size_bytes?:number|null };
+type AssetRow = {
+  id:string;
+  r2_key:string;
+  filename:string;
+  content_type:string;
+  size_bytes?:number|null;
+};
 
 type GeneratedPost = {
   platform: Platform;
@@ -161,9 +174,36 @@ async function toImageInputs(env:GenerationEnv,assets:AssetRow[],limit=3){
   const out:Array<{type:"input_image";image_url:string}>=[];
   for(const asset of assets.slice(0,limit)){
     if(!asset.content_type?.startsWith("image/"))continue;
-    if((asset.size_bytes||0)>4*1024*1024)continue;
-    const object=await env.MEDIA.get(asset.r2_key);if(!object)continue;
-    out.push({type:"input_image",image_url:`data:${asset.content_type};base64,${toBase64(await object.arrayBuffer())}`});
+
+    const derivative=await env.DB.prepare(
+      `SELECT r2_key,content_type,size_bytes
+       FROM asset_derivatives
+       WHERE asset_id=? AND kind='analysis'`
+    ).bind(asset.id).first<{
+      r2_key:string;
+      content_type:string;
+      size_bytes:number|null;
+    }>();
+
+    const source=derivative||{
+      r2_key:asset.r2_key,
+      content_type:asset.content_type,
+      size_bytes:asset.size_bytes||null,
+    };
+
+    if((source.size_bytes||0)>8*1024*1024){
+      throw new Error(
+        `Asset ${asset.filename} is too large for AI analysis. Re-upload it through BrandSparQ so an analysis derivative can be created.`
+      );
+    }
+
+    const object=await env.MEDIA.get(source.r2_key);
+    if(!object)throw new Error(`Source image is missing from storage: ${asset.filename}`);
+
+    out.push({
+      type:"input_image",
+      image_url:`data:${source.content_type};base64,${toBase64(await object.arrayBuffer())}`,
+    });
   }
   return out;
 }
@@ -175,8 +215,7 @@ async function loadPost(env:GenerationEnv,postId:string){
       bp.tagline,bp.preferred_ctas,bp.imagery_preferences,bp.posting_rules,bp.restricted_words,
       bp.fonts,bp.brand_examples,bp.prohibited_visual_styles,bp.competitor_references,
       bp.brand_vocabulary,bp.hashtag_policy,bp.target_locations,bp.platform_rules,
-      bp.fonts,bp.brand_examples,bp.prohibited_visual_styles,bp.competitor_references,
-      bp.brand_vocabulary,bp.hashtag_policy,bp.target_locations,bp.platform_rules
+      bp.logo_asset_id,bp.alternate_logo_asset_id
       FROM posts p JOIN clients c ON c.id=p.client_id
       LEFT JOIN brand_profiles bp ON bp.client_id=p.client_id WHERE p.id=?`
   ).bind(postId).first<any>();
@@ -279,7 +318,10 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
   let job=await env.DB.prepare(
     `SELECT g.*,c.name AS client_name,c.timezone,
       bp.voice,bp.audience,bp.primary_color,bp.secondary_color,bp.website,
-      bp.tagline,bp.preferred_ctas,bp.imagery_preferences,bp.posting_rules,bp.restricted_words
+      bp.tagline,bp.preferred_ctas,bp.imagery_preferences,bp.posting_rules,bp.restricted_words,
+      bp.fonts,bp.brand_examples,bp.prohibited_visual_styles,bp.competitor_references,
+      bp.brand_vocabulary,bp.hashtag_policy,bp.target_locations,bp.platform_rules,
+      bp.logo_asset_id,bp.alternate_logo_asset_id
       FROM generation_jobs g JOIN clients c ON c.id=g.client_id
       LEFT JOIN brand_profiles bp ON bp.client_id=g.client_id WHERE g.id=?`
   ).bind(jobId).first<any>();
