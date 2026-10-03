@@ -297,7 +297,7 @@ export default {
       const tokenHash = await hashReviewToken(publicApproveMatch[1], env);
       const row = await env.DB.prepare(
         `SELECT rt.id AS review_token_id, rt.post_id, rt.expires_at, rt.used_at,
-                p.status, p.client_id, p.suggested_publish_at
+                p.status, p.client_id, p.platform, p.social_account_id, p.suggested_publish_at
          FROM review_tokens rt
          JOIN posts p ON p.id = rt.post_id
          WHERE rt.token_hash = ?`
@@ -308,6 +308,21 @@ export default {
       }
       if (!row.suggested_publish_at) {
         return response(request, env, { error: "This post does not have a proposed publishing slot." }, { status: 409 });
+      }
+
+      const destination = await ensurePostSocialDestination(env, {
+        id: row.post_id,
+        client_id: row.client_id,
+        platform: row.platform,
+        social_account_id: row.social_account_id,
+      });
+      if (!destination) {
+        return response(
+          request,
+          env,
+          { error: `Connect or choose a ${row.platform} publishing account before approval.` },
+          { status: 409 }
+        );
       }
 
       const now = new Date().toISOString();
@@ -591,17 +606,34 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/v1/posts/review") {
+      const denied = await authorize(env, sessionUser!, "read");
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      const allowedClients = await accessibleClientIds(env.DB, sessionUser!);
       const result = await env.DB.prepare(
         postSelect("WHERE p.status = ? ORDER BY p.suggested_publish_at ASC")
-      ).bind("awaiting_approval").all();
-      return response(request, env, { data: result.results });
+      ).bind("awaiting_approval").all<any>();
+
+      const visible = allowedClients === null
+        ? result.results
+        : result.results.filter((row) => allowedClients.includes(row.client_id));
+
+      return response(request, env, {
+        data: await signPostRows(env, request.url, sessionUser!.id, visible),
+      });
     }
 
     if (request.method === "GET" && url.pathname === "/v1/posts/calendar") {
+      const denied = await authorize(env, sessionUser!, "read");
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
       const from = url.searchParams.get("from");
       const to = url.searchParams.get("to");
-      if (!from || !to) return response(request, env, { error: "from and to are required" }, { status: 400 });
+      if (!from || !to) {
+        return response(request, env, { error: "from and to are required" }, { status: 400 });
+      }
 
+      const allowedClients = await accessibleClientIds(env.DB, sessionUser!);
       const result = await env.DB.prepare(
         postSelect(
           `WHERE p.scheduled_publish_at IS NOT NULL
@@ -610,16 +642,28 @@ export default {
            AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publishing','published','failed')
            ORDER BY p.scheduled_publish_at ASC`
         )
-      ).bind(from, to).all();
+      ).bind(from, to).all<any>();
 
-      return response(request, env, { data: result.results });
+      const visible = allowedClients === null
+        ? result.results
+        : result.results.filter((row) => allowedClients.includes(row.client_id));
+
+      return response(request, env, {
+        data: await signPostRows(env, request.url, sessionUser!.id, visible),
+      });
     }
 
     const postMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)$/);
     if (request.method === "GET" && postMatch) {
       const post = await getPost(env, postMatch[1]);
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
-      return response(request, env, { data: post });
+
+      const denied = await authorize(env, sessionUser!, "read", post.client_id);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      return response(request, env, {
+        data: await signPostMedia(env, request.url, sessionUser!.id, post),
+      });
     }
 
     const approvalMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/approve$/);
