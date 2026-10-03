@@ -76,12 +76,16 @@ async function handoffHash(token: string, env: AuthEnv) {
   return sha256(`${env.AUTH_PEPPER || ""}:google-handoff:${token}`);
 }
 
+function missingGoogleConfig(env: AuthEnv) {
+  const missing: string[] = [];
+  if (!env.AUTH_PEPPER) missing.push("AUTH_PEPPER");
+  if (!env.GOOGLE_CLIENT_ID) missing.push("GOOGLE_CLIENT_ID");
+  if (!env.GOOGLE_CLIENT_SECRET) missing.push("GOOGLE_CLIENT_SECRET");
+  return missing;
+}
+
 function googleConfigured(env: AuthEnv) {
-  return !!(
-    env.AUTH_PEPPER &&
-    env.GOOGLE_CLIENT_ID &&
-    env.GOOGLE_CLIENT_SECRET
-  );
+  return missingGoogleConfig(env).length === 0;
 }
 
 function redirectUri(url: URL, env: AuthEnv) {
@@ -199,7 +203,10 @@ export async function handleAuthRoute(
   ) {
     if (!googleConfigured(env)) {
       return {
-        body: { error: "Google authentication is not configured." },
+        body: {
+          error: "Google authentication is not configured.",
+          missing: missingGoogleConfig(env),
+        },
         status: 503,
       };
     }
