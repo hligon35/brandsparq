@@ -57,7 +57,7 @@ max_batch_size = 2
 max_retries = 2
 
 [triggers]
-crons = ["* * * * *"]
+crons = ["* * * * *", "7 */6 * * *"]
 
 [observability.logs]
 enabled = true

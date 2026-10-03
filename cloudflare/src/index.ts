@@ -1,7 +1,7 @@
 import { getSessionUser, handleAuthRoute } from "./auth";
 import { handleManagementRoute } from "./management";
 import { notifyPostOwners } from "./notifications";
-import { hashSecret } from "./security";
+import { createSignedMediaToken, hashSecret, verifySignedMediaToken } from "./security";
 import { publishPostToSocial, socialOAuthCallback, syncAccountAnalytics } from "./social";
 import { findNextAvailableSlot } from "./scheduling";
 import {
@@ -67,6 +67,28 @@ type JobMessage = PublishMessage | GenerationMessage;
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
+function detectImageType(buffer: ArrayBuffer) {
+  const b = new Uint8Array(buffer);
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length >= 6 && String.fromCharCode(...b.slice(0, 6)).startsWith("GIF8")) return "image/gif";
+  if (
+    b.length >= 12 &&
+    String.fromCharCode(...b.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...b.slice(8, 12)) === "WEBP"
+  ) return "image/webp";
+  if (b.length >= 12 && String.fromCharCode(...b.slice(4, 8)) === "ftyp") {
+    const brand = String.fromCharCode(...b.slice(8, 12)).toLowerCase();
+    if (["heic","heix","hevc","hevx","mif1","msf1"].includes(brand)) return "image/heic";
+  }
+  return null;
+}
+
+async function sha256Hex(buffer: ArrayBuffer) {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  return [...new Uint8Array(digest)].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
 function cors(request: Request, env: Env) {
   const origin = request.headers.get("origin");
   const configured = new Set(
@@ -83,7 +105,7 @@ function cors(request: Request, env: Env) {
     allowed,
     headers: {
       "access-control-allow-origin": origin && allowed ? origin : "",
-      "access-control-allow-methods": "GET,POST,OPTIONS",
+      "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
       "access-control-allow-headers": "authorization,content-type,x-client-id,x-file-name",
       "access-control-max-age": "86400",
       vary: "Origin",
@@ -97,6 +119,10 @@ function response(request: Request, env: Env, body: unknown, init: ResponseInit 
     ...init,
     headers: {
       "content-type": "application/json",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "strict-origin-when-cross-origin",
+      "permissions-policy": "camera=(), microphone=(), geolocation=()",
+      "content-security-policy": "default-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' https:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
       ...policy.headers,
       ...init.headers,
     },
@@ -117,22 +143,60 @@ function postSelect(where = "") {
     ${where}`;
 }
 
-async function getPost(env: Env, postId: string) {
-  return env.DB.prepare(postSelect("WHERE p.id = ?")).bind(postId).first();
+async function decoratePostMedia(env: Env, post: any) {
+  if (post?.graphic_key) {
+    post.image_url = `/v1/public/media/${encodeURIComponent(await createSignedMediaToken(post.graphic_key, env))}`;
+  }
+  return post;
 }
 
-async function audit(env: Env, postId: string, action: string, metadata?: unknown) {
+async function decoratePostList(env: Env, rows: any[]) {
+  return Promise.all(rows.map((row) => decoratePostMedia(env, row)));
+}
+
+async function getPost(env: Env, postId: string) {
+  const post = await env.DB.prepare(postSelect("WHERE p.id = ?")).bind(postId).first<any>();
+  return decoratePostMedia(env, post);
+}
+
+function roleAllowed(role: string | undefined, allowed: string[]) {
+  return !!role && allowed.includes(role);
+}
+
+async function audit(env: Env, postId: string, action: string, metadata?: unknown, actorId = "system") {
   await env.DB.prepare(
     "INSERT INTO audit_logs (id, post_id, actor_id, action, metadata) VALUES (?, ?, ?, ?, ?)"
   )
     .bind(
       crypto.randomUUID(),
       postId,
-      "system",
+      actorId,
       action,
       metadata ? JSON.stringify(metadata) : null
     )
     .run();
+}
+
+async function syncDueAnalytics(env: Env) {
+  const settings = await env.DB.prepare(
+    "SELECT analytics_refresh_hours FROM workspace_settings WHERE id = 'default'"
+  ).first<{ analytics_refresh_hours: number }>();
+  const refreshMs = Number(settings?.analytics_refresh_hours || 6) * 60 * 60 * 1000;
+  const accounts = await env.DB.prepare(
+    `SELECT sa.id,
+        MAX(CASE WHEN ar.status = 'completed' THEN ar.completed_at END) AS last_sync
+     FROM social_accounts sa
+     LEFT JOIN analytics_sync_runs ar ON ar.social_account_id = sa.id
+     WHERE sa.status = 'connected'
+     GROUP BY sa.id`
+  ).all<{ id: string; last_sync: string | null }>();
+
+  for (const account of accounts.results) {
+    const last = account.last_sync ? Date.parse(account.last_sync) : 0;
+    if (!last || Date.now() - last >= refreshMs) {
+      try { await syncAccountAnalytics(env, account.id); } catch {}
+    }
+  }
 }
 
 export default {
@@ -150,6 +214,25 @@ export default {
 
     if (url.pathname === "/health") {
       return response(request, env, { ok: true, service: "brandsparq-api" });
+    }
+
+    const signedMediaMatch = url.pathname.match(/^\/v1\/public\/media\/([^/]+)$/);
+    if (signedMediaMatch && request.method === "GET") {
+      const verified = await verifySignedMediaToken(decodeURIComponent(signedMediaMatch[1]), env).catch(() => null);
+      if (!verified) {
+        return response(request, env, { error: "Media link is invalid or expired." }, { status: 404 });
+      }
+      const object = await env.MEDIA.get(verified.key);
+      if (!object) return response(request, env, { error: "Media not found." }, { status: 404 });
+      return new Response(object.body, {
+        headers: {
+          "content-type": object.httpMetadata?.contentType || "application/octet-stream",
+          "cache-control": "private, max-age=300",
+          "x-content-type-options": "nosniff",
+          etag: object.httpEtag,
+          ...policy.headers,
+        },
+      });
     }
 
     const publicPublishMediaMatch = url.pathname.match(/^\/v1\/public\/publish-media\/([^/]+)$/);
@@ -221,7 +304,7 @@ export default {
       const tokenHash = await hashReviewToken(publicApproveMatch[1], env);
       const row = await env.DB.prepare(
         `SELECT rt.id AS review_token_id, rt.post_id, rt.expires_at, rt.used_at,
-                p.status, p.client_id, p.suggested_publish_at
+                p.status, p.client_id, p.suggested_publish_at, p.social_account_id
          FROM review_tokens rt
          JOIN posts p ON p.id = rt.post_id
          WHERE rt.token_hash = ?`
@@ -232,6 +315,9 @@ export default {
       }
       if (!row.suggested_publish_at) {
         return response(request, env, { error: "This post does not have a proposed publishing slot." }, { status: 409 });
+      }
+      if (!row.social_account_id) {
+        return response(request, env, { error: "Assign a connected social account before approving this post." }, { status: 409 });
       }
 
       const now = new Date().toISOString();
@@ -337,7 +423,11 @@ export default {
         `SELECT c.id AS client_id, c.name, c.timezone,
                 bp.id, bp.voice, bp.audience, bp.primary_color, bp.secondary_color,
                 bp.website, bp.social_handles, bp.restricted_words, bp.tagline,
-                bp.preferred_ctas, bp.imagery_preferences, bp.posting_rules
+                bp.preferred_ctas, bp.imagery_preferences, bp.posting_rules,
+                bp.logo_asset_id, bp.alternate_logo_asset_id, bp.fonts,
+                bp.brand_examples, bp.prohibited_visual_styles, bp.competitor_references,
+                bp.brand_vocabulary, bp.hashtag_policy, bp.cta_library,
+                bp.campaign_goals, bp.target_locations, bp.platform_rules
          FROM clients c
          LEFT JOIN brand_profiles bp ON bp.client_id = c.id
          WHERE c.id = ?`
@@ -347,6 +437,9 @@ export default {
     }
 
     if (brandMatch && request.method === "POST") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin"])) {
+        return response(request, env, { error: "You do not have permission to update Brand Brain." }, { status: 403 });
+      }
       const payload = await request.json<any>().catch(() => ({} as any));
       const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ?")
         .bind(brandMatch[1]).first();
@@ -360,8 +453,11 @@ export default {
         `INSERT INTO brand_profiles
          (id, client_id, voice, audience, primary_color, secondary_color, website,
           social_handles, restricted_words, tagline, preferred_ctas,
-          imagery_preferences, posting_rules, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          imagery_preferences, posting_rules, logo_asset_id, alternate_logo_asset_id,
+          fonts, brand_examples, prohibited_visual_styles, competitor_references,
+          brand_vocabulary, hashtag_policy, cta_library, campaign_goals,
+          target_locations, platform_rules, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          ON CONFLICT(client_id) DO UPDATE SET
            voice = excluded.voice,
            audience = excluded.audience,
@@ -374,6 +470,18 @@ export default {
            preferred_ctas = excluded.preferred_ctas,
            imagery_preferences = excluded.imagery_preferences,
            posting_rules = excluded.posting_rules,
+           logo_asset_id = excluded.logo_asset_id,
+           alternate_logo_asset_id = excluded.alternate_logo_asset_id,
+           fonts = excluded.fonts,
+           brand_examples = excluded.brand_examples,
+           prohibited_visual_styles = excluded.prohibited_visual_styles,
+           competitor_references = excluded.competitor_references,
+           brand_vocabulary = excluded.brand_vocabulary,
+           hashtag_policy = excluded.hashtag_policy,
+           cta_library = excluded.cta_library,
+           campaign_goals = excluded.campaign_goals,
+           target_locations = excluded.target_locations,
+           platform_rules = excluded.platform_rules,
            updated_at = CURRENT_TIMESTAMP`
       ).bind(
         id,
@@ -388,13 +496,28 @@ export default {
         payload.tagline || null,
         payload.preferredCtas || null,
         payload.imageryPreferences || null,
-        payload.postingRules || null
+        payload.postingRules || null,
+        payload.logoAssetId || null,
+        payload.alternateLogoAssetId || null,
+        payload.fonts ? JSON.stringify(payload.fonts) : null,
+        payload.brandExamples ? JSON.stringify(payload.brandExamples) : null,
+        payload.prohibitedVisualStyles || null,
+        payload.competitorReferences || null,
+        payload.brandVocabulary || null,
+        payload.hashtagPolicy || null,
+        payload.ctaLibrary ? JSON.stringify(payload.ctaLibrary) : null,
+        payload.campaignGoals ? JSON.stringify(payload.campaignGoals) : null,
+        payload.targetLocations ? JSON.stringify(payload.targetLocations) : null,
+        payload.platformRules ? JSON.stringify(payload.platformRules) : null
       ).run();
 
       return response(request, env, { ok: true, id });
     }
 
     if (request.method === "POST" && url.pathname === "/v1/generation-jobs") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) {
+        return response(request, env, { error: "You do not have permission to create campaigns." }, { status: 403 });
+      }
       const payload = await request.json<{
         clientId?: string;
         objective?: string;
@@ -437,31 +560,65 @@ export default {
         `SELECT c.id, c.name, c.timezone, COALESCE(bp.primary_color, '#A56CFF') AS color
          FROM clients c
          LEFT JOIN brand_profiles bp ON bp.client_id = c.id
+         WHERE c.status != 'archived'
          ORDER BY c.name`
       ).all();
       return response(request, env, { data: result.results });
     }
 
     if (request.method === "POST" && url.pathname === "/v1/assets") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) {
+        return response(request, env, { error: "You do not have permission to upload brand assets." }, { status: 403 });
+      }
       const clientId = request.headers.get("x-client-id")?.trim();
       const filename = request.headers.get("x-file-name")?.trim() || "upload.jpg";
-      const contentType = request.headers.get("content-type") || "application/octet-stream";
+      const declaredContentType = request.headers.get("content-type") || "application/octet-stream";
       const declaredSize = Number(request.headers.get("content-length") || "0");
 
       if (!clientId) return response(request, env, { error: "x-client-id is required" }, { status: 400 });
-      if (!contentType.startsWith("image/")) {
+      if (!declaredContentType.startsWith("image/")) {
         return response(request, env, { error: "Only image uploads are accepted" }, { status: 415 });
       }
       if (declaredSize > MAX_IMAGE_BYTES) {
         return response(request, env, { error: "Image exceeds the 20 MB upload limit" }, { status: 413 });
       }
 
-      const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ?").bind(clientId).first();
-      if (!client) return response(request, env, { error: "Client not found" }, { status: 404 });
+      const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ? AND status != 'archived'")
+        .bind(clientId).first();
+      if (!client) return response(request, env, { error: "Client not found or archived" }, { status: 404 });
 
       const body = await request.arrayBuffer();
+      if (!body.byteLength) {
+        return response(request, env, { error: "Image upload is empty" }, { status: 400 });
+      }
       if (body.byteLength > MAX_IMAGE_BYTES) {
         return response(request, env, { error: "Image exceeds the 20 MB upload limit" }, { status: 413 });
+      }
+
+      const detectedContentType = detectImageType(body);
+      if (!detectedContentType) {
+        return response(request, env, { error: "Unsupported or malformed image file" }, { status: 415 });
+      }
+
+      const hash = await sha256Hex(body);
+      const duplicate = await env.DB.prepare(
+        `SELECT id,filename,content_type,status,created_at
+         FROM assets WHERE client_id=? AND sha256=? ORDER BY created_at DESC LIMIT 1`
+      ).bind(clientId,hash).first<any>();
+
+      if (duplicate) {
+        return response(request, env, {
+          data: {
+            id: duplicate.id,
+            clientId,
+            filename: duplicate.filename,
+            contentType: duplicate.content_type,
+            status: duplicate.status,
+            url: `/v1/assets/${duplicate.id}`,
+            createdAt: duplicate.created_at,
+            deduplicated: true,
+          },
+        }, { status: 200 });
       }
 
       const id = crypto.randomUUID();
@@ -469,16 +626,21 @@ export default {
       const key = `clients/${clientId}/originals/${id}-${safeName}`;
 
       await env.MEDIA.put(key, body, {
-        httpMetadata: { contentType },
-        customMetadata: { clientId, originalFilename: filename },
+        httpMetadata: { contentType: detectedContentType },
+        customMetadata: {
+          clientId,
+          originalFilename: filename,
+          sha256: hash,
+          declaredContentType,
+        },
       });
 
       await env.DB.prepare(
         `INSERT INTO assets
-         (id, client_id, r2_key, filename, content_type, size_bytes, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'uploaded')`
+         (id, client_id, r2_key, filename, content_type, size_bytes, sha256, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'uploaded')`
       )
-        .bind(id, clientId, key, filename, contentType, body.byteLength)
+        .bind(id, clientId, key, filename, detectedContentType, body.byteLength, hash)
         .run();
 
       return response(request, env, {
@@ -486,10 +648,11 @@ export default {
           id,
           clientId,
           filename,
-          contentType,
+          contentType: detectedContentType,
           status: "uploaded",
           url: `/v1/assets/${id}`,
           createdAt: new Date().toISOString(),
+          deduplicated: false,
         },
       }, { status: 201 });
     }
@@ -518,7 +681,7 @@ export default {
       const result = await env.DB.prepare(
         postSelect("WHERE p.status = ? ORDER BY p.suggested_publish_at ASC")
       ).bind("awaiting_approval").all();
-      return response(request, env, { data: result.results });
+      return response(request, env, { data: await decoratePostList(env, result.results as any[]) });
     }
 
     if (request.method === "GET" && url.pathname === "/v1/posts/calendar") {
@@ -531,12 +694,12 @@ export default {
           `WHERE p.scheduled_publish_at IS NOT NULL
            AND p.scheduled_publish_at >= ?
            AND p.scheduled_publish_at < ?
-           AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publishing','published','failed')
+           AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued','publishing','published','failed')
            ORDER BY p.scheduled_publish_at ASC`
         )
       ).bind(from, to).all();
 
-      return response(request, env, { data: result.results });
+      return response(request, env, { data: await decoratePostList(env, result.results as any[]) });
     }
 
     const postMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)$/);
@@ -548,21 +711,28 @@ export default {
 
     const approvalMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/approve$/);
     if (request.method === "POST" && approvalMatch) {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) {
+        return response(request, env, { error: "You do not have permission to approve content." }, { status: 403 });
+      }
       const postId = approvalMatch[1];
       const now = new Date().toISOString();
       const post = await env.DB.prepare(
-        "SELECT status, client_id, suggested_publish_at FROM posts WHERE id = ?"
-      ).bind(postId).first<{ status: string; suggested_publish_at: string | null }>();
+        "SELECT status, client_id, suggested_publish_at, social_account_id FROM posts WHERE id = ?"
+      ).bind(postId).first<{ status: string; client_id: string; suggested_publish_at: string | null; social_account_id: string | null }>();
 
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
       if (!post.suggested_publish_at) {
         return response(request, env, { error: "Post does not have a proposed publishing slot" }, { status: 409 });
       }
+      if (!post.social_account_id) {
+        return response(request, env, { error: "Assign a connected social account before approving this post." }, { status: 409 });
+      }
 
       const scheduledAt = await findNextAvailableSlot(
         env,
-        (post as any).client_id,
-        post.suggested_publish_at
+        post.client_id,
+        post.suggested_publish_at,
+        postId
       );
       await env.DB.batch([
         env.DB.prepare(
@@ -579,29 +749,47 @@ export default {
            VALUES (?, ?, 'approved', ?)`
         ).bind(crypto.randomUUID(), postId, post.status),
       ]);
-      await audit(env, postId, "post.approved");
+      await audit(env, postId, "post.approved", undefined, sessionUser?.id || "system");
 
       return response(request, env, { ok: true, postId, status: "calendar_scheduled" });
     }
 
     const keepMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/keep-schedule$/);
     if (request.method === "POST" && keepMatch) {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","publisher"])) {
+        return response(request, env, { error: "You do not have permission to control publishing." }, { status: 403 });
+      }
       const postId = keepMatch[1];
       const now = new Date().toISOString();
       await env.DB.prepare(
         `UPDATE posts SET prepublish_response = 'keep', status = 'calendar_scheduled', updated_at = ? WHERE id = ?`
       ).bind(now, postId).run();
-      await audit(env, postId, "post.keep_schedule");
+      await audit(env, postId, "post.keep_schedule", undefined, sessionUser?.id || "system");
       return response(request, env, { ok: true, postId, status: "calendar_scheduled" });
     }
 
     const rescheduleMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/reschedule$/);
     if (request.method === "POST" && rescheduleMatch) {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","publisher"])) {
+        return response(request, env, { error: "You do not have permission to reschedule posts." }, { status: 403 });
+      }
       const postId = rescheduleMatch[1];
       const payload = await request.json<{ scheduledPublishAt?: string }>().catch(() => ({} as any));
       if (!payload.scheduledPublishAt || Number.isNaN(Date.parse(payload.scheduledPublishAt))) {
         return response(request, env, { error: "A valid scheduledPublishAt value is required" }, { status: 400 });
       }
+
+      const post = await env.DB.prepare(
+        "SELECT client_id FROM posts WHERE id = ?"
+      ).bind(postId).first<{ client_id: string }>();
+      if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
+
+      const scheduledAt = await findNextAvailableSlot(
+        env,
+        post.client_id,
+        payload.scheduledPublishAt,
+        postId
+      );
 
       await env.DB.prepare(
         `UPDATE posts SET
@@ -611,14 +799,20 @@ export default {
          status = 'rescheduled',
          updated_at = ?
          WHERE id = ?`
-      ).bind(payload.scheduledPublishAt, new Date().toISOString(), postId).run();
+      ).bind(scheduledAt, new Date().toISOString(), postId).run();
 
-      await audit(env, postId, "post.rescheduled", { scheduledPublishAt: payload.scheduledPublishAt });
-      return response(request, env, { ok: true, postId, status: "rescheduled" });
+      await audit(env, postId, "post.rescheduled", {
+        requestedPublishAt: payload.scheduledPublishAt,
+        scheduledPublishAt: scheduledAt
+      }, sessionUser?.id || "system");
+      return response(request, env, { ok: true, postId, status: "rescheduled", scheduledPublishAt: scheduledAt });
     }
 
     const publishNowMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/publish-now$/);
     if (request.method === "POST" && publishNowMatch) {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","publisher"])) {
+        return response(request, env, { error: "You do not have permission to publish posts." }, { status: 403 });
+      }
       const postId = publishNowMatch[1];
       const post = await env.DB.prepare("SELECT id FROM posts WHERE id = ?").bind(postId).first();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
@@ -632,7 +826,7 @@ export default {
         postId,
         idempotencyKey: `manual:${postId}:${crypto.randomUUID()}`,
       });
-      await audit(env, postId, "post.publish_now");
+      await audit(env, postId, "post.publish_now", undefined, sessionUser?.id || "system");
 
       return response(request, env, { ok: true, queued: true, postId });
     }
@@ -640,11 +834,12 @@ export default {
 
     const rewriteCaptionMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-rewrite-caption$/);
     if (rewriteCaptionMatch && request.method === "POST") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) return response(request, env, { error: "You do not have permission to edit content." }, { status: 403 });
       const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
         const data = await rewritePostCaptionWithAI(env, rewriteCaptionMatch[1], instruction);
-        await audit(env, rewriteCaptionMatch[1], "post.ai_caption_rewritten", { instruction: instruction || null });
+        await audit(env, rewriteCaptionMatch[1], "post.ai_caption_rewritten", { instruction: instruction || null }, sessionUser?.id || "system");
         return response(request, env, { ok: true, data });
       } catch (error) {
         return response(request, env, { error: error instanceof Error ? error.message : "Unable to rewrite caption." }, { status: 502 });
@@ -653,12 +848,13 @@ export default {
 
     const editImageMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-edit-image$/);
     if (editImageMatch && request.method === "POST") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) return response(request, env, { error: "You do not have permission to edit content." }, { status: 403 });
       const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
       const instruction = payload.instruction?.trim().slice(0, 2000) || "";
       if (!instruction) return response(request, env, { error: "instruction is required." }, { status: 400 });
       try {
         const data = await editPostGraphicWithAI(env, editImageMatch[1], instruction);
-        await audit(env, editImageMatch[1], "post.ai_graphic_edited", { instruction });
+        await audit(env, editImageMatch[1], "post.ai_graphic_edited", { instruction }, sessionUser?.id || "system");
         return response(request, env, { ok: true, data });
       } catch (error) {
         return response(request, env, { error: error instanceof Error ? error.message : "Unable to edit graphic." }, { status: 502 });
@@ -667,11 +863,12 @@ export default {
 
     const regenerateMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-regenerate$/);
     if (regenerateMatch && request.method === "POST") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) return response(request, env, { error: "You do not have permission to regenerate content." }, { status: 403 });
       const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
         const data = await regeneratePostWithAI(env, regenerateMatch[1], instruction);
-        await audit(env, regenerateMatch[1], "post.ai_regenerated", { instruction: instruction || null });
+        await audit(env, regenerateMatch[1], "post.ai_regenerated", { instruction: instruction || null }, sessionUser?.id || "system");
         return response(request, env, { ok: true, data });
       } catch (error) {
         return response(request, env, { error: error instanceof Error ? error.message : "Unable to regenerate post." }, { status: 502 });
@@ -681,7 +878,12 @@ export default {
     return response(request, env, { error: "Not found" }, { status: 404 });
   },
 
-  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+  async scheduled(event: ScheduledController, env: Env): Promise<void> {
+    if (event.cron === "7 */6 * * *") {
+      await syncDueAnalytics(env);
+      return;
+    }
+
     const now = new Date();
     const nowIso = now.toISOString();
 
@@ -723,7 +925,7 @@ export default {
     }
 
     const due = await env.DB.prepare(
-      `SELECT p.id, p.prepublish_response,
+      `SELECT p.id, p.prepublish_response, p.scheduled_publish_at,
               COALESCE(cs.no_response_policy, np.no_response_policy,
                        ws.default_no_response_policy, 'auto_publish') AS no_response_policy
        FROM posts p
@@ -771,32 +973,20 @@ export default {
         continue;
       }
 
-      await env.PUBLISH_QUEUE.send({
-        kind: "publish",
-        postId: row.id,
-        idempotencyKey: `scheduled:${row.id}:${nowIso.slice(0, 16)}`,
-      });
-    }
+      const claimed = await env.DB.prepare(
+        `UPDATE posts SET status = 'publish_queued', updated_at = ?
+         WHERE id = ? AND status IN ('calendar_scheduled','pre_publish','rescheduled')`
+      ).bind(nowIso, row.id).run();
 
-    const settings = await env.DB.prepare(
-      "SELECT analytics_refresh_hours FROM workspace_settings WHERE id = 'default'"
-    ).first<{ analytics_refresh_hours: number }>();
-    const refreshMs = Number(settings?.analytics_refresh_hours || 6) * 60 * 60 * 1000;
-    const accounts = await env.DB.prepare(
-      `SELECT sa.id,
-          MAX(CASE WHEN ar.status = 'completed' THEN ar.completed_at END) AS last_sync
-       FROM social_accounts sa
-       LEFT JOIN analytics_sync_runs ar ON ar.social_account_id = sa.id
-       WHERE sa.status = 'connected'
-       GROUP BY sa.id`
-    ).all<{ id: string; last_sync: string | null }>();
-
-    for (const account of accounts.results) {
-      const last = account.last_sync ? Date.parse(account.last_sync) : 0;
-      if (!last || Date.now() - last >= refreshMs) {
-        try { await syncAccountAnalytics(env, account.id); } catch {}
+      if (claimed.meta.changes === 1) {
+        await env.PUBLISH_QUEUE.send({
+          kind: "publish",
+          postId: row.id,
+          idempotencyKey: `scheduled:${row.id}:${row.scheduled_publish_at}`,
+        });
       }
     }
+
   },
 
   async queue(batch: MessageBatch<JobMessage>, env: Env): Promise<void> {
@@ -818,11 +1008,27 @@ export default {
         continue;
       }
 
-      const existing = await env.DB.prepare(
-        "SELECT id FROM publish_attempts WHERE idempotency_key = ?"
-      ).bind(message.body.idempotencyKey).first();
+      const executionKey = message.body.idempotencyKey;
+      const jobId = crypto.randomUUID();
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO publish_jobs (id, post_id, execution_key, state)
+         VALUES (?, ?, ?, 'queued')`
+      ).bind(jobId, message.body.postId, executionKey).run();
 
-      if (existing) {
+      const job = await env.DB.prepare(
+        "SELECT id, state, attempt_count FROM publish_jobs WHERE execution_key = ?"
+      ).bind(executionKey).first<{ id: string; state: string; attempt_count: number }>();
+
+      if (!job) {
+        message.retry({ delaySeconds: 60 });
+        continue;
+      }
+      if (job.state === "completed") {
+        message.ack();
+        continue;
+      }
+      if (job.state === "publishing") {
+        // A duplicate delivery is already being processed by another consumer.
         message.ack();
         continue;
       }
@@ -832,11 +1038,16 @@ export default {
       ).bind(message.body.postId).first<any>();
 
       if (!post?.social_account_id) {
-        await env.DB.prepare(
-          `UPDATE posts SET status = 'failed', failure_code = 'SOCIAL_ACCOUNT_REQUIRED',
-             failure_message = 'Connect and assign a social account before publishing.',
-             updated_at = ? WHERE id = ?`
-        ).bind(new Date().toISOString(), message.body.postId).run();
+        await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE posts SET status = 'failed', failure_code = 'SOCIAL_ACCOUNT_REQUIRED',
+               failure_message = 'Connect and assign a social account before publishing.',
+               updated_at = ? WHERE id = ?`
+          ).bind(new Date().toISOString(), message.body.postId),
+          env.DB.prepare(
+            "UPDATE publish_jobs SET state='failed',last_error=?,updated_at=? WHERE id=?"
+          ).bind("SOCIAL_ACCOUNT_REQUIRED",new Date().toISOString(),job.id),
+        ]);
         await notifyPostOwners(
           env,
           message.body.postId,
@@ -848,29 +1059,38 @@ export default {
         continue;
       }
 
+      const attemptNumber = Number(job.attempt_count || 0) + 1;
       const attemptId = crypto.randomUUID();
+      const attemptKey = `${executionKey}:attempt:${attemptNumber}`;
+      const attemptNow = new Date().toISOString();
+
       await env.DB.batch([
         env.DB.prepare(
-          `INSERT INTO publish_attempts
-           (id, post_id, idempotency_key, status)
-           VALUES (?, ?, ?, 'publishing')`
-        ).bind(attemptId, message.body.postId, message.body.idempotencyKey),
+          `UPDATE publish_jobs SET state='publishing',attempt_count=?,claimed_at=?,
+             updated_at=? WHERE id=?`
+        ).bind(attemptNumber,attemptNow,attemptNow,job.id),
         env.DB.prepare(
-          `UPDATE posts SET status = 'publishing', publish_started_at = ?,
+          `INSERT INTO publish_attempts
+           (id, post_id, idempotency_key, attempt, status)
+           VALUES (?, ?, ?, ?, 'publishing')`
+        ).bind(attemptId, message.body.postId, attemptKey, attemptNumber),
+        env.DB.prepare(
+          `UPDATE posts SET status = 'publishing', publish_started_at = COALESCE(publish_started_at, ?),
              last_publish_attempt_at = ?, updated_at = ? WHERE id = ?`
-        ).bind(
-          new Date().toISOString(),
-          new Date().toISOString(),
-          new Date().toISOString(),
-          message.body.postId
-        ),
+        ).bind(attemptNow,attemptNow,attemptNow,message.body.postId),
       ]);
 
       try {
         await publishPostToSocial(env, message.body.postId);
-        await env.DB.prepare(
-          "UPDATE publish_attempts SET status = 'published' WHERE id = ?"
-        ).bind(attemptId).run();
+        const completedAt = new Date().toISOString();
+        await env.DB.batch([
+          env.DB.prepare(
+            "UPDATE publish_attempts SET status = 'published' WHERE id = ?"
+          ).bind(attemptId),
+          env.DB.prepare(
+            "UPDATE publish_jobs SET state='completed',completed_at=?,last_error=NULL,updated_at=? WHERE id=?"
+          ).bind(completedAt,completedAt,job.id),
+        ]);
         await notifyPostOwners(
           env,
           message.body.postId,
@@ -882,18 +1102,22 @@ export default {
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message.slice(0, 1500) : "Publishing failed";
         const retryCount = Number(post.publish_retry_count || 0) + 1;
+        const failedAt = new Date().toISOString();
         await env.DB.batch([
           env.DB.prepare(
             `UPDATE publish_attempts SET status = 'failed', error_message = ? WHERE id = ?`
           ).bind(errorMessage, attemptId),
           env.DB.prepare(
+            `UPDATE publish_jobs SET state=?,last_error=?,updated_at=? WHERE id=?`
+          ).bind(retryCount >= 3 ? "failed" : "retrying",errorMessage,failedAt,job.id),
+          env.DB.prepare(
             `UPDATE posts SET status = ?, publish_retry_count = ?, failure_code = 'PROVIDER_ERROR',
                failure_message = ?, updated_at = ? WHERE id = ?`
           ).bind(
-            retryCount >= 3 ? "failed" : "publishing",
+            retryCount >= 3 ? "failed" : "publish_queued",
             retryCount,
             errorMessage,
-            new Date().toISOString(),
+            failedAt,
             message.body.postId
           ),
         ]);

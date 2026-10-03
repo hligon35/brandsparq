@@ -63,7 +63,7 @@ function emailAllowed(email: string, env: AuthEnv) {
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
 
-  return !list.length || list.includes(email);
+  return list.includes(email);
 }
 
 async function sessionHash(token: string, env: AuthEnv) {
@@ -179,7 +179,7 @@ export async function getSessionUser(
   const now = Date.now();
 
   const row = await env.DB.prepare(
-    `SELECT u.id, u.email, u.name, u.role, s.id AS session_id
+    `SELECT u.id, u.email, u.name, u.role, s.id AS session_id, s.last_seen_at
      FROM sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = ?
@@ -187,15 +187,17 @@ export async function getSessionUser(
        AND s.expires_at > ?`
   )
     .bind(hash, now)
-    .first<SessionUser & { session_id: string }>();
+    .first<SessionUser & { session_id: string; last_seen_at: number | null }>();
 
   if (!row) return null;
 
-  await env.DB.prepare(
-    "UPDATE sessions SET last_seen_at = ? WHERE id = ?"
-  )
-    .bind(now, row.session_id)
-    .run();
+  if (!row.last_seen_at || row.last_seen_at < now - 10 * 60 * 1000) {
+    await env.DB.prepare(
+      "UPDATE sessions SET last_seen_at = ? WHERE id = ?"
+    )
+      .bind(now, row.session_id)
+      .run();
+  }
 
   return {
     id: row.id,
@@ -425,7 +427,15 @@ export async function handleAuthRoute(
       };
     }
 
-    if (!emailAllowed(email, env)) {
+    let user = await env.DB.prepare(
+      "SELECT id, email, name, role FROM users WHERE email = ?"
+    )
+      .bind(email)
+      .first<SessionUser>();
+
+    // Existing users may continue to sign in. New account creation is fail-closed:
+    // AUTH_ALLOWED_EMAILS must explicitly contain the Google account.
+    if (!user && !emailAllowed(email, env)) {
       return {
         response: Response.redirect(
           withQuery(
@@ -437,12 +447,6 @@ export async function handleAuthRoute(
         ),
       };
     }
-
-    let user = await env.DB.prepare(
-      "SELECT id, email, name, role FROM users WHERE email = ?"
-    )
-      .bind(email)
-      .first<SessionUser>();
 
     if (!user) {
       const userId = crypto.randomUUID();

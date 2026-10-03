@@ -47,12 +47,27 @@ function localParts(date: Date, timeZone: string) {
   };
 }
 
-function inWindows(minuteOfDay: number, windows: string[]) {
-  if (!windows.length) return true;
-  return windows.some((window) => {
-    const [start, end] = window.split("-");
-    return minuteOfDay >= minutes(start) && minuteOfDay <= minutes(end);
-  });
+function matchesWindow(minuteOfDay: number, window: string) {
+  const [start, end] = window.split("-");
+  if (!start || !end) return false;
+  const startMinute = minutes(start);
+  const endMinute = minutes(end);
+
+  // Support windows that cross midnight, e.g. 22:00-02:00.
+  if (endMinute < startMinute) {
+    return minuteOfDay >= startMinute || minuteOfDay <= endMinute;
+  }
+  return minuteOfDay >= startMinute && minuteOfDay <= endMinute;
+}
+
+export function inPreferredWindow(minuteOfDay: number, windows: string[]) {
+  // No preferred windows means unrestricted.
+  return windows.length === 0 || windows.some((window) => matchesWindow(minuteOfDay, window));
+}
+
+export function inBlackoutWindow(minuteOfDay: number, windows: string[]) {
+  // No blackout windows means no blackout.
+  return windows.length > 0 && windows.some((window) => matchesWindow(minuteOfDay, window));
 }
 
 async function loadRules(env: SchedulingEnv, clientId: string): Promise<Rules> {
@@ -86,7 +101,8 @@ async function loadRules(env: SchedulingEnv, clientId: string): Promise<Rules> {
 export async function findNextAvailableSlot(
   env: SchedulingEnv,
   clientId: string,
-  desiredAt?: string | null
+  desiredAt?: string | null,
+  excludePostId?: string | null
 ) {
   const rules = await loadRules(env, clientId);
   let candidate = desiredAt && !Number.isNaN(Date.parse(desiredAt))
@@ -100,23 +116,26 @@ export async function findNextAvailableSlot(
 
     if (
       rules.allowedWeekdays.includes(local.weekday) &&
-      inWindows(local.minuteOfDay, rules.preferredWindows) &&
-      !inWindows(local.minuteOfDay, rules.blackoutWindows)
+      inPreferredWindow(local.minuteOfDay, rules.preferredWindows) &&
+      !inBlackoutWindow(local.minuteOfDay, rules.blackoutWindows)
     ) {
       const nearby = await env.DB.prepare(
-        `SELECT scheduled_publish_at FROM posts
+        `SELECT id, scheduled_publish_at FROM posts
          WHERE client_id = ?
            AND scheduled_publish_at IS NOT NULL
            AND scheduled_publish_at >= ?
            AND scheduled_publish_at <= ?
-           AND status NOT IN ('canceled','failed')`
+           AND status NOT IN ('canceled','failed')
+           AND (? IS NULL OR id != ?)`
       )
         .bind(
           clientId,
           new Date(candidate.getTime() - 24 * 60 * 60 * 1000).toISOString(),
-          new Date(candidate.getTime() + 24 * 60 * 60 * 1000).toISOString()
+          new Date(candidate.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+          excludePostId || null,
+          excludePostId || null
         )
-        .all<{ scheduled_publish_at: string }>();
+        .all<{ id: string; scheduled_publish_at: string }>();
 
       const sameLocalDay = nearby.results.filter(
         (row) =>
@@ -146,10 +165,11 @@ export async function findNextAvailableSlot(
 export async function validateSchedule(
   env: SchedulingEnv,
   clientId: string,
-  scheduledAt: string
+  scheduledAt: string,
+  excludePostId?: string | null
 ) {
   const requested = new Date(scheduledAt).toISOString();
-  const suggested = await findNextAvailableSlot(env, clientId, requested);
+  const suggested = await findNextAvailableSlot(env, clientId, requested, excludePostId);
   return {
     requested,
     suggested,

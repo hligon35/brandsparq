@@ -72,16 +72,38 @@ function authHeaders(extra?: HeadersInit): Headers {
   return headers;
 }
 
+const REQUEST_TIMEOUT_MS = 15_000;
+
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = authHeaders(init?.headers);
   if (init?.body && !(init.body instanceof FormData)) {
     headers.set("content-type", "application/json");
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers,
-  });
+  const method = (init?.method || "GET").toUpperCase();
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(`${API_URL}${path}`, {
+      ...init,
+      headers,
+    });
+  } catch (error) {
+    if (method !== "GET") throw error;
+    response = await fetchWithTimeout(`${API_URL}${path}`, {
+      ...init,
+      headers,
+    });
+  }
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
@@ -95,6 +117,32 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getDashboard: () =>
+    jsonRequest<{ data: {
+      awaiting_review: number;
+      scheduled: number;
+      publishing_today: number;
+      failed: number;
+      next_post: any | null;
+      recent_activity: any[];
+      connection_warnings: any[];
+    } }>("/v1/dashboard"),
+
+  createClient: (name: string, timezone = "America/Indiana/Indianapolis") =>
+    jsonRequest<{ ok: true; data: Client }>("/v1/clients", {
+      method: "POST",
+      body: JSON.stringify({ name, timezone }),
+    }),
+
+  updateClient: (clientId: string, payload: { name?: string; timezone?: string; status?: string }) =>
+    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  archiveClient: (clientId: string) =>
+    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}/archive`, { method: "POST" }),
+
   getGoogleAuthStartUrl(returnTo: string) {
     return `${API_URL}/v1/auth/google/start?return_to=${encodeURIComponent(returnTo)}`;
   },
@@ -297,7 +345,7 @@ export const api = {
     filename: string,
     contentType = "image/jpeg"
   ): Promise<Asset> {
-    const source = await fetch(uri);
+    const source = await fetchWithTimeout(uri);
     const blob = await source.blob();
     const headers = authHeaders({
       "content-type": blob.type || contentType,
@@ -305,7 +353,7 @@ export const api = {
       "x-file-name": filename,
     });
 
-    const response = await fetch(`${API_URL}/v1/assets`, {
+    const response = await fetchWithTimeout(`${API_URL}/v1/assets`, {
       method: "POST",
       headers,
       body: blob,

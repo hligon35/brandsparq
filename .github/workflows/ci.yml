@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - production-readiness
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Fetch repository
+        shell: bash
+        run: |
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
+
+      - name: Show toolchain
+        run: |
+          node --version
+          npm --version
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Install Worker dependencies
+        run: npm ci --prefix cloudflare
+
+      - name: Typecheck app
+        run: npm run typecheck
+
+      - name: Typecheck Worker
+        run: npm --prefix cloudflare run typecheck
+
+      - name: Build web
+        run: npm run build:web

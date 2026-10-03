@@ -13,9 +13,9 @@ Create or verify:
 - Queue: `brandsparq-generation`
 - Custom domain: `brandsparq.getsparqd.com`
 
-Replace `REPLACE_WITH_D1_DATABASE_ID` in `cloudflare/wrangler.toml` with the real D1 database ID.
+The production D1 binding is already configured in `cloudflare/wrangler.toml`.
 
-Apply every migration:
+Apply every migration before deploying Worker code that depends on it:
 
 ```bash
 cd cloudflare
@@ -159,9 +159,15 @@ Metrics are stored as snapshots in `post_metrics`, preserving historical measure
 From the repository root:
 
 ```bash
-npm install
+npm ci
+npm ci --prefix cloudflare
+cd cloudflare
+npx wrangler d1 migrations apply brandsparq --remote
+cd ..
 npm run deploy:worker
 ```
+
+Migration `0008_production_readiness.sql` must be applied before deploying the production-readiness Worker changes.
 
 The deploy script exports Expo web to `dist/` and deploys the Worker plus static assets.
 

@@ -14,7 +14,6 @@ import {
   PageScroll,
   StatusBadge,
 } from "@/components/ui";
-import { clients, posts as demoPosts } from "@/data/demo";
 import { useResponsive } from "@/hooks/useResponsive";
 import { colors, spacing } from "@/theme/tokens";
 import type { MarketingPost } from "@/types/domain";
@@ -22,19 +21,17 @@ import type { MarketingPost } from "@/types/domain";
 export default function ReviewScreen() {
   const [posts, setPosts] = useState<MarketingPost[]>([]);
   const [loading, setLoading] = useState(true);
-  const [offlineDemo, setOfflineDemo] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { compact } = useResponsive();
 
   async function load() {
     setLoading(true);
     try {
       setPosts(await api.getReviewQueue());
-      setOfflineDemo(false);
-    } catch {
-      setPosts(
-        demoPosts.filter((post) => post.status === "awaiting_approval")
-      );
-      setOfflineDemo(true);
+      setError(null);
+    } catch (err) {
+      setPosts([]);
+      setError(err instanceof Error ? err.message : "Unable to load review queue.");
     } finally {
       setLoading(false);
     }
@@ -57,8 +54,8 @@ export default function ReviewScreen() {
         }
       />
 
-      {offlineDemo && (
-        <Text style={styles.notice}>Preview data · API not connected</Text>
+      {error && (
+        <Text style={styles.notice}>Unable to load review queue · {error}</Text>
       )}
 
       {loading ? (
@@ -68,9 +65,6 @@ export default function ReviewScreen() {
       ) : posts.length ? (
         <View style={styles.grid}>
           {posts.map((post) => {
-            const demoClient = clients.find(
-              (client) => client.id === post.clientId
-            );
             return (
               <View
                 key={post.id}
@@ -91,9 +85,7 @@ export default function ReviewScreen() {
                         )}
                       </View>
                       <Text style={styles.client}>
-                        {post.clientName ||
-                          demoClient?.name ||
-                          "Client"}
+                        {post.clientName || "Client"}
                       </Text>
                       <Text style={styles.platform}>
                         {post.platform.toUpperCase()}
