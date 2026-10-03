@@ -346,11 +346,54 @@ export const api = {
       { method: "POST", body: JSON.stringify({ instruction }) }
     ),
 
+  async uploadAssetDerivative(
+    clientId: string,
+    assetId: string,
+    uri: string,
+    kind = "analysis",
+    filename = "analysis.jpg",
+    contentType = "image/jpeg",
+    width?: number,
+    height?: number
+  ) {
+    const source = await fetch(uri);
+    const blob = await source.blob();
+    const headers = authHeaders({
+      "content-type": blob.type || contentType,
+      "x-client-id": clientId,
+      "x-file-name": filename,
+      "x-derivative-kind": kind,
+      ...(width ? { "x-image-width": String(width) } : {}),
+      ...(height ? { "x-image-height": String(height) } : {}),
+    });
+
+    const response = await fetch(
+      `${API_URL}/v1/assets/${encodeURIComponent(assetId)}/derivative`,
+      {
+        method: "POST",
+        headers,
+        body: blob,
+      }
+    );
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(
+        (payload as { error?: string } | null)?.error ??
+          `Derivative upload failed: ${response.status}`
+      );
+    }
+
+    return response.json() as Promise<{ ok: true; id: string }>;
+  },
+
   async uploadAsset(
     clientId: string,
     uri: string,
     filename: string,
-    contentType = "image/jpeg"
+    contentType = "image/jpeg",
+    width?: number,
+    height?: number
   ): Promise<Asset> {
     const source = await fetch(uri);
     const blob = await source.blob();
@@ -358,6 +401,8 @@ export const api = {
       "content-type": blob.type || contentType,
       "x-client-id": clientId,
       "x-file-name": filename,
+      ...(width ? { "x-image-width": String(width) } : {}),
+      ...(height ? { "x-image-height": String(height) } : {}),
     });
 
     const response = await fetch(`${API_URL}/v1/assets`, {
