@@ -18,7 +18,6 @@ import {
   SectionTitle,
   StatusBadge,
 } from "@/components/ui";
-import { clients, posts as demoPosts } from "@/data/demo";
 import { useResponsive } from "@/hooks/useResponsive";
 import { colors, radius, spacing } from "@/theme/tokens";
 import type { MarketingPost } from "@/types/domain";
@@ -28,9 +27,8 @@ type AiAction = "rewrite" | "image" | "regenerate" | null;
 export default function PostReviewScreen() {
   const { postId } = useLocalSearchParams<{ postId: string }>();
   const router = useRouter();
-  const [post, setPost] = useState<MarketingPost | undefined>(
-    demoPosts.find((item) => item.id === postId)
-  );
+  const [post, setPost] = useState<MarketingPost | undefined>();
+  const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [aiAction, setAiAction] = useState<AiAction>(null);
   const [instruction, setInstruction] = useState("");
@@ -40,12 +38,25 @@ export default function PostReviewScreen() {
 
   async function reload() {
     if (!postId) return;
-    setPost(await api.getPost(postId));
+    setLoadError("");
+    try {
+      setPost(await api.getPost(postId));
+    } catch (error) {
+      setPost(undefined);
+      setLoadError(error instanceof Error ? error.message : "Unable to load post.");
+      throw error;
+    }
   }
 
   useEffect(() => {
     if (!postId) return;
-    api.getPost(postId).then(setPost).catch(() => {});
+    setLoadError("");
+    api.getPost(postId)
+      .then(setPost)
+      .catch((error) => {
+        setPost(undefined);
+        setLoadError(error instanceof Error ? error.message : "Unable to load post.");
+      });
   }, [postId]);
 
   useEffect(() => {
@@ -64,14 +75,18 @@ export default function PostReviewScreen() {
   if (!post) {
     return (
       <PageScroll>
-        <Text style={styles.title}>Post not found</Text>
+        <Card subtle>
+          <Text style={styles.title}>{loadError ? "Post unavailable" : "Loading post…"}</Text>
+          {!!loadError && <Text style={styles.body}>{loadError}</Text>}
+          {!!loadError && (
+            <Pressable onPress={() => void reload()}>
+              <Text style={styles.retry}>Try again</Text>
+            </Pressable>
+          )}
+        </Card>
       </PageScroll>
     );
   }
-
-  const demoClient = clients.find(
-    (item) => item.id === post.clientId
-  );
 
   async function assignAccount(accountId: string) {
     setAssigningAccount(true);
@@ -149,7 +164,7 @@ export default function PostReviewScreen() {
     <PageScroll>
       <PageHeader
         eyebrow="Review content"
-        title={post.clientName || demoClient?.name || "Client"}
+        title={post.clientName || "Client"}
         subtitle={post.platform.toUpperCase()}
         action={<StatusBadge label={post.status} />}
       />
@@ -399,5 +414,9 @@ const styles = StyleSheet.create({
   aiButton: {
     flexGrow: 1,
     flexBasis: 190,
+  },
+  retry: {
+    color: colors.primary,
+    fontWeight: "800",
   },
 });
