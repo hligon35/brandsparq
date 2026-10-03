@@ -620,7 +620,7 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
   );
 
   const postIds:string[]=[];
-  const imageErrors:Array<{postId:string;error:string}>=[];
+  const graphicJobIds:string[]=[];
   const now=new Date().toISOString();
 
   for(const [index,p] of generated.posts.entries()){
@@ -693,25 +693,52 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
       "SELECT graphic_key FROM posts WHERE id=?"
     ).bind(postId).first<{graphic_key:string|null}>();
 
-    if(!persisted?.graphic_key){
-      const postContext={...job,id:postId,client_id:job.client_id};
-      try{
-        await generateGraphic(env,postContext,p,imageInputs);
-      }catch(error){
-        const message=err(error);
-        imageErrors.push({postId,error:message});
-        await env.DB.prepare(
-          "UPDATE posts SET ai_last_error=?,updated_at=? WHERE id=?"
-        ).bind(message.slice(0,1500),new Date().toISOString(),postId).run();
-        await logAiRun(env,{
-          jobId,
-          postId,
-          kind:"image_generation",
-          model:env.OPENAI_IMAGE_MODEL||"gpt-image-2.5-flare",
-          status:"failed",
-          error:message
-        });
-      }
+    const composition=deterministicComposition({
+      platform:p.platform as CreativePlatform,
+      headline:p.headline,
+      cta:p.cta,
+      primaryColor:job.primary_color,
+      secondaryColor:job.secondary_color,
+      logoAssetId:job.logo_asset_id,
+    });
+
+    await env.DB.prepare(
+      "UPDATE posts SET creative_composition=?,updated_at=? WHERE id=?"
+    ).bind(
+      JSON.stringify({
+        ...composition,
+        cta:p.cta,
+        visualDirection:p.visualDirection,
+      }),
+      new Date().toISOString(),
+      postId
+    ).run();
+
+    let graphicJob=await env.DB.prepare(
+      "SELECT id,status FROM graphic_jobs WHERE post_id=?"
+    ).bind(postId).first<{id:string;status:string}>();
+
+    if(!graphicJob){
+      const graphicJobId=crypto.randomUUID();
+      await env.DB.prepare(
+        `INSERT INTO graphic_jobs
+         (id,generation_job_id,post_id,status,created_at,updated_at)
+         VALUES (?,?,?,'queued',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`
+      ).bind(graphicJobId,jobId,postId).run();
+      graphicJob={id:graphicJobId,status:"queued"};
+    }
+
+    if(persisted?.graphic_key&&graphicJob.status!=="completed"){
+      await env.DB.prepare(
+        `UPDATE graphic_jobs SET
+         status='completed',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+         WHERE id=?`
+      ).bind(graphicJob.id).run();
+      graphicJob.status="completed";
+    }
+
+    if(graphicJob.status!=="completed"){
+      graphicJobIds.push(graphicJob.id);
     }
 
     await env.DB.prepare(
@@ -734,97 +761,241 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
     ).bind(...assetIds).run();
   }
 
-  let emailSent=!!job.review_email_sent_at;
-  if(!emailSent){
-    const reviewItems:Array<{title:string;platform:string;time:string;token:string}>=[];
-
-    for(const [index,p] of generated.posts.entries()){
-      const postId=postIds[index];
-      const post=await env.DB.prepare(
-        "SELECT suggested_publish_at FROM posts WHERE id=?"
-      ).bind(postId).first<{suggested_publish_at:string|null}>();
-
-      await env.DB.prepare(
-        "UPDATE review_tokens SET used_at=? WHERE post_id=? AND used_at IS NULL"
-      ).bind(Date.now(),postId).run();
-
-      const token=randomToken();
-      await env.DB.prepare(
-        "INSERT INTO review_tokens (id,post_id,token_hash,recipient_email,expires_at,created_at) VALUES (?,?,?,?,?,?)"
-      ).bind(
-        crypto.randomUUID(),
-        postId,
-        await reviewTokenHash(token,env),
-        env.REVIEW_NOTIFICATION_EMAIL||"owner",
-        Date.now()+7*86400000,
-        Date.now()
-      ).run();
-
-      reviewItems.push({
-        title:p.headline,
-        platform:p.platform,
-        time:post?.suggested_publish_at||fallbackSlot(index),
-        token
-      });
-    }
-
-    emailSent=await sendReviewEmail(
-      env,
-      job.client_name,
-      generated.campaignName,
-      reviewItems
-    );
-
-    if(emailSent){
-      await env.DB.prepare(
-        `UPDATE generation_jobs SET
-         review_email_sent_at=?,
-         stage='review_notified',
-         stage_updated_at=?
-         WHERE id=?`
-      ).bind(
-        new Date().toISOString(),
-        new Date().toISOString(),
-        jobId
-      ).run();
-    }
+  for(const graphicJobId of graphicJobIds){
+    await env.GENERATION_QUEUE.send({
+      kind:"graphic",
+      graphicJobId,
+    });
   }
-
-  const resultJson=JSON.stringify({
-    ...generated,
-    promptVersion:AI_PROMPT_VERSION,
-    imageErrors
-  });
 
   await env.DB.prepare(
     `UPDATE generation_jobs SET
-     status='completed',
-     stage='completed',
+     status=?,
+     stage=?,
      provider='openai',
      model=?,
      campaign_id=?,
      post_ids=?,
      result_json=?,
      error_message=NULL,
-     completed_at=?,
      stage_updated_at=?
      WHERE id=?`
   ).bind(
+    graphicJobIds.length?"rendering":"processing",
+    graphicJobIds.length?"graphics_queued":"posts_created",
     campaignModel,
     campaignId,
     JSON.stringify(postIds),
-    resultJson,
-    new Date().toISOString(),
+    JSON.stringify({
+      ...generated,
+      promptVersion:AI_PROMPT_VERSION,
+    }),
     new Date().toISOString(),
     jobId
   ).run();
 
+  if(!graphicJobIds.length){
+    await finalizeGenerationReview(env,jobId);
+  }
+
   return {
     campaignId,
     postCount:postIds.length,
-    imageFailures:imageErrors.length,
-    emailSent,
+    graphicJobsQueued:graphicJobIds.length,
     resumed:!!job.plan_json||!!job.campaign_id||existingPosts.results.length>0
+  };
+}
+
+async function generatedPostForGraphicJob(
+  env:GenerationEnv,
+  generationJobId:string,
+  postId:string
+){
+  const generation=await env.DB.prepare(
+    "SELECT plan_json,post_ids FROM generation_jobs WHERE id=?"
+  ).bind(generationJobId).first<{plan_json:string|null;post_ids:string|null}>();
+  if(!generation?.plan_json)throw new Error("Generation plan is missing.");
+
+  const plan=JSON.parse(generation.plan_json) as GeneratedCampaign;
+  const postIds:string[]=generation.post_ids?JSON.parse(generation.post_ids):[];
+  const index=postIds.indexOf(postId);
+  if(index<0||!plan.posts[index])throw new Error("Graphic job post is not present in the generation plan.");
+  return plan.posts[index];
+}
+
+export async function runGraphicJob(env:GenerationEnv,graphicJobId:string){
+  const graphicJob=await env.DB.prepare(
+    `SELECT gj.*,p.client_id,p.graphic_key
+     FROM graphic_jobs gj
+     JOIN posts p ON p.id=gj.post_id
+     WHERE gj.id=?`
+  ).bind(graphicJobId).first<any>();
+  if(!graphicJob)throw new Error("Graphic job not found.");
+  if(graphicJob.status==="completed")return {completed:true,resumed:true};
+
+  const claimed=await env.DB.prepare(
+    `UPDATE graphic_jobs SET
+     status='processing',
+     attempt_count=attempt_count+1,
+     claimed_at=CURRENT_TIMESTAMP,
+     updated_at=CURRENT_TIMESTAMP
+     WHERE id=? AND status IN ('queued','retrying')`
+  ).bind(graphicJobId).run();
+
+  if(!claimed.meta.changes){
+    return {completed:graphicJob.status==="completed",resumed:true};
+  }
+
+  const post=await loadPost(env,graphicJob.post_id);
+  if(!post)throw new Error("Post not found for graphic job.");
+
+  if(!post.graphic_key){
+    const generated=await generatedPostForGraphicJob(
+      env,
+      graphicJob.generation_job_id,
+      graphicJob.post_id
+    );
+    const images=await toImageInputs(
+      env,
+      await postSourceAssets(env,graphicJob.post_id),
+      3
+    );
+    await generateGraphic(env,post,generated,images);
+  }
+
+  await env.DB.prepare(
+    `UPDATE graphic_jobs SET
+     status='completed',
+     last_error=NULL,
+     completed_at=CURRENT_TIMESTAMP,
+     updated_at=CURRENT_TIMESTAMP
+     WHERE id=?`
+  ).bind(graphicJobId).run();
+
+  await finalizeGenerationReview(env,graphicJob.generation_job_id);
+  return {completed:true,resumed:false};
+}
+
+export async function markGraphicJobFailure(
+  env:GenerationEnv,
+  graphicJobId:string,
+  errorMessage:string,
+  terminal:boolean
+){
+  await env.DB.prepare(
+    `UPDATE graphic_jobs SET
+     status=?,
+     last_error=?,
+     claimed_at=NULL,
+     completed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE completed_at END,
+     updated_at=CURRENT_TIMESTAMP
+     WHERE id=?`
+  ).bind(
+    terminal?"failed":"retrying",
+    errorMessage.slice(0,1500),
+    terminal?1:0,
+    graphicJobId
+  ).run();
+
+  if(terminal){
+    const job=await env.DB.prepare(
+      "SELECT generation_job_id,post_id FROM graphic_jobs WHERE id=?"
+    ).bind(graphicJobId).first<{generation_job_id:string;post_id:string}>();
+    if(job){
+      await env.DB.prepare(
+        "UPDATE posts SET ai_last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?"
+      ).bind(errorMessage.slice(0,1500),job.post_id).run();
+      await finalizeGenerationReview(env,job.generation_job_id);
+    }
+  }
+}
+
+export async function finalizeGenerationReview(env:GenerationEnv,jobId:string){
+  const pending=await env.DB.prepare(
+    `SELECT COUNT(*) AS count FROM graphic_jobs
+     WHERE generation_job_id=? AND status IN ('queued','processing','retrying')`
+  ).bind(jobId).first<{count:number}>();
+  if(Number(pending?.count||0)>0)return {ready:false};
+
+  const job=await env.DB.prepare(
+    `SELECT g.*,c.name AS client_name,campaigns.name AS campaign_name
+     FROM generation_jobs g
+     JOIN clients c ON c.id=g.client_id
+     LEFT JOIN campaigns ON campaigns.id=g.campaign_id
+     WHERE g.id=?`
+  ).bind(jobId).first<any>();
+  if(!job)throw new Error("Generation job not found.");
+
+  const posts=await env.DB.prepare(
+    `SELECT id,title,platform,suggested_publish_at
+     FROM posts WHERE generation_job_id=? ORDER BY rowid ASC`
+  ).bind(jobId).all<any>();
+
+  let emailSent=!!job.review_email_sent_at;
+  if(!emailSent&&posts.results.length){
+    const reviewItems:Array<{title:string;platform:string;time:string;token:string}>=[];
+    for(const [index,post] of posts.results.entries()){
+      const token=randomToken();
+      await env.DB.prepare(
+        "UPDATE review_tokens SET used_at=? WHERE post_id=? AND used_at IS NULL"
+      ).bind(Date.now(),post.id).run();
+      await env.DB.prepare(
+        `INSERT INTO review_tokens
+         (id,post_id,token_hash,recipient_email,expires_at,created_at)
+         VALUES (?,?,?,?,?,?)`
+      ).bind(
+        crypto.randomUUID(),
+        post.id,
+        await reviewTokenHash(token,env),
+        env.REVIEW_NOTIFICATION_EMAIL||"owner",
+        Date.now()+7*86400000,
+        Date.now()
+      ).run();
+      reviewItems.push({
+        title:post.title,
+        platform:post.platform,
+        time:post.suggested_publish_at||fallbackSlot(index),
+        token,
+      });
+    }
+
+    emailSent=await sendReviewEmail(
+      env,
+      job.client_name,
+      job.campaign_name||"Campaign",
+      reviewItems
+    );
+  }
+
+  const failed=await env.DB.prepare(
+    `SELECT COUNT(*) AS count FROM graphic_jobs
+     WHERE generation_job_id=? AND status='failed'`
+  ).bind(jobId).first<{count:number}>();
+
+  const now=new Date().toISOString();
+  await env.DB.prepare(
+    `UPDATE generation_jobs SET
+     status='completed',
+     stage=?,
+     review_email_sent_at=CASE WHEN ? THEN COALESCE(review_email_sent_at,?) ELSE review_email_sent_at END,
+     completed_at=?,
+     stage_updated_at=?,
+     error_message=CASE WHEN ? > 0 THEN 'One or more graphics failed and require regeneration.' ELSE NULL END
+     WHERE id=?`
+  ).bind(
+    Number(failed?.count||0)>0?"completed_with_graphic_errors":"completed",
+    emailSent?1:0,
+    emailSent?now:null,
+    now,
+    now,
+    Number(failed?.count||0),
+    jobId
+  ).run();
+
+  return {
+    ready:true,
+    emailSent,
+    graphicFailures:Number(failed?.count||0),
   };
 }
 
