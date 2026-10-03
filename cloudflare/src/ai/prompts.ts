@@ -1,4 +1,4 @@
-export const AI_PROMPT_VERSION = "2026-10-02.1";
+export const AI_PROMPT_VERSION = "2026-10-03.1";
 
 export const CREATIVE_DIRECTOR_INSTRUCTIONS = [
   "You are BrandSparQ's AI creative director.",
@@ -27,6 +27,7 @@ export const IMAGE_DIRECTOR_INSTRUCTIONS = [
   "- Never invent a logo, sponsor, award, price, date, statistic, endorsement, or product claim.",
   "- If exact logo fidelity cannot be preserved, avoid recreating or mutating the logo and leave clean space for a deterministic overlay.",
   "- Keep strong visual hierarchy and useful negative space.",
+  "- Follow the supplied deterministic composition contract for safe areas, headline placement, CTA placement, and reserved logo placement.",
   "- Avoid clutter and avoid filling the image with caption text.",
   "- If text is useful, keep it short and limited to supplied headline or CTA language.",
   "- When editing an existing graphic, modify only what the user requests and preserve everything else as closely as possible.",
