@@ -904,3 +904,40 @@ export async function resolveDefaultSocialAccount(
   if (preferred.results.length === 1) return preferred.results[0];
   return null;
 }
+
+export async function ensurePostSocialDestination(
+  env: SocialEnv,
+  post: {
+    id: string;
+    client_id: string;
+    platform: Platform;
+    social_account_id?: string | null;
+  }
+) {
+  if (post.social_account_id) {
+    const assigned = await env.DB.prepare(
+      `SELECT id, account_name
+       FROM social_accounts
+       WHERE id = ? AND client_id = ? AND platform = ? AND status = 'connected'`
+    ).bind(
+      post.social_account_id,
+      post.client_id,
+      post.platform
+    ).first<{ id: string; account_name: string | null }>();
+
+    if (assigned) return assigned;
+  }
+
+  const fallback = await resolveDefaultSocialAccount(
+    env,
+    post.client_id,
+    post.platform
+  );
+  if (!fallback) return null;
+
+  await env.DB.prepare(
+    "UPDATE posts SET social_account_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+  ).bind(fallback.id, post.id).run();
+
+  return fallback;
+}
