@@ -119,7 +119,7 @@ export async function handleManagementRoute(
 
   if (request.method === "POST" && url.pathname === "/v1/clients") {
     if (!permitted(user, "clients:write")) return forbidden();
-    const payload = await request.json<{name?:string;timezone?:string}>().catch(() => ({}));
+    const payload = await request.json<{name?:string;timezone?:string}>().catch(() => ({} as any));
     const name = payload.name?.trim();
     if (!name) return { body: { error: "Client name is required." }, status: 400 };
     const id = crypto.randomUUID();
@@ -132,7 +132,7 @@ export async function handleManagementRoute(
   const clientMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)$/);
   if (clientMatch && request.method === "PATCH") {
     if (!permitted(user, "clients:write")) return forbidden();
-    const payload = await request.json<{name?:string;timezone?:string;status?:string}>().catch(() => ({}));
+    const payload = await request.json<{name?:string;timezone?:string;status?:string}>().catch(() => ({} as any));
     if (payload.status && !["active","inactive","archived"].includes(payload.status)) {
       return { body: { error: "Invalid client status." }, status: 400 };
     }
