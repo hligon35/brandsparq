@@ -7,10 +7,30 @@ import { colors, spacing } from "@/theme/tokens";
 
 export default function CampaignsScreen() {
   const [campaigns, setCampaigns] = useState<any[]>([]);
-  useEffect(() => { api.getCampaigns().then(r => setCampaigns(r.data)).catch(() => {}); }, []);
+  const [error, setError] = useState("");
+
+  async function load() {
+    setError("");
+    try {
+      const result = await api.getCampaigns();
+      setCampaigns(result.data);
+    } catch (err) {
+      setCampaigns([]);
+      setError(err instanceof Error ? err.message : "Unable to load campaigns.");
+    }
+  }
+
+  useEffect(() => { void load(); }, []);
   return (
     <PageScroll>
       <PageHeader eyebrow="Campaign management" title="Campaigns" subtitle="Track generated campaigns, review progress, and see what has been published." />
+      {error && (
+        <Card subtle>
+          <Text style={styles.title}>Campaigns unavailable</Text>
+          <Text style={styles.meta}>{error}</Text>
+          <Pressable onPress={load}><Text style={styles.retry}>Try again</Text></Pressable>
+        </Card>
+      )}
       <View style={styles.grid}>
         {campaigns.map((campaign) => (
           <Link key={campaign.id} href={`/campaigns/${campaign.id}`} asChild>
@@ -45,5 +65,6 @@ const styles = StyleSheet.create({
   title:{color:colors.text,fontSize:20,fontWeight:"900"},
   meta:{color:colors.muted,lineHeight:21},
   stats:{marginTop:"auto",flexDirection:"row",flexWrap:"wrap",gap:12},
-  stat:{color:colors.primary,fontWeight:"800",fontSize:12}
+  stat:{color:colors.primary,fontWeight:"800",fontSize:12},
+  retry:{color:colors.primary,fontWeight:"800"}
 });
