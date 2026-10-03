@@ -67,6 +67,28 @@ type JobMessage = PublishMessage | GenerationMessage;
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
+function detectImageType(buffer: ArrayBuffer) {
+  const b = new Uint8Array(buffer);
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length >= 6 && String.fromCharCode(...b.slice(0, 6)).startsWith("GIF8")) return "image/gif";
+  if (
+    b.length >= 12 &&
+    String.fromCharCode(...b.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...b.slice(8, 12)) === "WEBP"
+  ) return "image/webp";
+  if (b.length >= 12 && String.fromCharCode(...b.slice(4, 8)) === "ftyp") {
+    const brand = String.fromCharCode(...b.slice(8, 12)).toLowerCase();
+    if (["heic","heix","hevc","hevx","mif1","msf1"].includes(brand)) return "image/heic";
+  }
+  return null;
+}
+
+async function sha256Hex(buffer: ArrayBuffer) {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  return [...new Uint8Array(digest)].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
 function cors(request: Request, env: Env) {
   const origin = request.headers.get("origin");
   const configured = new Set(
@@ -505,23 +527,53 @@ export default {
     if (request.method === "POST" && url.pathname === "/v1/assets") {
       const clientId = request.headers.get("x-client-id")?.trim();
       const filename = request.headers.get("x-file-name")?.trim() || "upload.jpg";
-      const contentType = request.headers.get("content-type") || "application/octet-stream";
+      const declaredContentType = request.headers.get("content-type") || "application/octet-stream";
       const declaredSize = Number(request.headers.get("content-length") || "0");
 
       if (!clientId) return response(request, env, { error: "x-client-id is required" }, { status: 400 });
-      if (!contentType.startsWith("image/")) {
+      if (!declaredContentType.startsWith("image/")) {
         return response(request, env, { error: "Only image uploads are accepted" }, { status: 415 });
       }
       if (declaredSize > MAX_IMAGE_BYTES) {
         return response(request, env, { error: "Image exceeds the 20 MB upload limit" }, { status: 413 });
       }
 
-      const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ?").bind(clientId).first();
-      if (!client) return response(request, env, { error: "Client not found" }, { status: 404 });
+      const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ? AND status != 'archived'")
+        .bind(clientId).first();
+      if (!client) return response(request, env, { error: "Client not found or archived" }, { status: 404 });
 
       const body = await request.arrayBuffer();
+      if (!body.byteLength) {
+        return response(request, env, { error: "Image upload is empty" }, { status: 400 });
+      }
       if (body.byteLength > MAX_IMAGE_BYTES) {
         return response(request, env, { error: "Image exceeds the 20 MB upload limit" }, { status: 413 });
+      }
+
+      const detectedContentType = detectImageType(body);
+      if (!detectedContentType) {
+        return response(request, env, { error: "Unsupported or malformed image file" }, { status: 415 });
+      }
+
+      const hash = await sha256Hex(body);
+      const duplicate = await env.DB.prepare(
+        `SELECT id,filename,content_type,status,created_at
+         FROM assets WHERE client_id=? AND sha256=? ORDER BY created_at DESC LIMIT 1`
+      ).bind(clientId,hash).first<any>();
+
+      if (duplicate) {
+        return response(request, env, {
+          data: {
+            id: duplicate.id,
+            clientId,
+            filename: duplicate.filename,
+            contentType: duplicate.content_type,
+            status: duplicate.status,
+            url: `/v1/assets/${duplicate.id}`,
+            createdAt: duplicate.created_at,
+            deduplicated: true,
+          },
+        }, { status: 200 });
       }
 
       const id = crypto.randomUUID();
@@ -529,16 +581,21 @@ export default {
       const key = `clients/${clientId}/originals/${id}-${safeName}`;
 
       await env.MEDIA.put(key, body, {
-        httpMetadata: { contentType },
-        customMetadata: { clientId, originalFilename: filename },
+        httpMetadata: { contentType: detectedContentType },
+        customMetadata: {
+          clientId,
+          originalFilename: filename,
+          sha256: hash,
+          declaredContentType,
+        },
       });
 
       await env.DB.prepare(
         `INSERT INTO assets
-         (id, client_id, r2_key, filename, content_type, size_bytes, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'uploaded')`
+         (id, client_id, r2_key, filename, content_type, size_bytes, sha256, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'uploaded')`
       )
-        .bind(id, clientId, key, filename, contentType, body.byteLength)
+        .bind(id, clientId, key, filename, detectedContentType, body.byteLength, hash)
         .run();
 
       return response(request, env, {
@@ -546,10 +603,11 @@ export default {
           id,
           clientId,
           filename,
-          contentType,
+          contentType: detectedContentType,
           status: "uploaded",
           url: `/v1/assets/${id}`,
           createdAt: new Date().toISOString(),
+          deduplicated: false,
         },
       }, { status: 201 });
     }
