@@ -6,3 +6,6 @@ web-build/
 .env.local
 *.log
 .DS_Store
+
+.wrangler/
+cloudflare/.wrangler/
