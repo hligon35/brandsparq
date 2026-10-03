@@ -119,7 +119,15 @@ function brandContext(row:any){
     preferredCtas:row.preferred_ctas||"",
     imageryPreferences:row.imagery_preferences||"",
     postingRules:row.posting_rules||"",
-    restrictedWords:row.restricted_words||""
+    restrictedWords:row.restricted_words||"",
+    fonts:row.fonts||"",
+    brandExamples:row.brand_examples||"",
+    prohibitedVisualStyles:row.prohibited_visual_styles||"",
+    competitorReferences:row.competitor_references||"",
+    brandVocabulary:row.brand_vocabulary||"",
+    hashtagPolicy:row.hashtag_policy||"",
+    targetLocations:row.target_locations||"",
+    platformRules:row.platform_rules||""
   };
 }
 
@@ -164,7 +172,11 @@ async function loadPost(env:GenerationEnv,postId:string){
   return env.DB.prepare(
     `SELECT p.*,c.name AS client_name,c.timezone,
       bp.voice,bp.audience,bp.primary_color,bp.secondary_color,bp.website,
-      bp.tagline,bp.preferred_ctas,bp.imagery_preferences,bp.posting_rules,bp.restricted_words
+      bp.tagline,bp.preferred_ctas,bp.imagery_preferences,bp.posting_rules,bp.restricted_words,
+      bp.fonts,bp.brand_examples,bp.prohibited_visual_styles,bp.competitor_references,
+      bp.brand_vocabulary,bp.hashtag_policy,bp.target_locations,bp.platform_rules,
+      bp.fonts,bp.brand_examples,bp.prohibited_visual_styles,bp.competitor_references,
+      bp.brand_vocabulary,bp.hashtag_policy,bp.target_locations,bp.platform_rules
       FROM posts p JOIN clients c ON c.id=p.client_id
       LEFT JOIN brand_profiles bp ON bp.client_id=p.client_id WHERE p.id=?`
   ).bind(postId).first<any>();
