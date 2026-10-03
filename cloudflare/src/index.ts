@@ -107,10 +107,12 @@ function postSelect(where = "") {
     p.*,
     c.name AS client_name,
     COALESCE(bp.primary_color, '#A56CFF') AS client_color,
+    sa.account_name AS social_account_name,
     CASE WHEN p.graphic_key IS NOT NULL THEN '/v1/media/' || p.graphic_key ELSE NULL END AS image_url
     FROM posts p
     JOIN clients c ON c.id = p.client_id
     LEFT JOIN brand_profiles bp ON bp.client_id = p.client_id
+    LEFT JOIN social_accounts sa ON sa.id = p.social_account_id
     ${where}`;
 }
 
