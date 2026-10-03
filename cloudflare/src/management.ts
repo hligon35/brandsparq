@@ -1,3 +1,5 @@
+import type { SessionUser } from "./auth";
+import { accessibleClientIds, hasClientAccess, hasPermission, type Permission } from "./authz";
 import { deliverNotification } from "./notifications";
 import { findNextAvailableSlot, validateSchedule } from "./scheduling";
 import {
@@ -30,11 +32,7 @@ export interface ManagementEnv {
   X_REDIRECT_URI?: string;
 }
 
-type User = {
-  id: string;
-  email: string;
-  role: string;
-};
+type User = SessionUser;
 
 export type ManagementResult =
   | { body: unknown; status?: number }
@@ -45,6 +43,21 @@ function json(value: string | null | undefined, fallback: unknown) {
   try { return JSON.parse(value); } catch { return fallback; }
 }
 
+async function authorize(
+  env: ManagementEnv,
+  user: User,
+  permission: Permission,
+  clientId?: string | null
+) {
+  if (!hasPermission(user, permission)) {
+    return "You do not have permission to perform this action.";
+  }
+  if (clientId && !(await hasClientAccess(env.DB, user, clientId))) {
+    return "You do not have access to this client.";
+  }
+  return null;
+}
+
 export async function handleManagementRoute(
   request: Request,
   url: URL,
@@ -52,7 +65,16 @@ export async function handleManagementRoute(
   user: User
 ): Promise<ManagementResult | null> {
   if (request.method === "GET" && url.pathname === "/v1/campaigns") {
+    const denied = await authorize(env, user, "read");
+    if (denied) return { body: { error: denied }, status: 403 };
+
     const clientId = url.searchParams.get("clientId");
+    if (clientId) {
+      const clientDenied = await authorize(env, user, "read", clientId);
+      if (clientDenied) return { body: { error: clientDenied }, status: 403 };
+    }
+
+    const allowedClients = await accessibleClientIds(env.DB, user);
     const rows = clientId
       ? await env.DB.prepare(
           `SELECT c.*,
@@ -75,7 +97,10 @@ export async function handleManagementRoute(
            LEFT JOIN posts p ON p.campaign_id = c.id
            GROUP BY c.id ORDER BY c.created_at DESC`
         ).all();
-    return { body: { data: rows.results } };
+    const visible = allowedClients === null || clientId
+      ? rows.results
+      : rows.results.filter((row: any) => allowedClients.includes(row.client_id));
+    return { body: { data: visible } };
   }
 
   const campaignMatch = url.pathname.match(/^\/v1\/campaigns\/([^/]+)$/);
@@ -85,6 +110,9 @@ export async function handleManagementRoute(
        JOIN clients cl ON cl.id = c.client_id WHERE c.id = ?`
     ).bind(campaignMatch[1]).first();
     if (!campaign) return { body: { error: "Campaign not found." }, status: 404 };
+    const denied = await authorize(env, user, "read", (campaign as any).client_id);
+    if (denied) return { body: { error: denied }, status: 403 };
+
     const posts = await env.DB.prepare(
       `SELECT p.*, sa.account_name AS social_account_name
        FROM posts p
@@ -95,6 +123,14 @@ export async function handleManagementRoute(
   }
 
   if (campaignMatch && request.method === "POST") {
+    const campaign = await env.DB.prepare(
+      "SELECT client_id FROM campaigns WHERE id = ?"
+    ).bind(campaignMatch[1]).first<{ client_id: string }>();
+    if (!campaign) return { body: { error: "Campaign not found." }, status: 404 };
+
+    const denied = await authorize(env, user, "client_manage", campaign.client_id);
+    if (denied) return { body: { error: denied }, status: 403 };
+
     const payload = await request.json<any>().catch(() => ({} as any));
     await env.DB.prepare(
       `UPDATE campaigns SET
@@ -121,14 +157,25 @@ export async function handleManagementRoute(
   }
 
   if (request.method === "GET" && url.pathname === "/v1/social/accounts") {
+    const denied = await authorize(env, user, "read");
+    if (denied) return { body: { error: denied }, status: 403 };
+
     const clientId = url.searchParams.get("clientId");
+    if (clientId) {
+      const clientDenied = await authorize(env, user, "read", clientId);
+      if (clientDenied) return { body: { error: clientDenied }, status: 403 };
+    }
+    const allowedClients = await accessibleClientIds(env.DB, user);
     const query = `SELECT id, client_id, platform, account_name, external_account_id,
        status, token_expires_at, scopes, account_type, last_verified_at, last_error,
        created_at, updated_at FROM social_accounts`;
     const rows = clientId
       ? await env.DB.prepare(`${query} WHERE client_id = ? ORDER BY platform, account_name`).bind(clientId).all()
       : await env.DB.prepare(`${query} ORDER BY client_id, platform, account_name`).all();
-    return { body: { data: rows.results } };
+    const visible = allowedClients === null || clientId
+      ? rows.results
+      : rows.results.filter((row: any) => allowedClients.includes(row.client_id));
+    return { body: { data: visible } };
   }
 
   if (request.method === "GET" && url.pathname === "/v1/social/connect") {
@@ -138,6 +185,10 @@ export async function handleManagementRoute(
     if (!["facebook","instagram","linkedin","tiktok","x"].includes(platform) || !clientId) {
       return { body: { error: "platform and clientId are required." }, status: 400 };
     }
+
+    const denied = await authorize(env, user, "social_manage", clientId);
+    if (denied) return { body: { error: denied }, status: 403 };
+
     const start = await socialOAuthStart(env, url, platform, clientId, user.id, returnTo);
     return { response: Response.redirect(start, 302) };
   }
@@ -157,6 +208,14 @@ export async function handleManagementRoute(
 
   const disconnectMatch = url.pathname.match(/^\/v1\/social\/accounts\/([^/]+)\/disconnect$/);
   if (disconnectMatch && request.method === "POST") {
+    const account = await env.DB.prepare(
+      "SELECT client_id FROM social_accounts WHERE id = ?"
+    ).bind(disconnectMatch[1]).first<{ client_id: string }>();
+    if (!account) return { body: { error: "Social account not found." }, status: 404 };
+
+    const denied = await authorize(env, user, "social_manage", account.client_id);
+    if (denied) return { body: { error: denied }, status: 403 };
+
     await env.DB.prepare(
       `UPDATE social_accounts SET status = 'disconnected',
        access_token_ciphertext = NULL, refresh_token_ciphertext = NULL,
@@ -167,6 +226,14 @@ export async function handleManagementRoute(
 
   const assignMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/social-account$/);
   if (assignMatch && request.method === "POST") {
+    const post = await env.DB.prepare(
+      "SELECT client_id FROM posts WHERE id = ?"
+    ).bind(assignMatch[1]).first<{ client_id: string }>();
+    if (!post) return { body: { error: "Post not found." }, status: 404 };
+
+    const denied = await authorize(env, user, "review", post.client_id);
+    if (denied) return { body: { error: denied }, status: 403 };
+
     const payload = await request.json<{ socialAccountId?: string }>().catch(() => ({} as any));
     if (!payload.socialAccountId) return { body: { error: "socialAccountId is required." }, status: 400 };
     const account = await env.DB.prepare(
@@ -182,6 +249,9 @@ export async function handleManagementRoute(
   }
 
   if (request.method === "GET" && url.pathname === "/v1/notifications") {
+    const denied = await authorize(env, user, "read");
+    if (denied) return { body: { error: denied }, status: 403 };
+
     const rows = await env.DB.prepare(
       `SELECT * FROM notifications
        WHERE user_id = ? OR user_id IS NULL
@@ -211,6 +281,9 @@ export async function handleManagementRoute(
   }
 
   if (request.method === "GET" && url.pathname === "/v1/settings") {
+    const denied = await authorize(env, user, "read");
+    if (denied) return { body: { error: denied }, status: 403 };
+
     const workspace = await env.DB.prepare(
       "SELECT * FROM workspace_settings WHERE id = 'default'"
     ).first<any>();
@@ -239,6 +312,9 @@ export async function handleManagementRoute(
   }
 
   if (request.method === "POST" && url.pathname === "/v1/settings") {
+    const denied = await authorize(env, user, "settings_manage");
+    if (denied) return { body: { error: denied }, status: 403 };
+
     const payload = await request.json<any>().catch(() => ({} as any));
     const w = payload.workspace || {};
     const n = payload.notifications || {};
@@ -293,9 +369,41 @@ export async function handleManagementRoute(
   }
 
   if (request.method === "GET" && url.pathname === "/v1/analytics/overview") {
+    const denied = await authorize(env, user, "read");
+    if (denied) return { body: { error: denied }, status: 403 };
+
     const clientId = url.searchParams.get("clientId");
-    const filter = clientId ? "WHERE p.client_id = ?" : "";
-    const overview = await env.DB.prepare(
+    if (clientId) {
+      const clientDenied = await authorize(env, user, "read", clientId);
+      if (clientDenied) return { body: { error: clientDenied }, status: 403 };
+    }
+
+    const allowedClients = await accessibleClientIds(env.DB, user);
+    if (!clientId && allowedClients !== null && allowedClients.length === 0) {
+      return {
+        body: {
+          data: {
+            overview: {
+              posts: 0, impressions: 0, reach: 0, likes: 0,
+              comments: 0, shares: 0, clicks: 0, saves: 0,
+            },
+            byPlatform: [],
+          },
+        },
+      };
+    }
+
+    let filter = "";
+    let bindings: string[] = [];
+    if (clientId) {
+      filter = "WHERE p.client_id = ?";
+      bindings = [clientId];
+    } else if (allowedClients !== null) {
+      filter = `WHERE p.client_id IN (${allowedClients.map(() => "?").join(",")})`;
+      bindings = allowedClients;
+    }
+
+    const overviewStatement = env.DB.prepare(
       `SELECT
          COUNT(DISTINCT p.id) AS posts,
          SUM(COALESCE(pm.impressions,0)) AS impressions,
@@ -315,19 +423,31 @@ export async function handleManagementRoute(
        ) pm ON pm.post_id = p.id
        ${filter}`
     );
-    const row = clientId ? await overview.bind(clientId).first() : await overview.first();
-    const byPlatform = clientId
-      ? await env.DB.prepare(
-          `SELECT platform, COUNT(*) AS posts FROM posts
-           WHERE client_id = ? AND status = 'published' GROUP BY platform`
-        ).bind(clientId).all()
-      : await env.DB.prepare(
-          "SELECT platform, COUNT(*) AS posts FROM posts WHERE status = 'published' GROUP BY platform"
-        ).all();
-    return { body: { data: { overview: row, byPlatform: byPlatform.results } } };
+    const overview = bindings.length
+      ? await overviewStatement.bind(...bindings).first()
+      : await overviewStatement.first();
+
+    let platformQuery = "SELECT platform, COUNT(*) AS posts FROM posts WHERE status = 'published'";
+    if (clientId) {
+      platformQuery += " AND client_id = ? GROUP BY platform";
+    } else if (allowedClients !== null) {
+      platformQuery += ` AND client_id IN (${allowedClients.map(() => "?").join(",")}) GROUP BY platform`;
+    } else {
+      platformQuery += " GROUP BY platform";
+    }
+
+    const platformStatement = env.DB.prepare(platformQuery);
+    const byPlatform = bindings.length
+      ? await platformStatement.bind(...bindings).all()
+      : await platformStatement.all();
+
+    return { body: { data: { overview, byPlatform: byPlatform.results } } };
   }
 
   if (request.method === "POST" && url.pathname === "/v1/analytics/sync") {
+    const denied = await authorize(env, user, "analytics_manage");
+    if (denied) return { body: { error: denied }, status: 403 };
+
     const payload = await request.json<{ accountId?: string }>().catch(() => ({} as any));
     if (payload.accountId) {
       await syncAccountAnalytics(env, payload.accountId);
@@ -344,6 +464,9 @@ export async function handleManagementRoute(
 
   const validateMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/schedule\/validate$/);
   if (validateMatch && request.method === "POST") {
+    const denied = await authorize(env, user, "calendar_manage", validateMatch[1]);
+    if (denied) return { body: { error: denied }, status: 403 };
+
     const payload = await request.json<{ scheduledAt?: string }>().catch(() => ({} as any));
     if (!payload.scheduledAt) return { body: { error: "scheduledAt is required." }, status: 400 };
     return { body: { data: await validateSchedule(env, validateMatch[1], payload.scheduledAt) } };
@@ -351,11 +474,17 @@ export async function handleManagementRoute(
 
   const recommendMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/schedule\/recommend$/);
   if (recommendMatch && request.method === "POST") {
+    const denied = await authorize(env, user, "calendar_manage", recommendMatch[1]);
+    if (denied) return { body: { error: denied }, status: 403 };
+
     const payload = await request.json<{ desiredAt?: string }>().catch(() => ({} as any));
     return { body: { data: { scheduledAt: await findNextAvailableSlot(env, recommendMatch[1], payload.desiredAt) } } };
   }
 
   if (request.method === "POST" && url.pathname === "/v1/notifications/test") {
+    const denied = await authorize(env, user, "notifications_manage");
+    if (denied) return { body: { error: denied }, status: 403 };
+
     await deliverNotification(env, {
       userId: user.id,
       type: "test",
