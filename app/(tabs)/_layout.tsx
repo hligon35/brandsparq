@@ -38,10 +38,10 @@ function DesktopHeader() {
             return (
               <Link key={item.label} href={item.href} asChild>
                 <Pressable
-                  style={[
+                  style={StyleSheet.flatten([
                     styles.desktopNavItem,
-                    active && styles.desktopNavItemActive,
-                  ]}
+                    active ? styles.desktopNavItemActive : undefined,
+                  ])}
                 >
                   <Text
                     style={[
