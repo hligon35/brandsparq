@@ -106,8 +106,8 @@ async function sha256(value:string){
 }
 function randomToken(bytes=32){const value=new Uint8Array(bytes);crypto.getRandomValues(value);return bytesToHex(value);}
 async function reviewTokenHash(token:string,env:GenerationEnv){return sha256(`${env.AUTH_PEPPER||""}:review:${token}`);}
-function toBase64(buffer:ArrayBuffer){
-  const bytes=new Uint8Array(buffer);let binary="";const chunk=0x8000;
+function toBase64(value:ArrayBuffer|Uint8Array){
+  const bytes=value instanceof Uint8Array?value:new Uint8Array(value);let binary="";const chunk=0x8000;
   for(let i=0;i<bytes.length;i+=chunk)binary+=String.fromCharCode(...bytes.subarray(i,i+chunk));
   return btoa(binary);
 }
@@ -295,12 +295,7 @@ async function generateGraphic(
     }
   });
 
-  const imageUrl=`data:${result.mimeType};base64,${toBase64(
-    result.bytes.buffer.slice(
-      result.bytes.byteOffset,
-      result.bytes.byteOffset+result.bytes.byteLength
-    )
-  )}`;
+  const imageUrl=`data:${result.mimeType};base64,${toBase64(result.bytes)}`;
 
   const scoreResult=await evaluateCreative(env,{
     platform:generated.platform as CreativePlatform,
@@ -652,7 +647,7 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
         (id,client_id,campaign_id,platform,status,title,headline,caption,hashtags,objective,
          suggested_publish_at,sparq_score,generation_job_id,review_requested_at,
          ai_caption_response_id,social_account_id,created_at,updated_at)
-         VALUES (?,?,?,?,'awaiting_approval',?,?,?,?,?,?,?,?,?,?,?,?,?)`
+         VALUES (?,?,?,?,'review_ready',?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
         postId,
         job.client_id,
@@ -906,7 +901,11 @@ export async function markGraphicJobFailure(
     ).bind(graphicJobId).first<{generation_job_id:string;post_id:string}>();
     if(job){
       await env.DB.prepare(
-        "UPDATE posts SET ai_last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?"
+        `UPDATE posts SET
+         status='edit_requested',
+         ai_last_error=?,
+         updated_at=CURRENT_TIMESTAMP
+         WHERE id=?`
       ).bind(errorMessage.slice(0,1500),job.post_id).run();
       await finalizeGenerationReview(env,job.generation_job_id);
     }
@@ -976,6 +975,15 @@ export async function finalizeGenerationReview(env:GenerationEnv,jobId:string){
   ).bind(jobId).first<{count:number}>();
 
   const now=new Date().toISOString();
+
+  await env.DB.prepare(
+    `UPDATE posts SET
+     status='awaiting_approval',
+     review_requested_at=COALESCE(review_requested_at,?),
+     updated_at=?
+     WHERE generation_job_id=? AND status='review_ready'`
+  ).bind(now,now,jobId).run();
+
   await env.DB.prepare(
     `UPDATE generation_jobs SET
      status='completed',
