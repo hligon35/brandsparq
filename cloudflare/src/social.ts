@@ -467,9 +467,105 @@ async function createPublicMediaUrl(env: SocialEnv, post: any) {
 }
 
 async function accountToken(env: SocialEnv, account: SocialAccountRow) {
-  const token = await decryptSecret(account.access_token_ciphertext, env);
-  if (!token) throw new Error("Social account token is missing.");
-  return token;
+  const current = await decryptSecret(account.access_token_ciphertext, env);
+  if (!current) throw new Error("Social account token is missing.");
+
+  const expiresAt = Number(account.token_expires_at || 0);
+  const needsRefresh = expiresAt > 0 && expiresAt <= Date.now() + 5 * 60 * 1000;
+  if (!needsRefresh) return current;
+
+  const refreshToken = await decryptSecret(account.refresh_token_ciphertext, env);
+  if (!refreshToken) {
+    await env.DB.prepare(
+      "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    ).bind("Access token expired and no refresh token is available.", account.id).run();
+    throw new Error("Social authorization expired. Reconnect this account.");
+  }
+
+  let tokenResponse: Response;
+
+  if (account.platform === "linkedin") {
+    tokenResponse = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: env.LINKEDIN_CLIENT_ID || "",
+        client_secret: env.LINKEDIN_CLIENT_SECRET || "",
+      }),
+    });
+  } else if (account.platform === "tiktok") {
+    tokenResponse = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_key: env.TIKTOK_CLIENT_KEY || "",
+        client_secret: env.TIKTOK_CLIENT_SECRET || "",
+      }),
+    });
+  } else if (account.platform === "x") {
+    const basic =
+      env.X_CLIENT_SECRET && env.X_CLIENT_ID
+        ? btoa(`${env.X_CLIENT_ID}:${env.X_CLIENT_SECRET}`)
+        : null;
+    tokenResponse = await fetch("https://api.x.com/2/oauth2/token", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        ...(basic ? { authorization: `Basic ${basic}` } : {}),
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: env.X_CLIENT_ID || "",
+      }),
+    });
+  } else {
+    await env.DB.prepare(
+      "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    ).bind("Meta authorization expired. Reconnect this account.", account.id).run();
+    throw new Error("Meta authorization expired. Reconnect this account.");
+  }
+
+  if (!tokenResponse.ok) {
+    const detail = (await tokenResponse.text()).slice(0, 500);
+    await env.DB.prepare(
+      "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    ).bind(`Token refresh failed: ${detail}`, account.id).run();
+    throw new Error("Social authorization refresh failed. Reconnect this account.");
+  }
+
+  const refreshed = await tokenResponse.json<any>();
+  const nextAccess = refreshed.access_token;
+  const nextRefresh = refreshed.refresh_token || refreshToken;
+  const nextExpiresAt = refreshed.expires_in
+    ? Date.now() + Number(refreshed.expires_in) * 1000
+    : null;
+
+  await env.DB.prepare(
+    `UPDATE social_accounts SET
+       access_token_ciphertext = ?,
+       refresh_token_ciphertext = ?,
+       token_expires_at = ?,
+       scopes = COALESCE(?, scopes),
+       status = 'connected',
+       last_error = NULL,
+       last_verified_at = ?,
+       updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`
+  ).bind(
+    await encryptSecret(nextAccess, env),
+    await encryptSecret(nextRefresh, env),
+    nextExpiresAt,
+    refreshed.scope || null,
+    new Date().toISOString(),
+    account.id
+  ).run();
+
+  return nextAccess;
 }
 
 export async function publishPostToSocial(env: SocialEnv, postId: string) {
