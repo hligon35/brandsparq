@@ -5,6 +5,8 @@ export type AuthEnv = {
   AUTH_ALLOWED_EMAILS?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_OAUTH_CLIENT_ID?: string;
+  GOOGLE_OAUTH_CLIENT_SECRET?: string;
   GOOGLE_REDIRECT_URI?: string;
 };
 
@@ -76,11 +78,22 @@ async function handoffHash(token: string, env: AuthEnv) {
   return sha256(`${env.AUTH_PEPPER || ""}:google-handoff:${token}`);
 }
 
+function googleClientId(env: AuthEnv) {
+  return env.GOOGLE_CLIENT_ID || env.GOOGLE_OAUTH_CLIENT_ID || "";
+}
+
+function googleClientSecret(env: AuthEnv) {
+  return env.GOOGLE_CLIENT_SECRET || env.GOOGLE_OAUTH_CLIENT_SECRET || "";
+}
+
 function missingGoogleConfig(env: AuthEnv) {
   const missing: string[] = [];
-  if (!env.AUTH_PEPPER) missing.push("AUTH_PEPPER");
-  if (!env.GOOGLE_CLIENT_ID) missing.push("GOOGLE_CLIENT_ID");
-  if (!env.GOOGLE_CLIENT_SECRET) missing.push("GOOGLE_CLIENT_SECRET");
+  if (!googleClientId(env)) {
+    missing.push("GOOGLE_CLIENT_ID (or GOOGLE_OAUTH_CLIENT_ID)");
+  }
+  if (!googleClientSecret(env)) {
+    missing.push("GOOGLE_CLIENT_SECRET (or GOOGLE_OAUTH_CLIENT_SECRET)");
+  }
   return missing;
 }
 
@@ -241,7 +254,7 @@ export async function handleAuthRoute(
     const google = new URL(
       "https://accounts.google.com/o/oauth2/v2/auth"
     );
-    google.searchParams.set("client_id", env.GOOGLE_CLIENT_ID!);
+    google.searchParams.set("client_id", googleClientId(env));
     google.searchParams.set("redirect_uri", redirectUri(url, env));
     google.searchParams.set("response_type", "code");
     google.searchParams.set("scope", "openid email profile");
@@ -320,8 +333,8 @@ export async function handleAuthRoute(
           "content-type": "application/x-www-form-urlencoded",
         },
         body: new URLSearchParams({
-          client_id: env.GOOGLE_CLIENT_ID!,
-          client_secret: env.GOOGLE_CLIENT_SECRET!,
+          client_id: googleClientId(env),
+          client_secret: googleClientSecret(env),
           code,
           grant_type: "authorization_code",
           redirect_uri: redirectUri(url, env),
@@ -395,7 +408,7 @@ export async function handleAuthRoute(
       profile.iss === "https://accounts.google.com";
 
     if (
-      profile.aud !== env.GOOGLE_CLIENT_ID ||
+      profile.aud !== googleClientId(env) ||
       !issuerAllowed ||
       !verified ||
       !email
