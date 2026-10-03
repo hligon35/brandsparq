@@ -94,7 +94,8 @@ async function loadRules(env: SchedulingEnv, clientId: string): Promise<Rules> {
 export async function findNextAvailableSlot(
   env: SchedulingEnv,
   clientId: string,
-  desiredAt?: string | null
+  desiredAt?: string | null,
+  excludePostId?: string | null
 ) {
   const rules = await loadRules(env, clientId);
   let candidate = desiredAt && !Number.isNaN(Date.parse(desiredAt))
@@ -112,19 +113,22 @@ export async function findNextAvailableSlot(
       !inBlackoutWindow(local.minuteOfDay, rules.blackoutWindows)
     ) {
       const nearby = await env.DB.prepare(
-        `SELECT scheduled_publish_at FROM posts
+        `SELECT id, scheduled_publish_at FROM posts
          WHERE client_id = ?
            AND scheduled_publish_at IS NOT NULL
            AND scheduled_publish_at >= ?
            AND scheduled_publish_at <= ?
-           AND status NOT IN ('canceled','failed')`
+           AND status NOT IN ('canceled','failed')
+           AND (? IS NULL OR id != ?)`
       )
         .bind(
           clientId,
           new Date(candidate.getTime() - 24 * 60 * 60 * 1000).toISOString(),
-          new Date(candidate.getTime() + 24 * 60 * 60 * 1000).toISOString()
+          new Date(candidate.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+          excludePostId || null,
+          excludePostId || null
         )
-        .all<{ scheduled_publish_at: string }>();
+        .all<{ id: string; scheduled_publish_at: string }>();
 
       const sameLocalDay = nearby.results.filter(
         (row) =>
