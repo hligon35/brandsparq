@@ -1,5 +1,7 @@
 import { Link } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { api } from "@/api/client";
 import { BrandLogo } from "@/components/brand";
 import {
   Card,
@@ -10,14 +12,37 @@ import {
 import { useResponsive } from "@/hooks/useResponsive";
 import { colors, radius, spacing } from "@/theme/tokens";
 
-const stats = [
-  { value: "8", label: "Needs review", tone: colors.orange },
-  { value: "14", label: "Scheduled", tone: colors.primary },
-  { value: "3", label: "Publishing today", tone: colors.cyan },
-];
-
 export default function HomeScreen() {
   const { compact, wide } = useResponsive();
+  const [dashboard, setDashboard] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadDashboard() {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.getDashboard();
+      setDashboard(result.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load dashboard.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadDashboard();
+  }, []);
+
+  const stats = useMemo(() => [
+    { value: String(dashboard?.awaiting_review ?? 0), label: "Needs review", tone: colors.orange },
+    { value: String(dashboard?.scheduled ?? 0), label: "Scheduled", tone: colors.primary },
+    { value: String(dashboard?.publishing_today ?? 0), label: "Publishing", tone: colors.cyan },
+    { value: String(dashboard?.failed ?? 0), label: "Failed", tone: colors.warning },
+  ], [dashboard]);
+
+  const next = dashboard?.next_post;
 
   return (
     <PageScroll contentStyle={styles.page}>
@@ -51,13 +76,42 @@ export default function HomeScreen() {
 
         <Card style={styles.upcomingCard}>
           <View style={styles.upcomingAccent} />
-          <StatusBadge label="pre_publish" />
-          <Text style={styles.upcomingLabel}>Next up</Text>
-          <Text style={styles.upcomingTitle}>LifePrep · Instagram</Text>
-          <Text style={styles.upcomingTime}>Publishing today at 6:00 PM</Text>
-          <Text style={styles.upcomingBody}>
-            You’ll get the final Keep, Reschedule, or Publish Now decision before it goes live.
-          </Text>
+          {loading ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : error ? (
+            <>
+              <StatusBadge label="failed" />
+              <Text style={styles.upcomingLabel}>Dashboard unavailable</Text>
+              <Text style={styles.upcomingTitle}>Couldn’t load live workspace data</Text>
+              <Text style={styles.upcomingBody}>{error}</Text>
+              <Pressable onPress={loadDashboard}>
+                <Text style={styles.retry}>Retry</Text>
+              </Pressable>
+            </>
+          ) : next ? (
+            <>
+              <StatusBadge label={next.status} />
+              <Text style={styles.upcomingLabel}>Next up</Text>
+              <Text style={styles.upcomingTitle}>
+                {next.client_name} · {String(next.platform).toUpperCase()}
+              </Text>
+              <Text style={styles.upcomingTime}>
+                {new Date(next.scheduled_publish_at).toLocaleString()}
+              </Text>
+              <Text style={styles.upcomingBody}>
+                BrandSparQ is tracking this post through its final publishing state.
+              </Text>
+            </>
+          ) : (
+            <>
+              <StatusBadge label="calendar_scheduled" />
+              <Text style={styles.upcomingLabel}>Next up</Text>
+              <Text style={styles.upcomingTitle}>Nothing scheduled yet</Text>
+              <Text style={styles.upcomingBody}>
+                Approve a generated post to add the first item to your live marketing calendar.
+              </Text>
+            </>
+          )}
         </Card>
       </View>
 
@@ -197,6 +251,11 @@ const styles = StyleSheet.create({
   statLabel: {
     color: colors.muted,
     fontWeight: "700",
+  },
+  retry: {
+    color: colors.primary,
+    fontWeight: "900",
+    paddingTop: 4,
   },
   workflow: {
     gap: spacing.md,
