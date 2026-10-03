@@ -306,6 +306,14 @@ export default {
       if (!row || row.expires_at <= Date.now() || row.used_at) {
         return response(request, env, { error: "This review link is invalid, expired, or already used." }, { status: 409 });
       }
+      if (row.status !== "awaiting_approval") {
+        return response(
+          request,
+          env,
+          { error: "This post is no longer awaiting approval." },
+          { status: 409 }
+        );
+      }
       if (!row.suggested_publish_at) {
         return response(request, env, { error: "This post does not have a proposed publishing slot." }, { status: 409 });
       }
@@ -704,6 +712,15 @@ export default {
       const denied = await authorize(env, sessionUser!, "review", post.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
+      if (post.status !== "awaiting_approval") {
+        return response(
+          request,
+          env,
+          { error: "This post is no longer awaiting approval." },
+          { status: 409 }
+        );
+      }
+
       if (!post.suggested_publish_at) {
         return response(request, env, { error: "Post does not have a proposed publishing slot" }, { status: 409 });
       }
@@ -748,12 +765,21 @@ export default {
     if (request.method === "POST" && keepMatch) {
       const postId = keepMatch[1];
       const post = await env.DB.prepare(
-        "SELECT client_id FROM posts WHERE id = ?"
-      ).bind(postId).first<{ client_id: string }>();
+        "SELECT client_id, status FROM posts WHERE id = ?"
+      ).bind(postId).first<{ client_id: string; status: string }>();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
       const denied = await authorize(env, sessionUser!, "calendar_manage", post.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      if (!["calendar_scheduled","pre_publish","rescheduled","paused"].includes(post.status)) {
+        return response(
+          request,
+          env,
+          { error: "This post cannot keep a schedule from its current state." },
+          { status: 409 }
+        );
+      }
 
       const now = new Date().toISOString();
       await env.DB.prepare(
@@ -772,12 +798,21 @@ export default {
       }
 
       const post = await env.DB.prepare(
-        "SELECT client_id FROM posts WHERE id = ?"
-      ).bind(postId).first<{ client_id: string }>();
+        "SELECT client_id, status FROM posts WHERE id = ?"
+      ).bind(postId).first<{ client_id: string; status: string }>();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
       const denied = await authorize(env, sessionUser!, "calendar_manage", post.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      if (!["calendar_scheduled","pre_publish","rescheduled","paused"].includes(post.status)) {
+        return response(
+          request,
+          env,
+          { error: "This post cannot be rescheduled from its current state." },
+          { status: 409 }
+        );
+      }
 
       const scheduledAt = await findNextAvailableSlot(
         env,
@@ -824,12 +859,21 @@ export default {
     if (request.method === "POST" && publishNowMatch) {
       const postId = publishNowMatch[1];
       const post = await env.DB.prepare(
-        "SELECT id, client_id, social_account_id, scheduled_publish_at FROM posts WHERE id = ?"
+        "SELECT id, client_id, social_account_id, scheduled_publish_at, status FROM posts WHERE id = ?"
       ).bind(postId).first<any>();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
       const denied = await authorize(env, sessionUser!, "publish", post.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      if (!["calendar_scheduled","pre_publish","rescheduled","paused","publish_queued"].includes(post.status)) {
+        return response(
+          request,
+          env,
+          { error: "This post cannot be published from its current state." },
+          { status: 409 }
+        );
+      }
 
       if (!post.social_account_id) {
         return response(
