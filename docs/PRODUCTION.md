@@ -191,12 +191,14 @@ Verify:
 
 ## Cloudflare Workers Builds configuration
 
+BrandSparQ uses `cloudflare/` as the Worker project root because that directory contains `wrangler.toml`.
+
 Configure the connected Worker with:
 
 ```text
-Root directory: /
-Build command: npm run build:cloudflare
-Deploy command: npm run deploy:cloudflare
+Root directory: /cloudflare
+Build command: npm run build
+Deploy command: npm run deploy
 ```
 
-Workers Builds already installs the root package dependencies. The build script only performs the additional nested Worker install and the Expo web export.
+Workers Builds installs `cloudflare/package.json` dependencies automatically. The Worker `build` script installs the parent Expo application dependencies and runs the Expo web export, producing `../dist` for the Worker assets binding.
