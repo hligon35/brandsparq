@@ -95,11 +95,18 @@ function cors(request: Request, env: Env) {
     headers: {
       "access-control-allow-origin": origin && allowed ? origin : "",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "authorization,content-type,x-client-id,x-file-name",
+      "access-control-allow-headers": "authorization,content-type,x-client-id,x-file-name,x-image-width,x-image-height,x-derivative-kind",
       "access-control-max-age": "86400",
       vary: "Origin",
     },
   };
+}
+
+async function sha256HexBytes(bytes: ArrayBuffer) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function response(request: Request, env: Env, body: unknown, init: ResponseInit = {}) {
@@ -759,7 +766,9 @@ export default {
       const clientId = request.headers.get("x-client-id")?.trim();
       const filename = request.headers.get("x-file-name")?.trim() || "upload.jpg";
       const contentType = request.headers.get("content-type") || "application/octet-stream";
-      const declaredSize = Number(request.headers.get("content-length") || "0");
+      const declaredSize = Number(request.headers.get("content-length") || 0);
+      const width = Number(request.headers.get("x-image-width") || 0) || null;
+      const height = Number(request.headers.get("x-image-height") || 0) || null;
 
       if (!clientId) return response(request, env, { error: "x-client-id is required" }, { status: 400 });
 
@@ -767,48 +776,117 @@ export default {
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
       if (!contentType.startsWith("image/")) {
-        return response(request, env, { error: "Only image uploads are accepted" }, { status: 415 });
+        return response(request, env, { error: "Only image uploads are supported." }, { status: 415 });
       }
       if (declaredSize > MAX_IMAGE_BYTES) {
-        return response(request, env, { error: "Image exceeds the 20 MB upload limit" }, { status: 413 });
+        return response(request, env, { error: "Image exceeds the 20 MB upload limit." }, { status: 413 });
       }
 
-      const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ?").bind(clientId).first();
-      if (!client) return response(request, env, { error: "Client not found" }, { status: 404 });
-
-      const body = await request.arrayBuffer();
-      if (body.byteLength > MAX_IMAGE_BYTES) {
-        return response(request, env, { error: "Image exceeds the 20 MB upload limit" }, { status: 413 });
+      const bytes = await request.arrayBuffer();
+      if (bytes.byteLength > MAX_IMAGE_BYTES) {
+        return response(request, env, { error: "Image exceeds the 20 MB upload limit." }, { status: 413 });
       }
 
-      const id = crypto.randomUUID();
-      const safeName = filename.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-120);
-      const key = `clients/${clientId}/originals/${id}-${safeName}`;
+      const assetId = crypto.randomUUID();
+      const extension = filename.includes(".") ? filename.split(".").pop()!.toLowerCase() : "jpg";
+      const key = `originals/${clientId}/${assetId}.${extension}`;
+      const hash = await sha256HexBytes(bytes);
 
-      await env.MEDIA.put(key, body, {
+      await env.MEDIA.put(key, bytes, {
         httpMetadata: { contentType },
-        customMetadata: { clientId, originalFilename: filename },
+        customMetadata: { sha256: hash, originalFilename: filename },
       });
 
       await env.DB.prepare(
         `INSERT INTO assets
-         (id, client_id, r2_key, filename, content_type, size_bytes, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'uploaded')`
-      )
-        .bind(id, clientId, key, filename, contentType, body.byteLength)
-        .run();
+         (id, client_id, r2_key, filename, content_type, size_bytes, width, height, source, status, sha256)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'upload', 'uploaded', ?)`
+      ).bind(
+        assetId,
+        clientId,
+        key,
+        filename,
+        contentType,
+        bytes.byteLength,
+        width,
+        height,
+        hash
+      ).run();
 
       return response(request, env, {
         data: {
-          id,
+          id: assetId,
           clientId,
           filename,
           contentType,
           status: "uploaded",
-          url: `/v1/assets/${id}`,
+          url: `/v1/assets/${assetId}`,
           createdAt: new Date().toISOString(),
         },
       }, { status: 201 });
+    }
+
+    const derivativeMatch = url.pathname.match(/^\/v1\/assets\/([^/]+)\/derivative$/);
+    if (derivativeMatch && request.method === "POST") {
+      const clientId = request.headers.get("x-client-id")?.trim();
+      const kind = request.headers.get("x-derivative-kind")?.trim() || "analysis";
+      const filename = request.headers.get("x-file-name")?.trim() || `${kind}.jpg`;
+      const contentType = request.headers.get("content-type") || "image/jpeg";
+      const width = Number(request.headers.get("x-image-width") || 0) || null;
+      const height = Number(request.headers.get("x-image-height") || 0) || null;
+
+      if (!clientId) return response(request, env, { error: "x-client-id is required" }, { status: 400 });
+      if (!["analysis","thumbnail"].includes(kind)) {
+        return response(request, env, { error: "Invalid derivative kind." }, { status: 400 });
+      }
+
+      const denied = await authorize(env, sessionUser!, "upload", clientId);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      const asset = await env.DB.prepare(
+        "SELECT id FROM assets WHERE id = ? AND client_id = ?"
+      ).bind(derivativeMatch[1], clientId).first();
+      if (!asset) return response(request, env, { error: "Asset not found." }, { status: 404 });
+
+      const bytes = await request.arrayBuffer();
+      if (bytes.byteLength > 8 * 1024 * 1024) {
+        return response(request, env, { error: "Derivative exceeds the 8 MB limit." }, { status: 413 });
+      }
+
+      const hash = await sha256HexBytes(bytes);
+      const id = crypto.randomUUID();
+      const key = `derivatives/${clientId}/${derivativeMatch[1]}/${kind}.jpg`;
+
+      await env.MEDIA.put(key, bytes, {
+        httpMetadata: { contentType },
+        customMetadata: { sha256: hash, derivativeKind: kind, filename },
+      });
+
+      await env.DB.prepare(
+        `INSERT INTO asset_derivatives
+         (id, asset_id, kind, r2_key, content_type, size_bytes, width, height, sha256)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(asset_id, kind) DO UPDATE SET
+           r2_key = excluded.r2_key,
+           content_type = excluded.content_type,
+           size_bytes = excluded.size_bytes,
+           width = excluded.width,
+           height = excluded.height,
+           sha256 = excluded.sha256,
+           created_at = CURRENT_TIMESTAMP`
+      ).bind(
+        id,
+        derivativeMatch[1],
+        kind,
+        key,
+        contentType,
+        bytes.byteLength,
+        width,
+        height,
+        hash
+      ).run();
+
+      return response(request, env, { ok: true, id });
     }
 
     const assetMatch = url.pathname.match(/^\/v1\/assets\/([^/]+)$/);
