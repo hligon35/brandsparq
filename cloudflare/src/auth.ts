@@ -57,13 +57,17 @@ function normalizeEmail(value: unknown) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
-function emailAllowed(email: string, env: AuthEnv) {
-  const list = (env.AUTH_ALLOWED_EMAILS || "")
+function allowedEmailList(env: AuthEnv) {
+  return (env.AUTH_ALLOWED_EMAILS || "")
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
+}
 
-  return !list.length || list.includes(email);
+function emailAllowedForNewUser(email: string, env: AuthEnv) {
+  const list = allowedEmailList(env);
+  if (list.includes(email)) return true;
+  return env.ENVIRONMENT !== "production" && list.length === 0;
 }
 
 async function sessionHash(token: string, env: AuthEnv) {
@@ -425,19 +429,6 @@ export async function handleAuthRoute(
       };
     }
 
-    if (!emailAllowed(email, env)) {
-      return {
-        response: Response.redirect(
-          withQuery(
-            stateRow.return_to,
-            "auth_error",
-            "This Google account is not authorized for BrandSparQ."
-          ),
-          302
-        ),
-      };
-    }
-
     let user = await env.DB.prepare(
       "SELECT id, email, name, role FROM users WHERE email = ?"
     )
@@ -445,16 +436,35 @@ export async function handleAuthRoute(
       .first<SessionUser>();
 
     if (!user) {
+      if (!emailAllowedForNewUser(email, env)) {
+        return {
+          response: Response.redirect(
+            withQuery(
+              stateRow.return_to,
+              "auth_error",
+              "This Google account has not been authorized for BrandSparQ."
+            ),
+            302
+          ),
+        };
+      }
+
+      const existingUsers = await env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM users"
+      ).first<{ count: number }>();
+      const role = Number(existingUsers?.count || 0) === 0 ? "owner" : "viewer";
       const userId = crypto.randomUUID();
+
       await env.DB.prepare(
         `INSERT INTO users
          (id, email, name, role, google_sub, avatar_url)
-         VALUES (?, ?, ?, 'owner', ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?)`
       )
         .bind(
           userId,
           email,
           profile.name || null,
+          role,
           profile.sub || null,
           profile.picture || null
         )
@@ -464,7 +474,7 @@ export async function handleAuthRoute(
         id: userId,
         email,
         name: profile.name || undefined,
-        role: "owner",
+        role,
       };
     } else {
       await env.DB.prepare(
