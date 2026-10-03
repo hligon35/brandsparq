@@ -1,4 +1,8 @@
 import { getSessionUser, handleAuthRoute } from "./auth";
+import { handleManagementRoute } from "./management";
+import { notifyPostOwners } from "./notifications";
+import { hashSecret } from "./security";
+import { publishPostToSocial, syncAccountAnalytics } from "./social";
 import {
   editPostGraphicWithAI,
   hashReviewToken,
@@ -31,6 +35,20 @@ interface Env {
   OPENAI_IMAGE_EDIT_MODEL?: string;
   OPENAI_IMAGE_QUALITY?: "low" | "medium" | "high" | "xhigh" | "max" | "auto";
   OPENAI_IMAGE_SIZE?: string;
+  SOCIAL_TOKEN_KEY?: string;
+  PUBLIC_BASE_URL?: string;
+  META_APP_ID?: string;
+  META_APP_SECRET?: string;
+  META_REDIRECT_URI?: string;
+  LINKEDIN_CLIENT_ID?: string;
+  LINKEDIN_CLIENT_SECRET?: string;
+  LINKEDIN_REDIRECT_URI?: string;
+  TIKTOK_CLIENT_KEY?: string;
+  TIKTOK_CLIENT_SECRET?: string;
+  TIKTOK_REDIRECT_URI?: string;
+  X_CLIENT_ID?: string;
+  X_CLIENT_SECRET?: string;
+  X_REDIRECT_URI?: string;
 }
 
 type PublishMessage = {
@@ -129,6 +147,26 @@ export default {
 
     if (url.pathname === "/health") {
       return response(request, env, { ok: true, service: "brandsparq-api" });
+    }
+
+    const publicPublishMediaMatch = url.pathname.match(/^\/v1\/public\/publish-media\/([^/]+)$/);
+    if (publicPublishMediaMatch && request.method === "GET") {
+      const tokenHash = await hashSecret(publicPublishMediaMatch[1], env.AUTH_PEPPER || "");
+      const row = await env.DB.prepare(
+        "SELECT r2_key, expires_at FROM publish_media_tokens WHERE token_hash = ?"
+      ).bind(tokenHash).first<{ r2_key: string; expires_at: number }>();
+      if (!row || row.expires_at <= Date.now()) {
+        return response(request, env, { error: "Publish media link is invalid or expired." }, { status: 404 });
+      }
+      const object = await env.MEDIA.get(row.r2_key);
+      if (!object) return response(request, env, { error: "Publish media not found." }, { status: 404 });
+      return new Response(object.body, {
+        headers: {
+          "content-type": object.httpMetadata?.contentType || "image/jpeg",
+          "cache-control": "public, max-age=900",
+          etag: object.httpEtag,
+        },
+      });
     }
 
     const publicReviewMatch = url.pathname.match(/^\/v1\/public\/review\/([^/]+)$/);
@@ -240,6 +278,19 @@ export default {
         { error: "Authentication required." },
         { status: 401 }
       );
+    }
+
+    if (sessionUser) {
+      const managed = await handleManagementRoute(request, url, env, sessionUser);
+      if (managed) {
+        if ("response" in managed) return managed.response;
+        return response(
+          request,
+          env,
+          managed.body,
+          managed.status ? { status: managed.status } : {}
+        );
+      }
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/v1/media/")) {
@@ -605,35 +656,49 @@ export default {
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
     const now = new Date();
     const nowIso = now.toISOString();
-    const alertCutoff = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
 
     const upcoming = await env.DB.prepare(
-      `SELECT id FROM posts
-       WHERE status IN ('calendar_scheduled','rescheduled')
-       AND scheduled_publish_at > ?
-       AND scheduled_publish_at <= ?
-       AND prepublish_alert_at IS NULL
+      `SELECT p.id, p.client_id, p.platform, p.scheduled_publish_at,
+              COALESCE(cs.prepublish_minutes, np.prepublish_minutes,
+                       ws.default_prepublish_minutes, 30) AS prepublish_minutes
+       FROM posts p
+       JOIN workspace_settings ws ON ws.id = 'default'
+       LEFT JOIN client_settings cs ON cs.client_id = p.client_id
+       LEFT JOIN users u ON u.role = 'owner'
+       LEFT JOIN notification_preferences np ON np.user_id = u.id
+       WHERE p.status IN ('calendar_scheduled','rescheduled')
+         AND p.scheduled_publish_at IS NOT NULL
+         AND p.prepublish_alert_at IS NULL
        LIMIT 100`
-    ).bind(nowIso, alertCutoff).all<{ id: string }>();
+    ).all<any>();
 
     for (const row of upcoming.results) {
-      await env.DB.batch([
-        env.DB.prepare(
-          `INSERT INTO notifications
-           (id, post_id, type, channel, status, scheduled_for)
-           VALUES (?, ?, 'pre_publish', 'in_app', 'queued', ?)`
-        ).bind(crypto.randomUUID(), row.id, nowIso),
-        env.DB.prepare(
+      const alertAt = new Date(row.scheduled_publish_at).getTime() -
+        Number(row.prepublish_minutes || 30) * 60 * 1000;
+      if (alertAt <= Date.now()) {
+        await env.DB.prepare(
           "UPDATE posts SET status = 'pre_publish', prepublish_alert_at = ?, updated_at = ? WHERE id = ?"
-        ).bind(nowIso, nowIso, row.id),
-      ]);
+        ).bind(nowIso, nowIso, row.id).run();
+
+        const deepLink = env.PUBLIC_BASE_URL
+          ? `${env.PUBLIC_BASE_URL.replace(/\/$/, "")}/posts/${row.id}/publish`
+          : undefined;
+        await notifyPostOwners(
+          env,
+          row.id,
+          "pre_publish",
+          "Post ready for final publish decision",
+          `Your ${row.platform} post is scheduled for ${new Date(row.scheduled_publish_at).toLocaleString()}. Keep the schedule, reschedule it, or publish now.`,
+          deepLink
+        );
+      }
     }
 
     const due = await env.DB.prepare(
       `SELECT id FROM posts
        WHERE status IN ('calendar_scheduled','pre_publish','rescheduled')
-       AND scheduled_publish_at IS NOT NULL
-       AND scheduled_publish_at <= ?
+         AND scheduled_publish_at IS NOT NULL
+         AND scheduled_publish_at <= ?
        ORDER BY scheduled_publish_at ASC
        LIMIT 100`
     ).bind(nowIso).all<{ id: string }>();
@@ -644,6 +709,26 @@ export default {
         postId: row.id,
         idempotencyKey: `scheduled:${row.id}:${nowIso.slice(0, 16)}`,
       });
+    }
+
+    const settings = await env.DB.prepare(
+      "SELECT analytics_refresh_hours FROM workspace_settings WHERE id = 'default'"
+    ).first<{ analytics_refresh_hours: number }>();
+    const refreshMs = Number(settings?.analytics_refresh_hours || 6) * 60 * 60 * 1000;
+    const accounts = await env.DB.prepare(
+      `SELECT sa.id,
+          MAX(CASE WHEN ar.status = 'completed' THEN ar.completed_at END) AS last_sync
+       FROM social_accounts sa
+       LEFT JOIN analytics_sync_runs ar ON ar.social_account_id = sa.id
+       WHERE sa.status = 'connected'
+       GROUP BY sa.id`
+    ).all<{ id: string; last_sync: string | null }>();
+
+    for (const account of accounts.results) {
+      const last = account.last_sync ? Date.parse(account.last_sync) : 0;
+      if (!last || Date.now() - last >= refreshMs) {
+        try { await syncAccountAnalytics(env, account.id); } catch {}
+      }
     }
   },
 
@@ -675,21 +760,90 @@ export default {
         continue;
       }
 
+      const post = await env.DB.prepare(
+        "SELECT id, social_account_id, publish_retry_count FROM posts WHERE id = ?"
+      ).bind(message.body.postId).first<any>();
+
+      if (!post?.social_account_id) {
+        await env.DB.prepare(
+          `UPDATE posts SET status = 'failed', failure_code = 'SOCIAL_ACCOUNT_REQUIRED',
+             failure_message = 'Connect and assign a social account before publishing.',
+             updated_at = ? WHERE id = ?`
+        ).bind(new Date().toISOString(), message.body.postId).run();
+        await notifyPostOwners(
+          env,
+          message.body.postId,
+          "publish_failed",
+          "BrandSparQ could not publish this post",
+          "A connected social account must be assigned before publishing."
+        );
+        message.ack();
+        continue;
+      }
+
       const attemptId = crypto.randomUUID();
       await env.DB.batch([
         env.DB.prepare(
           `INSERT INTO publish_attempts
            (id, post_id, idempotency_key, status)
-           VALUES (?, ?, ?, 'queued')`
+           VALUES (?, ?, ?, 'publishing')`
         ).bind(attemptId, message.body.postId, message.body.idempotencyKey),
         env.DB.prepare(
-          "UPDATE posts SET status = 'publishing', updated_at = ? WHERE id = ?"
-        ).bind(new Date().toISOString(), message.body.postId),
+          `UPDATE posts SET status = 'publishing', publish_started_at = ?,
+             last_publish_attempt_at = ?, updated_at = ? WHERE id = ?`
+        ).bind(
+          new Date().toISOString(),
+          new Date().toISOString(),
+          new Date().toISOString(),
+          message.body.postId
+        ),
       ]);
 
-      // Platform adapters (Meta, LinkedIn, TikTok, X) are intentionally isolated
-      // behind this queue consumer and connect in the next integration phase.
-      message.ack();
+      try {
+        await publishPostToSocial(env, message.body.postId);
+        await env.DB.prepare(
+          "UPDATE publish_attempts SET status = 'published' WHERE id = ?"
+        ).bind(attemptId).run();
+        await notifyPostOwners(
+          env,
+          message.body.postId,
+          "published",
+          "Post published",
+          "BrandSparQ successfully published your scheduled post."
+        );
+        message.ack();
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message.slice(0, 1500) : "Publishing failed";
+        const retryCount = Number(post.publish_retry_count || 0) + 1;
+        await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE publish_attempts SET status = 'failed', error_message = ? WHERE id = ?`
+          ).bind(errorMessage, attemptId),
+          env.DB.prepare(
+            `UPDATE posts SET status = ?, publish_retry_count = ?, failure_code = 'PROVIDER_ERROR',
+               failure_message = ?, updated_at = ? WHERE id = ?`
+          ).bind(
+            retryCount >= 3 ? "failed" : "publishing",
+            retryCount,
+            errorMessage,
+            new Date().toISOString(),
+            message.body.postId
+          ),
+        ]);
+
+        if (retryCount >= 3) {
+          await notifyPostOwners(
+            env,
+            message.body.postId,
+            "publish_failed",
+            "Post failed to publish",
+            errorMessage
+          );
+          message.ack();
+        } else {
+          message.retry({ delaySeconds: Math.min(3600, 60 * 2 ** retryCount) });
+        }
+      }
     }
   },
 } satisfies ExportedHandler<Env, JobMessage>;
