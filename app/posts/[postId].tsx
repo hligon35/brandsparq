@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  Pressable,
   View,
 } from "react-native";
 import { api } from "@/api/client";
@@ -33,6 +34,8 @@ export default function PostReviewScreen() {
   const [saving, setSaving] = useState(false);
   const [aiAction, setAiAction] = useState<AiAction>(null);
   const [instruction, setInstruction] = useState("");
+  const [socialAccounts, setSocialAccounts] = useState<any[]>([]);
+  const [assigningAccount, setAssigningAccount] = useState(false);
   const { wide } = useResponsive();
 
   async function reload() {
@@ -45,6 +48,19 @@ export default function PostReviewScreen() {
     api.getPost(postId).then(setPost).catch(() => {});
   }, [postId]);
 
+  useEffect(() => {
+    if (!post?.clientId) return;
+    api.getSocialAccounts(post.clientId)
+      .then(({ data }) =>
+        setSocialAccounts(
+          data.filter((account: any) =>
+            account.platform === post.platform && account.status === "connected"
+          )
+        )
+      )
+      .catch(() => setSocialAccounts([]));
+  }, [post?.clientId, post?.platform]);
+
   if (!post) {
     return (
       <PageScroll>
@@ -56,6 +72,21 @@ export default function PostReviewScreen() {
   const demoClient = clients.find(
     (item) => item.id === post.clientId
   );
+
+  async function assignAccount(accountId: string) {
+    setAssigningAccount(true);
+    try {
+      await api.assignSocialAccount(post!.id, accountId);
+      await reload();
+    } catch (error) {
+      Alert.alert(
+        "Unable to assign account",
+        error instanceof Error ? error.message : "Try again."
+      );
+    } finally {
+      setAssigningAccount(false);
+    }
+  }
 
   async function approve() {
     setSaving(true);
@@ -149,6 +180,39 @@ export default function PostReviewScreen() {
             <Text style={styles.body}>{post.caption}</Text>
           </Card>
 
+          <Card>
+            <SectionTitle
+              title="Publishing account"
+              subtitle={post.socialAccountName ? "This post is ready to publish to the selected account." : "Choose the connected account that should receive this post."}
+            />
+            {socialAccounts.length ? (
+              <View style={styles.accountList}>
+                {socialAccounts.map((account: any) => {
+                  const active = account.id === post.socialAccountId;
+                  return (
+                    <Pressable
+                      key={account.id}
+                      disabled={assigningAccount}
+                      onPress={() => assignAccount(account.id)}
+                      style={[styles.accountOption, active && styles.accountOptionActive]}
+                    >
+                      <Text style={[styles.accountName, active && styles.accountNameActive]}>
+                        {account.account_name}
+                      </Text>
+                      <Text style={[styles.accountPlatform, active && styles.accountNameActive]}>
+                        {String(account.platform).toUpperCase()}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : (
+              <Text style={styles.accountWarning}>
+                No connected {post.platform} account is available for this client. Connect one from More → Social connections before publishing.
+              </Text>
+            )}
+          </Card>
+
           <Card subtle>
             <Text style={styles.label}>Recommended slot</Text>
             <Text style={styles.heading}>
@@ -160,7 +224,7 @@ export default function PostReviewScreen() {
 
           <Button
             label={saving ? "Approving…" : "Approve post"}
-            onPress={saving || aiAction ? undefined : approve}
+            onPress={saving || aiAction || !post.socialAccountId ? undefined : approve}
           />
         </View>
       </View>
@@ -290,6 +354,42 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     textAlignVertical: "top",
     fontSize: 15,
+  },
+  accountList: {
+    gap: spacing.sm,
+  },
+  accountOption: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface2,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  accountOptionActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  accountName: {
+    color: colors.text,
+    fontWeight: "800",
+  },
+  accountPlatform: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  accountNameActive: {
+    color: colors.white,
+  },
+  accountWarning: {
+    color: colors.warning,
+    lineHeight: 20,
+    fontWeight: "700",
   },
   aiActions: {
     flexDirection: "row",
