@@ -278,8 +278,11 @@ async function generateGraphic(
     size:profile.imageSize,
   });
 
-  const variantId=crypto.randomUUID();
-  const key=`generated/${post.client_id}/${post.id}/${profile.variantKey}/${variantId}.jpg`;
+  const existingVariant=await env.DB.prepare(
+    "SELECT id FROM creative_variants WHERE post_id=? AND variant_key=?"
+  ).bind(post.id,profile.variantKey).first<{id:string}>();
+  const variantId=existingVariant?.id||crypto.randomUUID();
+  const key=`generated/${post.client_id}/${post.id}/${profile.variantKey}/${crypto.randomUUID()}.jpg`;
   await env.MEDIA.put(key,result.bytes,{
     httpMetadata:{contentType:result.mimeType},
     customMetadata:{
