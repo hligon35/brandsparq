@@ -50,3 +50,10 @@ Expo SDK 57 uses the `expo-image-manipulator` package for iOS, Android, and web 
 - `generated/{client}/{post}/{variant}/{version}.jpg`
 
 The original file remains preserved while AI receives the smaller analysis derivative.
+
+
+## Rendering note
+
+BrandSparQ now persists a deterministic composition contract and supplies the exact uploaded logo as a visual reference. The final raster is still produced by the configured image-generation model.
+
+A Worker-side SVG/PNG compositor was intentionally not added in Sprint 3 because the available WASM rasterizers can materially increase Worker memory usage. Exact server-side text/logo raster compositing should be introduced only with a renderer proven safe under the production Worker memory limit.
