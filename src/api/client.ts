@@ -116,6 +116,54 @@ export const api = {
     jsonRequest<{ ok: true }>("/v1/auth/logout", { method: "POST" }),
 
 
+  getDashboard: () =>
+    jsonRequest<{
+      data: {
+        needsReview: number;
+        scheduled: number;
+        publishingToday: number;
+        failed: number;
+        nextPost: (ApiPost & { client_name?: string }) | null;
+      };
+    }>("/v1/dashboard"),
+
+  createClient: (name: string, timezone?: string) =>
+    jsonRequest<{ ok: true; id: string; name: string; timezone: string }>(
+      "/v1/clients",
+      {
+        method: "POST",
+        body: JSON.stringify({ name, timezone }),
+      }
+    ),
+
+  updateClient: (clientId: string, payload: { name?: string; timezone?: string }) =>
+    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  archiveClient: (clientId: string) =>
+    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}/archive`, {
+      method: "POST",
+    }),
+
+  getBrandAssets: (clientId: string) =>
+    jsonRequest<{ data: any[] }>(`/v1/clients/${clientId}/brand-assets`),
+
+  attachBrandAsset: (
+    clientId: string,
+    assetId: string,
+    role: string,
+    label?: string
+  ) =>
+    jsonRequest<{ ok: true; id: string }>(
+      `/v1/clients/${clientId}/brand-assets`,
+      {
+        method: "POST",
+        body: JSON.stringify({ assetId, role, label }),
+      }
+    ),
+
   getCampaigns: (clientId?: string) =>
     jsonRequest<{ data: any[] }>(
       `/v1/campaigns${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`
@@ -225,8 +273,10 @@ export const api = {
       { method: "POST" }
     ),
 
-  async getClients(): Promise<Client[]> {
-    const result = await jsonRequest<{ data: Client[] }>("/v1/clients");
+  async getClients(includeArchived = false): Promise<Client[]> {
+    const result = await jsonRequest<{ data: Client[] }>(
+      `/v1/clients${includeArchived ? "?includeArchived=1" : ""}`
+    );
     return result.data;
   },
 
