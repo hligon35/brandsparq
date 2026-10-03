@@ -967,6 +967,51 @@ export default {
       });
     }
 
+    const creativeMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/creative$/);
+    if (creativeMatch && request.method === "GET") {
+      const post = await env.DB.prepare(
+        "SELECT id, client_id FROM posts WHERE id = ?"
+      ).bind(creativeMatch[1]).first<{ id: string; client_id: string }>();
+      if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
+
+      const denied = await authorize(env, sessionUser!, "read", post.client_id);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+
+      const variants = await env.DB.prepare(
+        `SELECT id,platform,variant_key,aspect_ratio,width,height,r2_key,
+                content_type,is_primary,composition_json,model,response_id,created_at
+         FROM creative_variants
+         WHERE post_id = ?
+         ORDER BY is_primary DESC, created_at DESC`
+      ).bind(post.id).all<any>();
+
+      const signedVariants = await Promise.all(
+        variants.results.map(async (variant) => ({
+          ...variant,
+          url: await issuePostMediaUrl(
+            env,
+            request.url,
+            sessionUser!.id,
+            post.id,
+            variant.r2_key
+          ),
+          composition: variant.composition_json
+            ? JSON.parse(variant.composition_json)
+            : null,
+        }))
+      );
+
+      const score = await env.DB.prepare(
+        `SELECT overall,brand_match,readability,platform_fit,cta_strength,
+                composition,caption_quality,compliance,rationale,model,response_id,updated_at
+         FROM sparq_scores WHERE post_id = ?`
+      ).bind(post.id).first<any>();
+
+      return response(request, env, {
+        data: { variants: signedVariants, score: score || null },
+      });
+    }
+
     const postMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)$/);
     if (request.method === "GET" && postMatch) {
       const post = await getPost(env, postMatch[1]);
