@@ -16,7 +16,6 @@ import {
   PageScroll,
   SectionTitle,
 } from "@/components/ui";
-import { clients as demoClients } from "@/data/demo";
 import { useResponsive } from "@/hooks/useResponsive";
 import { colors, radius, spacing } from "@/theme/tokens";
 import type { Client } from "@/types/domain";
@@ -24,10 +23,9 @@ import type { Client } from "@/types/domain";
 const objectives = ["Auto", "Promote", "Awareness", "Announce"];
 
 export default function CreateScreen() {
-  const [clients, setClients] = useState<Client[]>(demoClients);
-  const [clientId, setClientId] = useState(
-    demoClients[0]?.id ?? ""
-  );
+  const [clients, setClients] = useState<Client[]>([]);
+  const [clientId, setClientId] = useState("");
+  const [clientError, setClientError] = useState<string | null>(null);
   const [objective, setObjective] = useState("Auto");
   const [assets, setAssets] =
     useState<ImagePicker.ImagePickerAsset[]>([]);
@@ -38,11 +36,15 @@ export default function CreateScreen() {
     api
       .getClients()
       .then((data) => {
-        if (!data.length) return;
         setClients(data);
-        setClientId((current) => current || data[0].id);
+        setClientError(null);
+        if (data.length) setClientId((current) => current || data[0].id);
       })
-      .catch(() => {});
+      .catch((error) => {
+        setClients([]);
+        setClientId("");
+        setClientError(error instanceof Error ? error.message : "Unable to load clients.");
+      });
   }, []);
 
   const selectedClient = useMemo(
@@ -116,6 +118,11 @@ export default function CreateScreen() {
               title="1. Choose client"
               subtitle="Brand Brain rules will shape the creative."
             />
+            {clientError ? (
+              <Text style={styles.errorText}>{clientError}</Text>
+            ) : !clients.length ? (
+              <Text style={styles.emptyText}>No active clients are available yet.</Text>
+            ) : (
             <View style={styles.chips}>
               {clients.map((client) => {
                 const active = client.id === clientId;
@@ -140,6 +147,7 @@ export default function CreateScreen() {
                 );
               })}
             </View>
+            )}
           </Card>
 
           <Card>
@@ -227,6 +235,13 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: spacing.md,
     minWidth: 0,
+  },
+  errorText: {
+    color: colors.warning,
+    fontWeight: "700",
+  },
+  emptyText: {
+    color: colors.muted,
   },
   chips: {
     flexDirection: "row",
