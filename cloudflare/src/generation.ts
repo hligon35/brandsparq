@@ -852,7 +852,10 @@ export async function runGraphicJob(env:GenerationEnv,graphicJobId:string){
      WHERE gj.id=?`
   ).bind(graphicJobId).first<any>();
   if(!graphicJob)throw new Error("Graphic job not found.");
-  if(graphicJob.status==="completed")return {completed:true,resumed:true};
+  if(graphicJob.status==="completed"){
+    await finalizeGenerationReview(env,graphicJob.generation_job_id);
+    return {completed:true,resumed:true};
+  }
 
   const claimed=await env.DB.prepare(
     `UPDATE graphic_jobs SET
