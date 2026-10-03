@@ -206,6 +206,28 @@ async function toImageInputs(env:GenerationEnv,assets:AssetRow[],limit=3){
   return out;
 }
 
+async function brandLogoInput(
+  env:GenerationEnv,
+  logoAssetId?:string|null
+):Promise<{type:"input_image";image_url:string}|null>{
+  if(!logoAssetId)return null;
+  const asset=await env.DB.prepare(
+    "SELECT r2_key,content_type,size_bytes FROM assets WHERE id=?"
+  ).bind(logoAssetId).first<{
+    r2_key:string;
+    content_type:string;
+    size_bytes:number|null;
+  }>();
+  if(!asset||!asset.content_type?.startsWith("image/"))return null;
+  if((asset.size_bytes||0)>8*1024*1024)return null;
+  const object=await env.MEDIA.get(asset.r2_key);
+  if(!object)return null;
+  return {
+    type:"input_image",
+    image_url:`data:${asset.content_type};base64,${toBase64(await object.arrayBuffer())}`,
+  };
+}
+
 async function loadPost(env:GenerationEnv,postId:string){
   return env.DB.prepare(
     `SELECT p.*,c.name AS client_name,c.timezone,
@@ -265,10 +287,13 @@ async function generateGraphic(
     "Do not place the full caption inside the graphic."
   ].filter(Boolean).join("\n");
 
+  const logoInput=await brandLogoInput(env,post.logo_asset_id);
+  const visualInputs=logoInput?[...images,logoInput]:images;
+
   const result=await createImageResponse(env,{
     instructions:IMAGE_DIRECTOR_INSTRUCTIONS,
     prompt,
-    images,
+    images:visualInputs,
     action:edit?"edit":"auto",
     imageModel:edit
       ?(env.OPENAI_IMAGE_EDIT_MODEL||"gpt-image-2.5-sunburst")
