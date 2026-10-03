@@ -8,8 +8,10 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "build": "expo export --platform web",
     "build:web": "expo export --platform web",
-    "deploy:worker": "npm run build:web && npm --prefix cloudflare install --legacy-peer-deps && npm --prefix cloudflare run deploy",
+    "deploy:worker": "npm run build && npm --prefix cloudflare install --legacy-peer-deps && npm --prefix cloudflare run deploy",
+    "deploy:cloudflare": "npm run deploy:worker",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
