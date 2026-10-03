@@ -1,6 +1,5 @@
-import { Ionicons } from "@expo/vector-icons";
-import { StyleSheet, Text, View } from "react-native";
-import { colors, radius } from "@/theme/tokens";
+import { Image, StyleSheet, Text, View } from "react-native";
+import { colors } from "@/theme/tokens";
 
 export function BrandLogo({
   compact = false,
@@ -14,37 +13,11 @@ export function BrandLogo({
 
   return (
     <View style={styles.wrap}>
-      <View
-        style={[
-          styles.mark,
-          {
-            width: markSize,
-            height: markSize,
-            borderRadius: compact ? 13 : 18,
-          },
-        ]}
-      >
-        <View style={styles.speedOne} />
-        <View style={styles.speedTwo} />
-        <Ionicons
-          name="image-outline"
-          size={compact ? 23 : 36}
-          color={colors.white}
-        />
-        <View style={styles.heartBubble}>
-          <Ionicons
-            name="heart"
-            size={compact ? 8 : 11}
-            color={colors.white}
-          />
-        </View>
-        <Ionicons
-          name="sparkles"
-          size={compact ? 14 : 20}
-          color={colors.orange}
-          style={styles.spark}
-        />
-      </View>
+      <Image
+        source={require("../../assets/brandsparqLogo.png")}
+        style={{ width: markSize, height: markSize }}
+        resizeMode="contain"
+      />
 
       <View style={styles.wordWrap}>
         <View style={styles.wordmark}>
@@ -67,49 +40,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-  },
-  mark: {
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-    overflow: "visible",
-  },
-  speedOne: {
-    position: "absolute",
-    width: 18,
-    height: 4,
-    borderRadius: radius.pill,
-    backgroundColor: colors.cyan,
-    left: -11,
-    top: "35%",
-  },
-  speedTwo: {
-    position: "absolute",
-    width: 12,
-    height: 4,
-    borderRadius: radius.pill,
-    backgroundColor: colors.primary,
-    left: -7,
-    top: "57%",
-  },
-  heartBubble: {
-    position: "absolute",
-    right: -5,
-    top: 5,
-    width: 18,
-    height: 18,
-    borderRadius: 6,
-    backgroundColor: colors.cyan,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: colors.white,
-  },
-  spark: {
-    position: "absolute",
-    right: -12,
-    top: -11,
   },
   wordWrap: {
     gap: 1,

@@ -8,6 +8,7 @@
     "userInterfaceStyle": "light",
     "backgroundColor": "#F4F8FF",
     "newArchEnabled": true,
+    "icon": "./assets/brandsparqIcon.png",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.alphazonelabs.brandsparq",
@@ -18,8 +19,8 @@
     "android": {
       "package": "com.alphazonelabs.brandsparq",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/brandsparqIcon.png",
-        "backgroundColor": "#F4F8FF"
+        "backgroundColor": "#F4F8FF",
+        "foregroundImage": "./assets/brandsparqIcon.png"
       }
     },
     "web": {
