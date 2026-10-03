@@ -18,16 +18,32 @@ export default function PublishDecisionScreen() {
   const router = useRouter();
   const [post, setPost] = useState<MarketingPost>();
   const [working, setWorking] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const { wide } = useResponsive();
 
+  async function load() {
+    if (!postId) return;
+    setLoadError("");
+    try {
+      setPost(await api.getPost(postId));
+    } catch (error) {
+      setPost(undefined);
+      setLoadError(error instanceof Error ? error.message : "Unable to load post.");
+    }
+  }
+
   useEffect(() => {
-    if (postId) api.getPost(postId).then(setPost).catch(() => {});
+    void load();
   }, [postId]);
 
   if (!post) {
     return (
       <PageScroll>
-        <Text style={styles.title}>Loading post…</Text>
+        <Card subtle>
+          <Text style={styles.title}>{loadError ? "Post unavailable" : "Loading post…"}</Text>
+          {!!loadError && <Text style={styles.sub}>{loadError}</Text>}
+          {!!loadError && <Text onPress={load} style={styles.retry}>Try again</Text>}
+        </Card>
       </PageScroll>
     );
   }
@@ -167,5 +183,9 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 17,
     fontWeight: "900",
+  },
+  retry: {
+    color: colors.primary,
+    fontWeight: "800",
   },
 });
