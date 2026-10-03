@@ -664,7 +664,7 @@ export default {
           `WHERE p.scheduled_publish_at IS NOT NULL
            AND p.scheduled_publish_at >= ?
            AND p.scheduled_publish_at < ?
-           AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publishing','published','failed')
+           AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued','publishing','published','failed')
            ORDER BY p.scheduled_publish_at ASC`
         )
       ).bind(from, to).all<any>();
@@ -973,7 +973,7 @@ export default {
        LEFT JOIN client_settings cs ON cs.client_id = p.client_id
        LEFT JOIN users u ON u.role = 'owner'
        LEFT JOIN notification_preferences np ON np.user_id = u.id
-       WHERE p.status IN ('calendar_scheduled','pre_publish','rescheduled')
+       WHERE p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued')
          AND p.scheduled_publish_at IS NOT NULL
          AND p.scheduled_publish_at <= ?
        ORDER BY p.scheduled_publish_at ASC
@@ -1066,7 +1066,11 @@ export default {
           message.ack();
         } catch (error) {
           await env.DB.prepare(
-            `UPDATE generation_jobs SET status = 'failed', error_message = ?, completed_at = ? WHERE id = ?`
+            `UPDATE generation_jobs SET
+             status = 'retrying',
+             error_message = ?,
+             stage_updated_at = ?
+             WHERE id = ?`
           ).bind(
             error instanceof Error ? error.message.slice(0, 1500) : "Generation failed",
             new Date().toISOString(),
@@ -1199,7 +1203,6 @@ export default {
             delaySeconds: Math.min(3600, 60 * 2 ** claim.attempt),
           });
         }
-      }
       }
     }
   },
