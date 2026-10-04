@@ -58,6 +58,46 @@ async function authorize(
   return null;
 }
 
+async function captureAnalyticsSnapshot(env: ManagementEnv, clientId: string) {
+  const totals = await env.DB.prepare(
+    `SELECT
+       COUNT(DISTINCT CASE WHEN p.status='published' THEN p.id END) AS posts,
+       SUM(COALESCE(pm.impressions,0)) AS impressions,
+       SUM(COALESCE(pm.reach,0)) AS reach,
+       SUM(COALESCE(pm.likes,0)) AS likes,
+       SUM(COALESCE(pm.comments,0)) AS comments,
+       SUM(COALESCE(pm.shares,0)) AS shares,
+       SUM(COALESCE(pm.clicks,0)) AS clicks,
+       SUM(COALESCE(pm.saves,0)) AS saves
+     FROM posts p
+     LEFT JOIN (
+       SELECT m1.* FROM post_metrics m1
+       JOIN (
+         SELECT post_id, MAX(measured_at) AS measured_at
+         FROM post_metrics GROUP BY post_id
+       ) latest ON latest.post_id=m1.post_id AND latest.measured_at=m1.measured_at
+     ) pm ON pm.post_id=p.id
+     WHERE p.client_id=?`
+  ).bind(clientId).first<any>();
+
+  await env.DB.prepare(
+    `INSERT INTO analytics_snapshots
+     (id,client_id,posts,impressions,reach,likes,comments,shares,clicks,saves)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`
+  ).bind(
+    crypto.randomUUID(),
+    clientId,
+    Number(totals?.posts || 0),
+    Number(totals?.impressions || 0),
+    Number(totals?.reach || 0),
+    Number(totals?.likes || 0),
+    Number(totals?.comments || 0),
+    Number(totals?.shares || 0),
+    Number(totals?.clicks || 0),
+    Number(totals?.saves || 0)
+  ).run();
+}
+
 export async function handleManagementRoute(
   request: Request,
   url: URL,
@@ -467,16 +507,17 @@ export async function handleManagementRoute(
       if (clientDenied) return { body: { error: clientDenied }, status: 403 };
     }
 
+    const days = Math.min(90, Math.max(7, Number(url.searchParams.get("days") || 30)));
     const allowedClients = await accessibleClientIds(env.DB, user);
     if (!clientId && allowedClients !== null && allowedClients.length === 0) {
       return {
         body: {
           data: {
-            overview: {
-              posts: 0, impressions: 0, reach: 0, likes: 0,
-              comments: 0, shares: 0, clicks: 0, saves: 0,
-            },
+            overview: { posts:0,impressions:0,reach:0,likes:0,comments:0,shares:0,clicks:0,saves:0 },
             byPlatform: [],
+            history: [],
+            topPosts: [],
+            syncHealth: [],
           },
         },
       };
@@ -492,8 +533,38 @@ export async function handleManagementRoute(
       bindings = allowedClients;
     }
 
+    const latestMetrics = `
+      LEFT JOIN (
+        SELECT m1.* FROM post_metrics m1
+        JOIN (
+          SELECT post_id, MAX(measured_at) AS measured_at
+          FROM post_metrics GROUP BY post_id
+        ) latest ON latest.post_id=m1.post_id AND latest.measured_at=m1.measured_at
+      ) pm ON pm.post_id=p.id`;
+
     const overviewStatement = env.DB.prepare(
       `SELECT
+         COUNT(DISTINCT CASE WHEN p.status='published' THEN p.id END) AS posts,
+         SUM(COALESCE(pm.impressions,0)) AS impressions,
+         SUM(COALESCE(pm.reach,0)) AS reach,
+         SUM(COALESCE(pm.likes,0)) AS likes,
+         SUM(COALESCE(pm.comments,0)) AS comments,
+         SUM(COALESCE(pm.shares,0)) AS shares,
+         SUM(COALESCE(pm.clicks,0)) AS clicks,
+         SUM(COALESCE(pm.saves,0)) AS saves
+       FROM posts p
+       ${latestMetrics}
+       ${filter}`
+    );
+    const overview = bindings.length
+      ? await overviewStatement.bind(...bindings).first<any>()
+      : await overviewStatement.first<any>();
+
+    const platformFilter = filter
+      ? `${filter} AND p.status='published'`
+      : "WHERE p.status='published'";
+    const platformStatement = env.DB.prepare(
+      `SELECT p.platform,
          COUNT(DISTINCT p.id) AS posts,
          SUM(COALESCE(pm.impressions,0)) AS impressions,
          SUM(COALESCE(pm.reach,0)) AS reach,
@@ -503,34 +574,98 @@ export async function handleManagementRoute(
          SUM(COALESCE(pm.clicks,0)) AS clicks,
          SUM(COALESCE(pm.saves,0)) AS saves
        FROM posts p
-       LEFT JOIN (
-         SELECT m1.* FROM post_metrics m1
-         JOIN (
-           SELECT post_id, MAX(measured_at) AS measured_at
-           FROM post_metrics GROUP BY post_id
-         ) latest ON latest.post_id = m1.post_id AND latest.measured_at = m1.measured_at
-       ) pm ON pm.post_id = p.id
-       ${filter}`
+       ${latestMetrics}
+       ${platformFilter}
+       GROUP BY p.platform
+       ORDER BY impressions DESC, posts DESC`
     );
-    const overview = bindings.length
-      ? await overviewStatement.bind(...bindings).first()
-      : await overviewStatement.first();
-
-    let platformQuery = "SELECT platform, COUNT(*) AS posts FROM posts WHERE status = 'published'";
-    if (clientId) {
-      platformQuery += " AND client_id = ? GROUP BY platform";
-    } else if (allowedClients !== null) {
-      platformQuery += ` AND client_id IN (${allowedClients.map(() => "?").join(",")}) GROUP BY platform`;
-    } else {
-      platformQuery += " GROUP BY platform";
-    }
-
-    const platformStatement = env.DB.prepare(platformQuery);
     const byPlatform = bindings.length
-      ? await platformStatement.bind(...bindings).all()
-      : await platformStatement.all();
+      ? await platformStatement.bind(...bindings).all<any>()
+      : await platformStatement.all<any>();
 
-    return { body: { data: { overview, byPlatform: byPlatform.results } } };
+    const topStatement = env.DB.prepare(
+      `SELECT p.id,p.title,p.platform,p.client_id,c.name AS client_name,p.platform_url,
+         p.published_at,
+         COALESCE(pm.impressions,0) AS impressions,
+         COALESCE(pm.reach,0) AS reach,
+         COALESCE(pm.likes,0) AS likes,
+         COALESCE(pm.comments,0) AS comments,
+         COALESCE(pm.shares,0) AS shares,
+         COALESCE(pm.clicks,0) AS clicks,
+         COALESCE(pm.saves,0) AS saves
+       FROM posts p
+       JOIN clients c ON c.id=p.client_id
+       ${latestMetrics}
+       ${platformFilter}
+       ORDER BY (COALESCE(pm.likes,0)+COALESCE(pm.comments,0)*2+COALESCE(pm.shares,0)*3+COALESCE(pm.saves,0)*2+COALESCE(pm.clicks,0)*2) DESC,
+                COALESCE(pm.impressions,0) DESC
+       LIMIT 10`
+    );
+    const topPosts = bindings.length
+      ? await topStatement.bind(...bindings).all<any>()
+      : await topStatement.all<any>();
+
+    let snapshotQuery = `SELECT * FROM analytics_snapshots
+      WHERE captured_at >= datetime('now', ?)`;
+    const snapshotBindings: any[] = [`-${days} days`];
+    if (clientId) {
+      snapshotQuery += " AND client_id=?";
+      snapshotBindings.push(clientId);
+    } else if (allowedClients !== null) {
+      snapshotQuery += ` AND client_id IN (${allowedClients.map(() => "?").join(",")})`;
+      snapshotBindings.push(...allowedClients);
+    }
+    snapshotQuery += " ORDER BY captured_at ASC";
+    const snapshots = (await env.DB.prepare(snapshotQuery).bind(...snapshotBindings).all<any>()).results;
+
+    const latestByClientDay = new Map<string, any>();
+    for (const row of snapshots) {
+      const day = String(row.captured_at).slice(0,10);
+      latestByClientDay.set(`${row.client_id || "all"}:${day}`, row);
+    }
+    const historyMap = new Map<string, any>();
+    for (const row of latestByClientDay.values()) {
+      const day = String(row.captured_at).slice(0,10);
+      const current = historyMap.get(day) || {
+        day,posts:0,impressions:0,reach:0,likes:0,comments:0,shares:0,clicks:0,saves:0,
+      };
+      for (const key of ["posts","impressions","reach","likes","comments","shares","clicks","saves"]) {
+        current[key] += Number(row[key] || 0);
+      }
+      historyMap.set(day,current);
+    }
+    const history = [...historyMap.values()].sort((a,b) => a.day.localeCompare(b.day));
+
+    let healthQuery = `SELECT r.id,r.social_account_id,r.status,r.started_at,r.completed_at,r.error_message,
+       sa.platform,sa.account_name,sa.client_id,c.name AS client_name
+       FROM analytics_sync_runs r
+       LEFT JOIN social_accounts sa ON sa.id=r.social_account_id
+       LEFT JOIN clients c ON c.id=sa.client_id`;
+    const healthBindings: string[] = [];
+    if (clientId) {
+      healthQuery += " WHERE sa.client_id=?";
+      healthBindings.push(clientId);
+    } else if (allowedClients !== null) {
+      healthQuery += ` WHERE sa.client_id IN (${allowedClients.map(() => "?").join(",")})`;
+      healthBindings.push(...allowedClients);
+    }
+    healthQuery += " ORDER BY r.started_at DESC LIMIT 20";
+    const syncHealth = healthBindings.length
+      ? await env.DB.prepare(healthQuery).bind(...healthBindings).all<any>()
+      : await env.DB.prepare(healthQuery).all<any>();
+
+    return {
+      body: {
+        data: {
+          overview,
+          byPlatform: byPlatform.results,
+          history,
+          topPosts: topPosts.results,
+          syncHealth: syncHealth.results,
+          days,
+        },
+      },
+    };
   }
 
   if (request.method === "POST" && url.pathname === "/v1/analytics/sync") {
@@ -538,17 +673,47 @@ export async function handleManagementRoute(
     if (denied) return { body: { error: denied }, status: 403 };
 
     const payload = await request.json<{ accountId?: string }>().catch(() => ({} as any));
+    const allowedClients = await accessibleClientIds(env.DB, user);
+    let accounts: Array<{ id: string; client_id: string }> = [];
+
     if (payload.accountId) {
-      await syncAccountAnalytics(env, payload.accountId);
+      const account = await env.DB.prepare(
+        "SELECT id,client_id FROM social_accounts WHERE id=? AND status='connected'"
+      ).bind(payload.accountId).first<{ id:string;client_id:string }>();
+      if (!account) return { body: { error: "Connected social account not found." }, status: 404 };
+      const clientDenied = await authorize(env, user, "analytics_manage", account.client_id);
+      if (clientDenied) return { body: { error: clientDenied }, status: 403 };
+      accounts = [account];
     } else {
-      const accounts = await env.DB.prepare(
-        "SELECT id FROM social_accounts WHERE status = 'connected'"
-      ).all<{ id: string }>();
-      for (const account of accounts.results) {
-        try { await syncAccountAnalytics(env, account.id); } catch {}
+      const rows = await env.DB.prepare(
+        "SELECT id,client_id FROM social_accounts WHERE status='connected'"
+      ).all<{ id:string;client_id:string }>();
+      accounts = allowedClients === null
+        ? rows.results
+        : rows.results.filter((row) => allowedClients.includes(row.client_id));
+    }
+
+    const touchedClients = new Set<string>();
+    const results = [];
+    for (const account of accounts) {
+      try {
+        const result = await syncAccountAnalytics(env, account.id);
+        touchedClients.add(account.client_id);
+        results.push({ accountId: account.id, ok: true, ...result });
+      } catch (error) {
+        results.push({
+          accountId: account.id,
+          ok: false,
+          error: error instanceof Error ? error.message : "Analytics sync failed.",
+        });
       }
     }
-    return { body: { ok: true } };
+
+    for (const touchedClient of touchedClients) {
+      await captureAnalyticsSnapshot(env, touchedClient);
+    }
+
+    return { body: { ok: true, results } };
   }
 
   const validateMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/schedule\/validate$/);
