@@ -17,7 +17,7 @@ import {
   recordSystemEvent,
   recoverStaleWork,
 } from "./operations";
-import { notifyPostOwners } from "./notifications";
+import { checkExpoPushReceipts, notifyPostOwners } from "./notifications";
 import { hashSecret } from "./security";
 import {
   checkPendingPublishReceipts,
@@ -1851,6 +1851,17 @@ export default {
   },
 
   async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+    try {
+      await checkExpoPushReceipts(env);
+    } catch (error) {
+      await recordSystemEvent(env, {
+        severity: "warning",
+        category: "notifications",
+        eventType: "push_receipt_check_failed",
+        message: error instanceof Error ? error.message.slice(0, 1000) : "Push receipt check failed.",
+      }).catch(() => undefined);
+    }
+
     try {
       await recoverStaleWork(env);
     } catch (error) {
