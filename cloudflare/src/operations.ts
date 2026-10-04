@@ -10,6 +10,7 @@ export interface OperationsEnv {
   GENERATION_QUEUE: Queue<any>;
   ENVIRONMENT?: string;
   AUTH_PEPPER?: string;
+  AUTH_ALLOWED_EMAILS?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   RESEND_API_KEY?: string;
@@ -76,6 +77,7 @@ export async function readiness(env:OperationsEnv){
 
   const required=[
     ["AUTH_PEPPER",env.AUTH_PEPPER],
+    ["AUTH_ALLOWED_EMAILS",env.AUTH_ALLOWED_EMAILS],
     ["GOOGLE_CLIENT_ID",env.GOOGLE_CLIENT_ID],
     ["GOOGLE_CLIENT_SECRET",env.GOOGLE_CLIENT_SECRET],
     ["RESEND_API_KEY",env.RESEND_API_KEY],
