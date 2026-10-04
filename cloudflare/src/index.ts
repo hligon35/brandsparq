@@ -240,7 +240,13 @@ export default {
       return response(
         request,
         env,
-        health,
+        {
+          ok: health.ok,
+          service: health.service,
+          environment: health.environment,
+          checks: health.checks.map((check) => ({ name: check.name, ok: check.ok })),
+          timestamp: health.timestamp,
+        },
         { status: health.ok ? 200 : 503, headers: { "cache-control": "no-store" } }
       );
     }
