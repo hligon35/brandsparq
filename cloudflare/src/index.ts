@@ -19,6 +19,7 @@ import {
   publishPostToSocial,
   socialOAuthCallback,
   syncAccountAnalytics,
+  verifySocialAccount,
 } from "./social";
 import { findNextAvailableSlot } from "./scheduling";
 import {
@@ -1448,6 +1449,21 @@ export default {
         }
       }
     } catch {}
+
+    const healthCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+    const healthAccounts = await env.DB.prepare(
+      `SELECT id FROM social_accounts
+       WHERE status='connected'
+         AND (health_checked_at IS NULL OR health_checked_at < ?)
+       ORDER BY COALESCE(health_checked_at, created_at) ASC
+       LIMIT 10`
+    ).bind(healthCutoff).all<{ id: string }>();
+
+    for (const account of healthAccounts.results) {
+      try {
+        await verifySocialAccount(env, account.id);
+      } catch {}
+    }
 
     const settings = await env.DB.prepare(
       "SELECT analytics_refresh_hours FROM workspace_settings WHERE id = 'default'"
