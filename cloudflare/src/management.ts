@@ -284,8 +284,56 @@ export async function handleManagementRoute(
       `SELECT * FROM notifications
        WHERE user_id = ? OR user_id IS NULL
        ORDER BY created_at DESC LIMIT 100`
-    ).bind(user.id).all();
-    return { body: { data: rows.results } };
+    ).bind(user.id).all<any>();
+
+    const ids = rows.results.map((row: any) => row.id);
+    let deliveries: any[] = [];
+    if (ids.length) {
+      deliveries = (await env.DB.prepare(
+        `SELECT notification_id,channel,destination,status,provider_message_id,error_message,sent_at,created_at
+         FROM notification_deliveries
+         WHERE notification_id IN (${ids.map(() => "?").join(",")})
+         ORDER BY created_at ASC`
+      ).bind(...ids).all<any>()).results;
+    }
+
+    const byNotification = new Map<string, any[]>();
+    for (const delivery of deliveries) {
+      const current = byNotification.get(delivery.notification_id) || [];
+      current.push(delivery);
+      byNotification.set(delivery.notification_id, current);
+    }
+
+    const data = rows.results.map((row: any) => ({
+      ...row,
+      deliveries: byNotification.get(row.id) || [],
+    }));
+    const unreadCount = data.filter((row: any) => !row.read_at).length;
+
+    return { body: { data, unreadCount } };
+  }
+
+  const readNotificationMatch = url.pathname.match(/^\/v1\/notifications\/([^/]+)\/read$/);
+  if (readNotificationMatch && request.method === "POST") {
+    const denied = await authorize(env, user, "read");
+    if (denied) return { body: { error: denied }, status: 403 };
+
+    await env.DB.prepare(
+      `UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP)
+       WHERE id=? AND (user_id=? OR user_id IS NULL)`
+    ).bind(readNotificationMatch[1], user.id).run();
+    return { body: { ok: true } };
+  }
+
+  if (request.method === "POST" && url.pathname === "/v1/notifications/read-all") {
+    const denied = await authorize(env, user, "read");
+    if (denied) return { body: { error: denied }, status: 403 };
+
+    await env.DB.prepare(
+      `UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP)
+       WHERE (user_id=? OR user_id IS NULL) AND read_at IS NULL`
+    ).bind(user.id).run();
+    return { body: { ok: true } };
   }
 
   if (request.method === "POST" && url.pathname === "/v1/push-token") {
@@ -331,6 +379,10 @@ export async function handleManagementRoute(
             push_enabled: 1,
             in_app_enabled: 1,
             review_email_enabled: 1,
+            review_ready_enabled: 1,
+            prepublish_enabled: 1,
+            publish_success_enabled: 1,
+            publish_failure_enabled: 1,
             prepublish_minutes: workspace?.default_prepublish_minutes || 30,
             no_response_policy: workspace?.default_no_response_policy || "auto_publish",
           },
@@ -373,13 +425,18 @@ export async function handleManagementRoute(
       env.DB.prepare(
         `INSERT INTO notification_preferences
          (user_id, email_enabled, push_enabled, in_app_enabled, review_email_enabled,
+          review_ready_enabled, prepublish_enabled, publish_success_enabled, publish_failure_enabled,
           prepublish_minutes, no_response_policy)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(user_id) DO UPDATE SET
            email_enabled = excluded.email_enabled,
            push_enabled = excluded.push_enabled,
            in_app_enabled = excluded.in_app_enabled,
            review_email_enabled = excluded.review_email_enabled,
+           review_ready_enabled = excluded.review_ready_enabled,
+           prepublish_enabled = excluded.prepublish_enabled,
+           publish_success_enabled = excluded.publish_success_enabled,
+           publish_failure_enabled = excluded.publish_failure_enabled,
            prepublish_minutes = excluded.prepublish_minutes,
            no_response_policy = excluded.no_response_policy,
            updated_at = CURRENT_TIMESTAMP`
@@ -389,6 +446,10 @@ export async function handleManagementRoute(
         n.pushEnabled === false ? 0 : 1,
         n.inAppEnabled === false ? 0 : 1,
         n.reviewEmailEnabled === false ? 0 : 1,
+        n.reviewReadyEnabled === false ? 0 : 1,
+        n.prepublishEnabled === false ? 0 : 1,
+        n.publishSuccessEnabled === false ? 0 : 1,
+        n.publishFailureEnabled === false ? 0 : 1,
         n.prepublishMinutes ?? w.defaultPrepublishMinutes ?? 30,
         n.noResponsePolicy || w.defaultNoResponsePolicy || "auto_publish"
       ),
