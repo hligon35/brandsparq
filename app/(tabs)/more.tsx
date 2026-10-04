@@ -56,6 +56,23 @@ const items: {
 
 export default function MoreScreen() {
   const { user, signOut } = useAuth();
+  const visibleItems = user?.role === "owner"
+    ? [
+        ...items,
+        {
+          label: "Access management",
+          description: "Roles and client-level permissions.",
+          icon: "people-outline" as keyof typeof Ionicons.glyphMap,
+          href: "/access" as Href,
+        },
+        {
+          label: "System health",
+          description: "Production readiness, incidents, queues, and recovery.",
+          icon: "pulse-outline" as keyof typeof Ionicons.glyphMap,
+          href: "/system" as Href,
+        },
+      ]
+    : items;
 
   return (
     <PageScroll>
@@ -66,7 +83,7 @@ export default function MoreScreen() {
       />
 
       <View style={styles.grid}>
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const content = (
             <Card style={styles.itemCard}>
               <View style={styles.iconWrap}>
