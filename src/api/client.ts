@@ -237,6 +237,48 @@ export const api = {
   testNotifications: () =>
     jsonRequest<{ ok: true }>("/v1/notifications/test", { method: "POST" }),
 
+  getSystemOverview: () =>
+    jsonRequest<{ data: any }>("/v1/system/overview"),
+
+  recoverSystemWork: () =>
+    jsonRequest<{ ok: true; data: any }>("/v1/system/recover", { method: "POST" }),
+
+  retryFailedPost: (postId: string) =>
+    jsonRequest<{ ok: true; publishJobId: string }>(
+      `/v1/system/posts/${postId}/retry`,
+      { method: "POST" }
+    ),
+
+  resolveSystemEvent: (eventId: string) =>
+    jsonRequest<{ ok: true }>(`/v1/system/events/${eventId}/resolve`, {
+      method: "POST",
+    }),
+
+  getAccessManagement: () =>
+    jsonRequest<{ data: { users: any[]; clients: any[]; access: any[] } }>(
+      "/v1/system/access"
+    ),
+
+  updateUserRole: (userId: string, role: string) =>
+    jsonRequest<{ ok: true }>(`/v1/system/users/${userId}/role`, {
+      method: "POST",
+      body: JSON.stringify({ role }),
+    }),
+
+  updateUserClientAccess: (
+    userId: string,
+    clientId: string,
+    enabled: boolean,
+    accessRole?: string
+  ) =>
+    jsonRequest<{ ok: true }>(
+      `/v1/system/users/${userId}/clients/${clientId}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ enabled, accessRole }),
+      }
+    ),
+
   getAnalyticsOverview: (clientId?: string, days = 30) => {
     const params = new URLSearchParams();
     if (clientId) params.set("clientId", clientId);
