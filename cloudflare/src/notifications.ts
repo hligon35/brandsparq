@@ -271,3 +271,60 @@ export async function notifyPostOwners(
   }
   return results;
 }
+
+
+export async function checkExpoPushReceipts(env: NotificationEnv) {
+  const rows = await env.DB.prepare(
+    `SELECT id,notification_id,destination,provider_message_id
+     FROM notification_deliveries
+     WHERE channel='push'
+       AND status='sent'
+       AND provider_message_id IS NOT NULL
+       AND receipt_checked_at IS NULL
+       AND sent_at <= datetime('now','-15 minutes')
+     ORDER BY sent_at ASC
+     LIMIT 500`
+  ).all<{id:string;notification_id:string;destination:string;provider_message_id:string}>();
+
+  if (!rows.results.length) return { checked: 0, failed: 0 };
+
+  let checked = 0;
+  let failed = 0;
+  for (let offset = 0; offset < rows.results.length; offset += 100) {
+    const batch = rows.results.slice(offset, offset + 100);
+    const response = await fetch("https://exp.host/--/api/v2/push/getReceipts", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ ids: batch.map(row => row.provider_message_id) }),
+    });
+    if (!response.ok) continue;
+    const payload = await response.json<any>().catch(() => ({}));
+    const receipts = payload?.data || {};
+
+    for (const row of batch) {
+      const receipt = receipts[row.provider_message_id];
+      if (!receipt) continue;
+      const ok = receipt.status === "ok";
+      const error = ok ? null : receipt.message || receipt.details?.error || "Expo push receipt failed.";
+      await env.DB.prepare(
+        `UPDATE notification_deliveries
+         SET receipt_status=?,receipt_checked_at=CURRENT_TIMESTAMP,
+             status=CASE WHEN ?=1 THEN status ELSE 'failed' END,
+             error_message=COALESCE(?,error_message)
+         WHERE id=?`
+      ).bind(receipt.status || "unknown",ok?1:0,error,row.id).run();
+      checked++;
+
+      if (!ok) {
+        failed++;
+        if (receipt.details?.error === "DeviceNotRegistered" && row.destination) {
+          await env.DB.prepare(
+            "UPDATE device_push_tokens SET enabled=0,updated_at=CURRENT_TIMESTAMP WHERE expo_push_token=?"
+          ).bind(row.destination).run();
+        }
+      }
+    }
+  }
+
+  return { checked, failed };
+}
