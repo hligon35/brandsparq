@@ -24,13 +24,17 @@ type DeliveryResult = {
 };
 
 function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;",
-  }[char] || char));
+  return value.replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      })[char] || char,
+  );
 }
 
 function eventPreferenceColumn(type: string) {
@@ -44,7 +48,7 @@ function eventPreferenceColumn(type: string) {
 async function sendEmail(
   env: NotificationEnv,
   to: string,
-  input: NotifyInput
+  input: NotifyInput,
 ): Promise<DeliveryResult> {
   if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL) {
     return { ok: false, error: "Resend is not configured." };
@@ -93,10 +97,7 @@ async function sendEmail(
     : { ok: false, error: payload.message || `Resend returned ${response.status}.` };
 }
 
-async function sendExpoPush(
-  token: string,
-  input: NotifyInput
-): Promise<DeliveryResult> {
+async function sendExpoPush(token: string, input: NotifyInput): Promise<DeliveryResult> {
   const response = await fetch("https://exp.host/--/api/v2/push/send", {
     method: "POST",
     headers: {
@@ -122,7 +123,10 @@ async function sendExpoPush(
   const ok = response.ok && ticket?.status !== "error";
   return ok
     ? { ok: true, providerMessageId: ticket?.id || null }
-    : { ok: false, error: ticket?.message || payload?.message || `Expo returned ${response.status}.` };
+    : {
+        ok: false,
+        error: ticket?.message || payload?.message || `Expo returned ${response.status}.`,
+      };
 }
 
 async function recordDelivery(
@@ -130,28 +134,27 @@ async function recordDelivery(
   notificationId: string,
   channel: "in_app" | "email" | "push",
   destination: string | null,
-  result: DeliveryResult
+  result: DeliveryResult,
 ) {
   await env.DB.prepare(
     `INSERT INTO notification_deliveries
      (id,notification_id,channel,destination,status,provider_message_id,error_message,sent_at)
-     VALUES (?,?,?,?,?,?,?,?)`
-  ).bind(
-    crypto.randomUUID(),
-    notificationId,
-    channel,
-    destination,
-    result.ok ? "sent" : "failed",
-    result.providerMessageId || null,
-    result.error || null,
-    result.ok ? new Date().toISOString() : null
-  ).run();
+     VALUES (?,?,?,?,?,?,?,?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      notificationId,
+      channel,
+      destination,
+      result.ok ? "sent" : "failed",
+      result.providerMessageId || null,
+      result.error || null,
+      result.ok ? new Date().toISOString() : null,
+    )
+    .run();
 }
 
-export async function deliverNotification(
-  env: NotificationEnv,
-  input: NotifyInput
-) {
+export async function deliverNotification(env: NotificationEnv, input: NotifyInput) {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
 
@@ -168,8 +171,10 @@ export async function deliverNotification(
                 COALESCE(np.publish_failure_enabled, 1) AS publish_failure_enabled
          FROM users u
          LEFT JOIN notification_preferences np ON np.user_id = u.id
-         WHERE u.id = ?`
-      ).bind(input.userId).first<any>()
+         WHERE u.id = ?`,
+      )
+        .bind(input.userId)
+        .first<any>()
     : null;
 
   const eventColumn = eventPreferenceColumn(input.type);
@@ -179,22 +184,26 @@ export async function deliverNotification(
   await env.DB.prepare(
     `INSERT INTO notifications
      (id,user_id,post_id,type,channel,status,scheduled_for,title,body,deep_link)
-     VALUES (?,?,?,?, 'multi','queued',?,?,?,?)`
-  ).bind(
-    id,
-    input.userId || null,
-    input.postId || null,
-    input.type,
-    now,
-    input.title,
-    input.body,
-    input.deepLink || null
-  ).run();
+     VALUES (?,?,?,?, 'multi','queued',?,?,?,?)`,
+  )
+    .bind(
+      id,
+      input.userId || null,
+      input.postId || null,
+      input.type,
+      now,
+      input.title,
+      input.body,
+      input.deepLink || null,
+    )
+    .run();
 
   if (!eventEnabled) {
     await env.DB.prepare(
-      "UPDATE notifications SET status='suppressed', error_message='Disabled by notification preferences' WHERE id=?"
-    ).bind(id).run();
+      "UPDATE notifications SET status='suppressed', error_message='Disabled by notification preferences' WHERE id=?",
+    )
+      .bind(id)
+      .run();
     return { id, sent: false, suppressed: true, error: null };
   }
 
@@ -216,8 +225,10 @@ export async function deliverNotification(
 
   if (input.userId && Number(user?.push_enabled ?? 1)) {
     const pushTokens = await env.DB.prepare(
-      "SELECT expo_push_token FROM device_push_tokens WHERE user_id = ? AND enabled = 1"
-    ).bind(input.userId).all<{ expo_push_token: string }>();
+      "SELECT expo_push_token FROM device_push_tokens WHERE user_id = ? AND enabled = 1",
+    )
+      .bind(input.userId)
+      .all<{ expo_push_token: string }>();
 
     for (const row of pushTokens.results) {
       const result = await sendExpoPush(row.expo_push_token, input);
@@ -229,17 +240,28 @@ export async function deliverNotification(
   const sentCount = outcomes.filter((item) => item.ok).length;
   const failures = outcomes.filter((item) => !item.ok);
   const status = sentCount
-    ? failures.length ? "partial" : "sent"
-    : failures.length ? "failed" : "queued";
-  const error = failures.map((item) => item.error).filter(Boolean).join(" | ").slice(0, 1000) || null;
+    ? failures.length
+      ? "partial"
+      : "sent"
+    : failures.length
+      ? "failed"
+      : "queued";
+  const error =
+    failures
+      .map((item) => item.error)
+      .filter(Boolean)
+      .join(" | ")
+      .slice(0, 1000) || null;
 
   await env.DB.prepare(
     `UPDATE notifications SET
      status=?,
      sent_at=?,
      error_message=?
-     WHERE id=?`
-  ).bind(status, sentCount ? now : null, error, id).run();
+     WHERE id=?`,
+  )
+    .bind(status, sentCount ? now : null, error, id)
+    .run();
 
   return { id, sent: sentCount > 0, status, error };
 }
@@ -251,27 +273,28 @@ export async function notifyPostOwners(
   title: string,
   body: string,
   deepLink?: string,
-  options?: { suppressEmail?: boolean }
+  options?: { suppressEmail?: boolean },
 ) {
-  const users = await env.DB.prepare(
-    "SELECT id FROM users WHERE role IN ('owner','admin')"
-  ).all<{ id: string }>();
+  const users = await env.DB.prepare("SELECT id FROM users WHERE role IN ('owner','admin')").all<{
+    id: string;
+  }>();
 
   const results = [];
   for (const user of users.results) {
-    results.push(await deliverNotification(env, {
-      userId: user.id,
-      postId,
-      type,
-      title,
-      body,
-      deepLink,
-      suppressEmail: options?.suppressEmail,
-    }));
+    results.push(
+      await deliverNotification(env, {
+        userId: user.id,
+        postId,
+        type,
+        title,
+        body,
+        deepLink,
+        suppressEmail: options?.suppressEmail,
+      }),
+    );
   }
   return results;
 }
-
 
 export async function checkExpoPushReceipts(env: NotificationEnv) {
   const rows = await env.DB.prepare(
@@ -283,8 +306,13 @@ export async function checkExpoPushReceipts(env: NotificationEnv) {
        AND receipt_checked_at IS NULL
        AND datetime(sent_at) <= datetime('now','-15 minutes')
      ORDER BY sent_at ASC
-     LIMIT 500`
-  ).all<{id:string;notification_id:string;destination:string;provider_message_id:string}>();
+     LIMIT 500`,
+  ).all<{
+    id: string;
+    notification_id: string;
+    destination: string;
+    provider_message_id: string;
+  }>();
 
   if (!rows.results.length) return { checked: 0, failed: 0 };
 
@@ -295,7 +323,7 @@ export async function checkExpoPushReceipts(env: NotificationEnv) {
     const response = await fetch("https://exp.host/--/api/v2/push/getReceipts", {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ ids: batch.map(row => row.provider_message_id) }),
+      body: JSON.stringify({ ids: batch.map((row) => row.provider_message_id) }),
     });
     if (!response.ok) continue;
     const payload = await response.json<any>().catch(() => ({}));
@@ -305,29 +333,43 @@ export async function checkExpoPushReceipts(env: NotificationEnv) {
       const receipt = receipts[row.provider_message_id];
       if (!receipt) continue;
       const ok = receipt.status === "ok";
-      const error = ok ? null : receipt.message || receipt.details?.error || "Expo push receipt failed.";
+      const error = ok
+        ? null
+        : receipt.message || receipt.details?.error || "Expo push receipt failed.";
       await env.DB.prepare(
         `UPDATE notification_deliveries
          SET receipt_status=?,receipt_checked_at=CURRENT_TIMESTAMP,
              status=CASE WHEN ?=1 THEN status ELSE 'failed' END,
              error_message=COALESCE(?,error_message)
-         WHERE id=?`
-      ).bind(receipt.status || "unknown",ok?1:0,error,row.id).run();
+         WHERE id=?`,
+      )
+        .bind(receipt.status || "unknown", ok ? 1 : 0, error, row.id)
+        .run();
       checked++;
 
       if (!ok) {
         failed++;
         const remaining = await env.DB.prepare(
-          "SELECT COUNT(*) AS count FROM notification_deliveries WHERE notification_id=? AND status='sent'"
-        ).bind(row.notification_id).first<{count:number}>();
+          "SELECT COUNT(*) AS count FROM notification_deliveries WHERE notification_id=? AND status='sent'",
+        )
+          .bind(row.notification_id)
+          .first<{ count: number }>();
         await env.DB.prepare(
-          "UPDATE notifications SET status=?,error_message=COALESCE(?,error_message) WHERE id=?"
-        ).bind(Number(remaining?.count||0)>0?"partial":"failed",error,row.notification_id).run();
+          "UPDATE notifications SET status=?,error_message=COALESCE(?,error_message) WHERE id=?",
+        )
+          .bind(
+            Number(remaining?.count || 0) > 0 ? "partial" : "failed",
+            error,
+            row.notification_id,
+          )
+          .run();
 
         if (receipt.details?.error === "DeviceNotRegistered" && row.destination) {
           await env.DB.prepare(
-            "UPDATE device_push_tokens SET enabled=0,updated_at=CURRENT_TIMESTAMP WHERE expo_push_token=?"
-          ).bind(row.destination).run();
+            "UPDATE device_push_tokens SET enabled=0,updated_at=CURRENT_TIMESTAMP WHERE expo_push_token=?",
+          )
+            .bind(row.destination)
+            .run();
         }
       }
     }

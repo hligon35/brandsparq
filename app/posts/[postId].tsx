@@ -1,23 +1,8 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import {
-  Alert,
-  Image,
-  StyleSheet,
-  Text,
-  TextInput,
-  Pressable,
-  View,
-} from "react-native";
+import { Alert, Image, StyleSheet, Text, TextInput, Pressable, View } from "react-native";
 import { api } from "@/api/client";
-import {
-  Button,
-  Card,
-  PageHeader,
-  PageScroll,
-  SectionTitle,
-  StatusBadge,
-} from "@/components/ui";
+import { Button, Card, PageHeader, PageScroll, SectionTitle, StatusBadge } from "@/components/ui";
 import { useResponsive } from "@/hooks/useResponsive";
 import { colors, radius, spacing } from "@/theme/tokens";
 import type { MarketingPost } from "@/types/domain";
@@ -76,13 +61,14 @@ export default function PostReviewScreen() {
 
   useEffect(() => {
     if (!post?.clientId) return;
-    api.getSocialAccounts(post.clientId)
+    api
+      .getSocialAccounts(post.clientId)
       .then(({ data }) =>
         setSocialAccounts(
-          data.filter((account: any) =>
-            account.platform === post.platform && account.status === "connected"
-          )
-        )
+          data.filter(
+            (account: any) => account.platform === post.platform && account.status === "connected",
+          ),
+        ),
       )
       .catch(() => setSocialAccounts([]));
   }, [post?.clientId, post?.platform]);
@@ -111,7 +97,7 @@ export default function PostReviewScreen() {
     } catch (error) {
       Alert.alert(
         "Unable to assign account",
-        error instanceof Error ? error.message : "Try again."
+        error instanceof Error ? error.message : "Try again.",
       );
     } finally {
       setAssigningAccount(false);
@@ -127,10 +113,7 @@ export default function PostReviewScreen() {
       });
       await reload();
     } catch (error) {
-      Alert.alert(
-        "Unable to save edits",
-        error instanceof Error ? error.message : "Try again."
-      );
+      Alert.alert("Unable to save edits", error instanceof Error ? error.message : "Try again.");
     } finally {
       setSaving(false);
     }
@@ -139,15 +122,12 @@ export default function PostReviewScreen() {
   async function reject() {
     setSaving(true);
     try {
-      await api.rejectPost(
-        post!.id,
-        instruction.trim() || "Changes requested."
-      );
+      await api.rejectPost(post!.id, instruction.trim() || "Changes requested.");
       await reload();
     } catch (error) {
       Alert.alert(
         "Unable to request changes",
-        error instanceof Error ? error.message : "Try again."
+        error instanceof Error ? error.message : "Try again.",
       );
     } finally {
       setSaving(false);
@@ -158,16 +138,10 @@ export default function PostReviewScreen() {
     setSaving(true);
     try {
       await api.approvePost(post!.id);
-      Alert.alert(
-        "Approved",
-        "This post is now on the marketing calendar."
-      );
+      Alert.alert("Approved", "This post is now on the marketing calendar.");
       router.back();
     } catch (error) {
-      Alert.alert(
-        "Approval failed",
-        error instanceof Error ? error.message : "Try again."
-      );
+      Alert.alert("Approval failed", error instanceof Error ? error.message : "Try again.");
     } finally {
       setSaving(false);
     }
@@ -175,36 +149,25 @@ export default function PostReviewScreen() {
 
   async function runAi(action: Exclude<AiAction, null>) {
     if (action === "image" && !instruction.trim()) {
-      Alert.alert(
-        "Describe the edit",
-        "Enter what you want changed in the graphic first."
-      );
+      Alert.alert("Describe the edit", "Enter what you want changed in the graphic first.");
       return;
     }
 
     setAiAction(action);
     try {
       if (action === "rewrite") {
-        await api.rewritePostCaption(
-          post!.id,
-          instruction.trim() || undefined
-        );
+        await api.rewritePostCaption(post!.id, instruction.trim() || undefined);
       } else if (action === "image") {
         await api.editPostGraphic(post!.id, instruction.trim());
       } else {
-        await api.regeneratePost(
-          post!.id,
-          instruction.trim() || undefined
-        );
+        await api.regeneratePost(post!.id, instruction.trim() || undefined);
       }
       await reload();
       setInstruction("");
     } catch (error) {
       Alert.alert(
         "AI update failed",
-        error instanceof Error
-          ? error.message
-          : "Unable to update this post."
+        error instanceof Error ? error.message : "Unable to update this post.",
       );
     } finally {
       setAiAction(null);
@@ -223,16 +186,10 @@ export default function PostReviewScreen() {
       <View style={[styles.reviewGrid, wide && styles.reviewGridWide]}>
         <Card style={styles.mediaCard}>
           {post.imageUrl ? (
-            <Image
-              source={{ uri: post.imageUrl }}
-              style={styles.image}
-              resizeMode="cover"
-            />
+            <Image source={{ uri: post.imageUrl }} style={styles.image} resizeMode="cover" />
           ) : (
             <View style={styles.placeholderWrap}>
-              <Text style={styles.placeholder}>
-                GRAPHIC GENERATION PENDING
-              </Text>
+              <Text style={styles.placeholder}>GRAPHIC GENERATION PENDING</Text>
             </View>
           )}
         </Card>
@@ -266,7 +223,11 @@ export default function PostReviewScreen() {
           <Card>
             <SectionTitle
               title="Publishing account"
-              subtitle={post.socialAccountName ? "This post is ready to publish to the selected account." : "Choose the connected account that should receive this post."}
+              subtitle={
+                post.socialAccountName
+                  ? "This post is ready to publish to the selected account."
+                  : "Choose the connected account that should receive this post."
+              }
             />
             {socialAccounts.length ? (
               <View style={styles.accountList}>
@@ -291,7 +252,8 @@ export default function PostReviewScreen() {
               </View>
             ) : (
               <Text style={styles.accountWarning}>
-                No connected {post.platform} account is available for this client. Connect one from More → Social connections before publishing.
+                No connected {post.platform} account is available for this client. Connect one from
+                More → Social connections before publishing.
               </Text>
             )}
           </Card>
@@ -364,40 +326,22 @@ export default function PostReviewScreen() {
         <View style={styles.aiActions}>
           <View style={styles.aiButton}>
             <Button
-              label={
-                aiAction === "rewrite"
-                  ? "Rewriting…"
-                  : "Rewrite caption"
-              }
-              onPress={
-                aiAction ? undefined : () => runAi("rewrite")
-              }
+              label={aiAction === "rewrite" ? "Rewriting…" : "Rewrite caption"}
+              onPress={aiAction ? undefined : () => runAi("rewrite")}
               secondary
             />
           </View>
           <View style={styles.aiButton}>
             <Button
-              label={
-                aiAction === "image"
-                  ? "Editing graphic…"
-                  : "Edit graphic with AI"
-              }
-              onPress={
-                aiAction ? undefined : () => runAi("image")
-              }
+              label={aiAction === "image" ? "Editing graphic…" : "Edit graphic with AI"}
+              onPress={aiAction ? undefined : () => runAi("image")}
               secondary
             />
           </View>
           <View style={styles.aiButton}>
             <Button
-              label={
-                aiAction === "regenerate"
-                  ? "Regenerating…"
-                  : "Regenerate post"
-              }
-              onPress={
-                aiAction ? undefined : () => runAi("regenerate")
-              }
+              label={aiAction === "regenerate" ? "Regenerating…" : "Regenerate post"}
+              onPress={aiAction ? undefined : () => runAi("regenerate")}
               secondary
             />
           </View>

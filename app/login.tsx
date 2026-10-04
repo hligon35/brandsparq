@@ -16,19 +16,16 @@ import { colors, radius, spacing } from "@/theme/tokens";
 
 export default function LoginScreen() {
   const { user, signInWithGoogle, completeGoogleSignIn } = useAuth();
-  const { handoff, auth_error: authError } =
-    useLocalSearchParams<{ handoff?: string; auth_error?: string }>();
+  const { handoff, auth_error: authError } = useLocalSearchParams<{
+    handoff?: string;
+    auth_error?: string;
+  }>();
 
   const [working, setWorking] = useState(false);
   const [handoffHandled, setHandoffHandled] = useState(false);
 
   useEffect(() => {
-    if (
-      user ||
-      handoffHandled ||
-      typeof handoff !== "string" ||
-      !handoff
-    ) {
+    if (user || handoffHandled || typeof handoff !== "string" || !handoff) {
       return;
     }
 
@@ -39,7 +36,7 @@ export default function LoginScreen() {
       .catch((error) => {
         Alert.alert(
           "Google sign-in failed",
-          error instanceof Error ? error.message : "Please try again."
+          error instanceof Error ? error.message : "Please try again.",
         );
       })
       .finally(() => setWorking(false));
@@ -61,7 +58,7 @@ export default function LoginScreen() {
     } catch (error) {
       Alert.alert(
         "Google sign-in failed",
-        error instanceof Error ? error.message : "Please try again."
+        error instanceof Error ? error.message : "Please try again.",
       );
       setWorking(false);
     }
@@ -69,10 +66,7 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-      >
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.wrapper}>
           <View style={styles.logoWrap}>
             <Image
@@ -86,12 +80,12 @@ export default function LoginScreen() {
 
           <View style={styles.card}>
             <Text style={styles.title}>Sign in</Text>
-            <Text style={styles.subtitle}>
-              Continue with your authorized Google account.
-            </Text>
+            <Text style={styles.subtitle}>Continue with your authorized Google account.</Text>
 
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel={working ? "Signing in…" : "Continue with Google"}
+              accessibilityState={{ disabled: working, busy: working }}
               disabled={working}
               onPress={working ? undefined : startGoogleSignIn}
               style={({ pressed }) => [

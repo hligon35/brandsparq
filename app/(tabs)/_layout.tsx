@@ -43,12 +43,7 @@ function DesktopHeader() {
                     active ? styles.desktopNavItemActive : undefined,
                   ])}
                 >
-                  <Text
-                    style={[
-                      styles.desktopNavText,
-                      active && styles.desktopNavTextActive,
-                    ]}
-                  >
+                  <Text style={[styles.desktopNavText, active && styles.desktopNavTextActive]}>
                     {item.label}
                   </Text>
                 </Pressable>
@@ -64,8 +59,7 @@ function DesktopHeader() {
 export default function TabsLayout() {
   const { ready, user } = useAuth();
   const { width } = useWindowDimensions();
-  const desktopWeb =
-    Platform.OS === "web" && width >= breakpoints.wide;
+  const desktopWeb = Platform.OS === "web" && width >= breakpoints.wide;
 
   if (!ready) {
     return (
@@ -83,9 +77,7 @@ export default function TabsLayout() {
         headerShown: desktopWeb,
         header: desktopWeb ? () => <DesktopHeader /> : undefined,
         sceneStyle: { backgroundColor: colors.bg },
-        tabBarStyle: desktopWeb
-          ? { display: "none" }
-          : styles.tabBar,
+        tabBarStyle: desktopWeb ? { display: "none" } : styles.tabBar,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         tabBarLabelStyle: styles.tabLabel,
@@ -105,11 +97,7 @@ export default function TabsLayout() {
         options={{
           title: "Review",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons
-              name="checkmark-circle-outline"
-              color={color}
-              size={size}
-            />
+            <Ionicons name="checkmark-circle-outline" color={color} size={size} />
           ),
         }}
       />

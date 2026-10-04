@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": [
+      "app/**",
+      "src/**",
+      "cloudflare/src/**",
+      "tests/**",
+      "scripts/**",
+      "*.json",
+      "app.config.js",
+      "playwright.config.mjs",
+      "!**/package-lock.json"
+    ]
+  },
+  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
+  "assist": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "none",
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnreachable": "error",
+        "noConstantCondition": "error",
+        "noInvalidUseBeforeDeclaration": "error"
+      },
+      "suspicious": {
+        "noDuplicateObjectKeys": "error",
+        "noDuplicateParameters": "error",
+        "noDoubleEquals": "error",
+        "noDebugger": "error"
+      }
+    }
+  }
+}

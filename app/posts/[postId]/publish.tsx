@@ -2,15 +2,9 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Alert, StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
-import {
-  Button,
-  Card,
-  PageHeader,
-  PageScroll,
-  StatusBadge,
-} from "@/components/ui";
+import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
 import { useResponsive } from "@/hooks/useResponsive";
-import { colors, radius, spacing } from "@/theme/tokens";
+import { colors, spacing } from "@/theme/tokens";
 import type { MarketingPost } from "@/types/domain";
 
 export default function PublishDecisionScreen() {
@@ -42,7 +36,11 @@ export default function PublishDecisionScreen() {
         <Card subtle>
           <Text style={styles.title}>{loadError ? "Post unavailable" : "Loading post…"}</Text>
           {!!loadError && <Text style={styles.sub}>{loadError}</Text>}
-          {!!loadError && <Text onPress={load} style={styles.retry}>Try again</Text>}
+          {!!loadError && (
+            <Text onPress={load} style={styles.retry}>
+              Try again
+            </Text>
+          )}
         </Card>
       </PageScroll>
     );
@@ -52,16 +50,10 @@ export default function PublishDecisionScreen() {
     setWorking(true);
     try {
       await api.keepSchedule(post!.id);
-      Alert.alert(
-        "Schedule kept",
-        "BrandSparQ will publish at the scheduled time."
-      );
+      Alert.alert("Schedule kept", "BrandSparQ will publish at the scheduled time.");
       router.back();
     } catch (error) {
-      Alert.alert(
-        "Unable to update",
-        error instanceof Error ? error.message : "Try again."
-      );
+      Alert.alert("Unable to update", error instanceof Error ? error.message : "Try again.");
     } finally {
       setWorking(false);
     }
@@ -71,16 +63,10 @@ export default function PublishDecisionScreen() {
     setWorking(true);
     try {
       await api.publishNow(post!.id);
-      Alert.alert(
-        "Queued to publish",
-        "BrandSparQ has started the publishing job."
-      );
+      Alert.alert("Queued to publish", "BrandSparQ has started the publishing job.");
       router.back();
     } catch (error) {
-      Alert.alert(
-        "Unable to publish",
-        error instanceof Error ? error.message : "Try again."
-      );
+      Alert.alert("Unable to publish", error instanceof Error ? error.message : "Try again.");
     } finally {
       setWorking(false);
     }
@@ -116,26 +102,19 @@ export default function PublishDecisionScreen() {
           <Button
             label="Reschedule"
             secondary
-            onPress={() =>
-              router.push(`/posts/${post.id}/reschedule`)
-            }
+            onPress={() => router.push(`/posts/${post.id}/reschedule`)}
           />
         </View>
         <View style={styles.action}>
-          <Button
-            label="Publish now"
-            secondary
-            onPress={working ? undefined : publishNow}
-          />
+          <Button label="Publish now" secondary onPress={working ? undefined : publishNow} />
         </View>
       </View>
 
       <Card subtle>
         <Text style={styles.controlTitle}>You still have control.</Text>
         <Text style={styles.sub}>
-          Keeping the schedule leaves the approved calendar intact.
-          Rescheduling moves the post. Publish Now sends it to the
-          publishing queue immediately.
+          Keeping the schedule leaves the approved calendar intact. Rescheduling moves the post.
+          Publish Now sends it to the publishing queue immediately.
         </Text>
       </Card>
     </PageScroll>

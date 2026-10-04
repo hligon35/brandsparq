@@ -35,20 +35,22 @@ export interface ManagementEnv {
 
 type User = SessionUser;
 
-export type ManagementResult =
-  | { body: unknown; status?: number }
-  | { response: Response };
+export type ManagementResult = { body: unknown; status?: number } | { response: Response };
 
 function json(value: string | null | undefined, fallback: unknown) {
   if (!value) return fallback;
-  try { return JSON.parse(value); } catch { return fallback; }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
 }
 
 async function authorize(
   env: ManagementEnv,
   user: User,
   permission: Permission,
-  clientId?: string | null
+  clientId?: string | null,
 ) {
   if (!hasPermission(user, permission)) {
     return "You do not have permission to perform this action.";
@@ -63,7 +65,7 @@ export async function handleManagementRoute(
   request: Request,
   url: URL,
   env: ManagementEnv,
-  user: User
+  user: User,
 ): Promise<ManagementResult | null> {
   if (request.method === "GET" && url.pathname === "/v1/campaigns") {
     const denied = await authorize(env, user, "read");
@@ -85,8 +87,10 @@ export async function handleManagementRoute(
            FROM campaigns c
            LEFT JOIN posts p ON p.campaign_id = c.id
            WHERE c.client_id = ?
-           GROUP BY c.id ORDER BY c.created_at DESC`
-        ).bind(clientId).all()
+           GROUP BY c.id ORDER BY c.created_at DESC`,
+        )
+          .bind(clientId)
+          .all()
       : await env.DB.prepare(
           `SELECT c.*,
              cl.name AS client_name,
@@ -96,11 +100,12 @@ export async function handleManagementRoute(
            FROM campaigns c
            JOIN clients cl ON cl.id = c.client_id
            LEFT JOIN posts p ON p.campaign_id = c.id
-           GROUP BY c.id ORDER BY c.created_at DESC`
+           GROUP BY c.id ORDER BY c.created_at DESC`,
         ).all();
-    const visible = allowedClients === null || clientId
-      ? rows.results
-      : rows.results.filter((row: any) => allowedClients.includes(row.client_id));
+    const visible =
+      allowedClients === null || clientId
+        ? rows.results
+        : rows.results.filter((row: any) => allowedClients.includes(row.client_id));
     return { body: { data: visible } };
   }
 
@@ -108,8 +113,10 @@ export async function handleManagementRoute(
   if (campaignMatch && request.method === "GET") {
     const campaign = await env.DB.prepare(
       `SELECT c.*, cl.name AS client_name FROM campaigns c
-       JOIN clients cl ON cl.id = c.client_id WHERE c.id = ?`
-    ).bind(campaignMatch[1]).first();
+       JOIN clients cl ON cl.id = c.client_id WHERE c.id = ?`,
+    )
+      .bind(campaignMatch[1])
+      .first();
     if (!campaign) return { body: { error: "Campaign not found." }, status: 404 };
     const denied = await authorize(env, user, "read", (campaign as any).client_id);
     if (denied) return { body: { error: denied }, status: 403 };
@@ -118,21 +125,23 @@ export async function handleManagementRoute(
       `SELECT p.*, sa.account_name AS social_account_name
        FROM posts p
        LEFT JOIN social_accounts sa ON sa.id = p.social_account_id
-       WHERE p.campaign_id = ? ORDER BY COALESCE(p.scheduled_publish_at,p.suggested_publish_at,p.created_at)`
-    ).bind(campaignMatch[1]).all();
+       WHERE p.campaign_id = ? ORDER BY COALESCE(p.scheduled_publish_at,p.suggested_publish_at,p.created_at)`,
+    )
+      .bind(campaignMatch[1])
+      .all();
     return { body: { data: { campaign, posts: posts.results } } };
   }
 
   if (campaignMatch && request.method === "POST") {
-    const campaign = await env.DB.prepare(
-      "SELECT client_id FROM campaigns WHERE id = ?"
-    ).bind(campaignMatch[1]).first<{ client_id: string }>();
+    const campaign = await env.DB.prepare("SELECT client_id FROM campaigns WHERE id = ?")
+      .bind(campaignMatch[1])
+      .first<{ client_id: string }>();
     if (!campaign) return { body: { error: "Campaign not found." }, status: 404 };
 
     const denied = await authorize(env, user, "client_manage", campaign.client_id);
     if (denied) return { body: { error: denied }, status: 403 };
 
-    const payload = await request.json<any>().catch(() => ({} as any));
+    const payload = await request.json<any>().catch(() => ({}) as any);
     await env.DB.prepare(
       `UPDATE campaigns SET
        name = COALESCE(?, name),
@@ -143,17 +152,19 @@ export async function handleManagementRoute(
        priority = COALESCE(?, priority),
        notes = ?,
        updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`
-    ).bind(
-      payload.name || null,
-      payload.objective || null,
-      payload.status || null,
-      payload.startsAt || null,
-      payload.endsAt || null,
-      payload.priority ?? null,
-      payload.notes || null,
-      campaignMatch[1]
-    ).run();
+       WHERE id = ?`,
+    )
+      .bind(
+        payload.name || null,
+        payload.objective || null,
+        payload.status || null,
+        payload.startsAt || null,
+        payload.endsAt || null,
+        payload.priority ?? null,
+        payload.notes || null,
+        campaignMatch[1],
+      )
+      .run();
     return { body: { ok: true } };
   }
 
@@ -172,11 +183,14 @@ export async function handleManagementRoute(
        health_status, health_checked_at, permission_status, rate_limit_reset_at,
        is_default, created_at, updated_at FROM social_accounts`;
     const rows = clientId
-      ? await env.DB.prepare(`${query} WHERE client_id = ? ORDER BY platform, account_name`).bind(clientId).all()
+      ? await env.DB.prepare(`${query} WHERE client_id = ? ORDER BY platform, account_name`)
+          .bind(clientId)
+          .all()
       : await env.DB.prepare(`${query} ORDER BY client_id, platform, account_name`).all();
-    const visible = allowedClients === null || clientId
-      ? rows.results
-      : rows.results.filter((row: any) => allowedClients.includes(row.client_id));
+    const visible =
+      allowedClients === null || clientId
+        ? rows.results
+        : rows.results.filter((row: any) => allowedClients.includes(row.client_id));
     return { body: { data: visible } };
   }
 
@@ -184,7 +198,7 @@ export async function handleManagementRoute(
     const platform = url.searchParams.get("platform") as any;
     const clientId = url.searchParams.get("clientId") || "";
     const returnTo = url.searchParams.get("returnTo") || `${url.origin}/social`;
-    if (!["facebook","instagram","linkedin","tiktok","x"].includes(platform) || !clientId) {
+    if (!["facebook", "instagram", "linkedin", "tiktok", "x"].includes(platform) || !clientId) {
       return { body: { error: "platform and clientId are required." }, status: 400 };
     }
 
@@ -210,9 +224,9 @@ export async function handleManagementRoute(
 
   const verifyMatch = url.pathname.match(/^\/v1\/social\/accounts\/([^/]+)\/verify$/);
   if (verifyMatch && request.method === "POST") {
-    const account = await env.DB.prepare(
-      "SELECT client_id FROM social_accounts WHERE id = ?"
-    ).bind(verifyMatch[1]).first<{ client_id: string }>();
+    const account = await env.DB.prepare("SELECT client_id FROM social_accounts WHERE id = ?")
+      .bind(verifyMatch[1])
+      .first<{ client_id: string }>();
     if (!account) return { body: { error: "Social account not found." }, status: 404 };
 
     const denied = await authorize(env, user, "social_manage", account.client_id);
@@ -231,9 +245,9 @@ export async function handleManagementRoute(
 
   const disconnectMatch = url.pathname.match(/^\/v1\/social\/accounts\/([^/]+)\/disconnect$/);
   if (disconnectMatch && request.method === "POST") {
-    const account = await env.DB.prepare(
-      "SELECT client_id FROM social_accounts WHERE id = ?"
-    ).bind(disconnectMatch[1]).first<{ client_id: string }>();
+    const account = await env.DB.prepare("SELECT client_id FROM social_accounts WHERE id = ?")
+      .bind(disconnectMatch[1])
+      .first<{ client_id: string }>();
     if (!account) return { body: { error: "Social account not found." }, status: 404 };
 
     const denied = await authorize(env, user, "social_manage", account.client_id);
@@ -248,32 +262,40 @@ export async function handleManagementRoute(
        refresh_token_ciphertext = NULL,
        last_error = NULL,
        updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`
-    ).bind(disconnectMatch[1]).run();
+       WHERE id = ?`,
+    )
+      .bind(disconnectMatch[1])
+      .run();
     return { body: { ok: true } };
   }
 
   const assignMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/social-account$/);
   if (assignMatch && request.method === "POST") {
-    const post = await env.DB.prepare(
-      "SELECT client_id FROM posts WHERE id = ?"
-    ).bind(assignMatch[1]).first<{ client_id: string }>();
+    const post = await env.DB.prepare("SELECT client_id FROM posts WHERE id = ?")
+      .bind(assignMatch[1])
+      .first<{ client_id: string }>();
     if (!post) return { body: { error: "Post not found." }, status: 404 };
 
     const denied = await authorize(env, user, "review", post.client_id);
     if (denied) return { body: { error: denied }, status: 403 };
 
-    const payload = await request.json<{ socialAccountId?: string }>().catch(() => ({} as any));
-    if (!payload.socialAccountId) return { body: { error: "socialAccountId is required." }, status: 400 };
+    const payload = await request.json<{ socialAccountId?: string }>().catch(() => ({}) as any);
+    if (!payload.socialAccountId)
+      return { body: { error: "socialAccountId is required." }, status: 400 };
     const account = await env.DB.prepare(
       `SELECT sa.id FROM social_accounts sa
        JOIN posts p ON p.id = ?
-       WHERE sa.id = ? AND sa.client_id = p.client_id AND sa.platform = p.platform AND sa.status = 'connected'`
-    ).bind(assignMatch[1], payload.socialAccountId).first();
-    if (!account) return { body: { error: "That social account cannot publish this post." }, status: 409 };
+       WHERE sa.id = ? AND sa.client_id = p.client_id AND sa.platform = p.platform AND sa.status = 'connected'`,
+    )
+      .bind(assignMatch[1], payload.socialAccountId)
+      .first();
+    if (!account)
+      return { body: { error: "That social account cannot publish this post." }, status: 409 };
     await env.DB.prepare(
-      "UPDATE posts SET social_account_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-    ).bind(payload.socialAccountId, assignMatch[1]).run();
+      "UPDATE posts SET social_account_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    )
+      .bind(payload.socialAccountId, assignMatch[1])
+      .run();
     return { body: { ok: true } };
   }
 
@@ -284,18 +306,24 @@ export async function handleManagementRoute(
     const rows = await env.DB.prepare(
       `SELECT * FROM notifications
        WHERE user_id = ? OR user_id IS NULL
-       ORDER BY created_at DESC LIMIT 100`
-    ).bind(user.id).all<any>();
+       ORDER BY created_at DESC LIMIT 100`,
+    )
+      .bind(user.id)
+      .all<any>();
 
     const ids = rows.results.map((row: any) => row.id);
     let deliveries: any[] = [];
     if (ids.length) {
-      deliveries = (await env.DB.prepare(
-        `SELECT notification_id,channel,destination,status,provider_message_id,error_message,sent_at,created_at
+      deliveries = (
+        await env.DB.prepare(
+          `SELECT notification_id,channel,destination,status,provider_message_id,error_message,sent_at,created_at
          FROM notification_deliveries
          WHERE notification_id IN (${ids.map(() => "?").join(",")})
-         ORDER BY created_at ASC`
-      ).bind(...ids).all<any>()).results;
+         ORDER BY created_at ASC`,
+        )
+          .bind(...ids)
+          .all<any>()
+      ).results;
     }
 
     const byNotification = new Map<string, any[]>();
@@ -321,8 +349,10 @@ export async function handleManagementRoute(
 
     await env.DB.prepare(
       `UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP)
-       WHERE id=? AND (user_id=? OR user_id IS NULL)`
-    ).bind(readNotificationMatch[1], user.id).run();
+       WHERE id=? AND (user_id=? OR user_id IS NULL)`,
+    )
+      .bind(readNotificationMatch[1], user.id)
+      .run();
     return { body: { ok: true } };
   }
 
@@ -332,13 +362,15 @@ export async function handleManagementRoute(
 
     await env.DB.prepare(
       `UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP)
-       WHERE (user_id=? OR user_id IS NULL) AND read_at IS NULL`
-    ).bind(user.id).run();
+       WHERE (user_id=? OR user_id IS NULL) AND read_at IS NULL`,
+    )
+      .bind(user.id)
+      .run();
     return { body: { ok: true } };
   }
 
   if (request.method === "POST" && url.pathname === "/v1/push-token") {
-    const payload = await request.json<any>().catch(() => ({} as any));
+    const payload = await request.json<any>().catch(() => ({}) as any);
     if (!payload.token) return { body: { error: "token is required." }, status: 400 };
     await env.DB.prepare(
       `INSERT INTO device_push_tokens
@@ -346,14 +378,16 @@ export async function handleManagementRoute(
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(expo_push_token) DO UPDATE SET
          user_id = excluded.user_id, enabled = 1, platform = excluded.platform,
-         device_name = excluded.device_name, updated_at = CURRENT_TIMESTAMP`
-    ).bind(
-      crypto.randomUUID(),
-      user.id,
-      payload.token,
-      payload.platform || null,
-      payload.deviceName || null
-    ).run();
+         device_name = excluded.device_name, updated_at = CURRENT_TIMESTAMP`,
+    )
+      .bind(
+        crypto.randomUUID(),
+        user.id,
+        payload.token,
+        payload.platform || null,
+        payload.deviceName || null,
+      )
+      .run();
     return { body: { ok: true } };
   }
 
@@ -362,11 +396,13 @@ export async function handleManagementRoute(
     if (denied) return { body: { error: denied }, status: 403 };
 
     const workspace = await env.DB.prepare(
-      "SELECT * FROM workspace_settings WHERE id = 'default'"
+      "SELECT * FROM workspace_settings WHERE id = 'default'",
     ).first<any>();
     const preferences = await env.DB.prepare(
-      "SELECT * FROM notification_preferences WHERE user_id = ?"
-    ).bind(user.id).first<any>();
+      "SELECT * FROM notification_preferences WHERE user_id = ?",
+    )
+      .bind(user.id)
+      .first<any>();
     return {
       body: {
         data: {
@@ -396,7 +432,7 @@ export async function handleManagementRoute(
     const denied = await authorize(env, user, "settings_manage");
     if (denied) return { body: { error: denied }, status: 403 };
 
-    const payload = await request.json<any>().catch(() => ({} as any));
+    const payload = await request.json<any>().catch(() => ({}) as any);
     const w = payload.workspace || {};
     const n = payload.notifications || {};
 
@@ -412,7 +448,7 @@ export async function handleManagementRoute(
          blackout_windows = COALESCE(?, blackout_windows),
          analytics_refresh_hours = COALESCE(?, analytics_refresh_hours),
          updated_at = CURRENT_TIMESTAMP
-         WHERE id = 'default'`
+         WHERE id = 'default'`,
       ).bind(
         w.timezone || null,
         w.defaultPrepublishMinutes ?? null,
@@ -421,7 +457,7 @@ export async function handleManagementRoute(
         w.maxPostsPerDay ?? null,
         w.preferredWindows ? JSON.stringify(w.preferredWindows) : null,
         w.blackoutWindows ? JSON.stringify(w.blackoutWindows) : null,
-        w.analyticsRefreshHours ?? null
+        w.analyticsRefreshHours ?? null,
       ),
       env.DB.prepare(
         `INSERT INTO notification_preferences
@@ -440,7 +476,7 @@ export async function handleManagementRoute(
            publish_failure_enabled = excluded.publish_failure_enabled,
            prepublish_minutes = excluded.prepublish_minutes,
            no_response_policy = excluded.no_response_policy,
-           updated_at = CURRENT_TIMESTAMP`
+           updated_at = CURRENT_TIMESTAMP`,
       ).bind(
         user.id,
         n.emailEnabled === false ? 0 : 1,
@@ -452,7 +488,7 @@ export async function handleManagementRoute(
         n.publishSuccessEnabled === false ? 0 : 1,
         n.publishFailureEnabled === false ? 0 : 1,
         n.prepublishMinutes ?? w.defaultPrepublishMinutes ?? 30,
-        n.noResponsePolicy || w.defaultNoResponsePolicy || "auto_publish"
+        n.noResponsePolicy || w.defaultNoResponsePolicy || "auto_publish",
       ),
     ]);
     return { body: { ok: true } };
@@ -474,7 +510,16 @@ export async function handleManagementRoute(
       return {
         body: {
           data: {
-            overview: { posts:0,impressions:0,reach:0,likes:0,comments:0,shares:0,clicks:0,saves:0 },
+            overview: {
+              posts: 0,
+              impressions: 0,
+              reach: 0,
+              likes: 0,
+              comments: 0,
+              shares: 0,
+              clicks: 0,
+              saves: 0,
+            },
             byPlatform: [],
             history: [],
             topPosts: [],
@@ -515,7 +560,7 @@ export async function handleManagementRoute(
          SUM(COALESCE(pm.saves,0)) AS saves
        FROM posts p
        ${latestMetrics}
-       ${filter}`
+       ${filter}`,
     );
     const overview = bindings.length
       ? await overviewStatement.bind(...bindings).first<any>()
@@ -538,7 +583,7 @@ export async function handleManagementRoute(
        ${latestMetrics}
        ${platformFilter}
        GROUP BY p.platform
-       ORDER BY impressions DESC, posts DESC`
+       ORDER BY impressions DESC, posts DESC`,
     );
     const byPlatform = bindings.length
       ? await platformStatement.bind(...bindings).all<any>()
@@ -560,7 +605,7 @@ export async function handleManagementRoute(
        ${platformFilter}
        ORDER BY (COALESCE(pm.likes,0)+COALESCE(pm.comments,0)*2+COALESCE(pm.shares,0)*3+COALESCE(pm.saves,0)*2+COALESCE(pm.clicks,0)*2) DESC,
                 COALESCE(pm.impressions,0) DESC
-       LIMIT 10`
+       LIMIT 10`,
     );
     const topPosts = bindings.length
       ? await topStatement.bind(...bindings).all<any>()
@@ -577,25 +622,46 @@ export async function handleManagementRoute(
       snapshotBindings.push(...allowedClients);
     }
     snapshotQuery += " ORDER BY captured_at ASC";
-    const snapshots = (await env.DB.prepare(snapshotQuery).bind(...snapshotBindings).all<any>()).results;
+    const snapshots = (
+      await env.DB.prepare(snapshotQuery)
+        .bind(...snapshotBindings)
+        .all<any>()
+    ).results;
 
     const latestByClientDay = new Map<string, any>();
     for (const row of snapshots) {
-      const day = String(row.captured_at).slice(0,10);
+      const day = String(row.captured_at).slice(0, 10);
       latestByClientDay.set(`${row.client_id || "all"}:${day}`, row);
     }
     const historyMap = new Map<string, any>();
     for (const row of latestByClientDay.values()) {
-      const day = String(row.captured_at).slice(0,10);
+      const day = String(row.captured_at).slice(0, 10);
       const current = historyMap.get(day) || {
-        day,posts:0,impressions:0,reach:0,likes:0,comments:0,shares:0,clicks:0,saves:0,
+        day,
+        posts: 0,
+        impressions: 0,
+        reach: 0,
+        likes: 0,
+        comments: 0,
+        shares: 0,
+        clicks: 0,
+        saves: 0,
       };
-      for (const key of ["posts","impressions","reach","likes","comments","shares","clicks","saves"]) {
+      for (const key of [
+        "posts",
+        "impressions",
+        "reach",
+        "likes",
+        "comments",
+        "shares",
+        "clicks",
+        "saves",
+      ]) {
         current[key] += Number(row[key] || 0);
       }
-      historyMap.set(day,current);
+      historyMap.set(day, current);
     }
-    const history = [...historyMap.values()].sort((a,b) => a.day.localeCompare(b.day));
+    const history = [...historyMap.values()].sort((a, b) => a.day.localeCompare(b.day));
 
     let healthQuery = `SELECT r.id,r.social_account_id,r.status,r.started_at,r.completed_at,r.error_message,
        sa.platform,sa.account_name,sa.client_id,c.name AS client_name
@@ -612,7 +678,9 @@ export async function handleManagementRoute(
     }
     healthQuery += " ORDER BY r.started_at DESC LIMIT 20";
     const syncHealth = healthBindings.length
-      ? await env.DB.prepare(healthQuery).bind(...healthBindings).all<any>()
+      ? await env.DB.prepare(healthQuery)
+          .bind(...healthBindings)
+          .all<any>()
       : await env.DB.prepare(healthQuery).all<any>();
 
     return {
@@ -633,25 +701,28 @@ export async function handleManagementRoute(
     const denied = await authorize(env, user, "analytics_manage");
     if (denied) return { body: { error: denied }, status: 403 };
 
-    const payload = await request.json<{ accountId?: string }>().catch(() => ({} as any));
+    const payload = await request.json<{ accountId?: string }>().catch(() => ({}) as any);
     const allowedClients = await accessibleClientIds(env.DB, user);
     let accounts: Array<{ id: string; client_id: string }> = [];
 
     if (payload.accountId) {
       const account = await env.DB.prepare(
-        "SELECT id,client_id FROM social_accounts WHERE id=? AND status='connected'"
-      ).bind(payload.accountId).first<{ id:string;client_id:string }>();
+        "SELECT id,client_id FROM social_accounts WHERE id=? AND status='connected'",
+      )
+        .bind(payload.accountId)
+        .first<{ id: string; client_id: string }>();
       if (!account) return { body: { error: "Connected social account not found." }, status: 404 };
       const clientDenied = await authorize(env, user, "analytics_manage", account.client_id);
       if (clientDenied) return { body: { error: clientDenied }, status: 403 };
       accounts = [account];
     } else {
       const rows = await env.DB.prepare(
-        "SELECT id,client_id FROM social_accounts WHERE status='connected'"
-      ).all<{ id:string;client_id:string }>();
-      accounts = allowedClients === null
-        ? rows.results
-        : rows.results.filter((row) => allowedClients.includes(row.client_id));
+        "SELECT id,client_id FROM social_accounts WHERE status='connected'",
+      ).all<{ id: string; client_id: string }>();
+      accounts =
+        allowedClients === null
+          ? rows.results
+          : rows.results.filter((row) => allowedClients.includes(row.client_id));
     }
 
     const results = [];
@@ -668,7 +739,6 @@ export async function handleManagementRoute(
       }
     }
 
-
     return { body: { ok: true, results } };
   }
 
@@ -677,7 +747,7 @@ export async function handleManagementRoute(
     const denied = await authorize(env, user, "calendar_manage", validateMatch[1]);
     if (denied) return { body: { error: denied }, status: 403 };
 
-    const payload = await request.json<{ scheduledAt?: string }>().catch(() => ({} as any));
+    const payload = await request.json<{ scheduledAt?: string }>().catch(() => ({}) as any);
     if (!payload.scheduledAt) return { body: { error: "scheduledAt is required." }, status: 400 };
     return { body: { data: await validateSchedule(env, validateMatch[1], payload.scheduledAt) } };
   }
@@ -687,8 +757,14 @@ export async function handleManagementRoute(
     const denied = await authorize(env, user, "calendar_manage", recommendMatch[1]);
     if (denied) return { body: { error: denied }, status: 403 };
 
-    const payload = await request.json<{ desiredAt?: string }>().catch(() => ({} as any));
-    return { body: { data: { scheduledAt: await findNextAvailableSlot(env, recommendMatch[1], payload.desiredAt) } } };
+    const payload = await request.json<{ desiredAt?: string }>().catch(() => ({}) as any);
+    return {
+      body: {
+        data: {
+          scheduledAt: await findNextAvailableSlot(env, recommendMatch[1], payload.desiredAt),
+        },
+      },
+    };
   }
 
   if (request.method === "POST" && url.pathname === "/v1/notifications/test") {

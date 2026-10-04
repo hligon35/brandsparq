@@ -9,13 +9,10 @@ import {
   useMemo,
   useState,
 } from "react";
-import { Platform } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
+import { colors } from "@/theme/tokens";
 import { api, setApiSessionToken, setUnauthorizedHandler } from "@/api/client";
-import {
-  clearSessionToken,
-  getSessionToken,
-  setSessionToken,
-} from "@/auth/session";
+import { clearSessionToken, getSessionToken, setSessionToken } from "@/auth/session";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -51,19 +48,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     void (async () => {
-      const token = await getSessionToken();
-      if (!token) {
-        setReady(true);
-        return;
-      }
-
-      setApiSessionToken(token);
       try {
-        const session = await api.getSession();
-        setUser(session.user);
+        const token = await getSessionToken();
+        if (token) {
+          setApiSessionToken(token);
+          const session = await api.getSession();
+          setUser(session.user);
+        }
       } catch {
         setApiSessionToken(null);
-        await clearSessionToken();
+        await clearSessionToken().catch(() => undefined);
       } finally {
         setReady(true);
       }
@@ -79,9 +73,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const signInWithGoogle = useCallback(async () => {
     const returnTo =
-      Platform.OS === "web"
-        ? `${window.location.origin}/login`
-        : Linking.createURL("/login");
+      Platform.OS === "web" ? `${window.location.origin}/login` : Linking.createURL("/login");
 
     const startUrl = api.getGoogleAuthStartUrl(returnTo);
 
@@ -100,9 +92,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     const parsed = Linking.parse(result.url);
     const handoff =
-      typeof parsed.queryParams?.handoff === "string"
-        ? parsed.queryParams.handoff
-        : undefined;
+      typeof parsed.queryParams?.handoff === "string" ? parsed.queryParams.handoff : undefined;
 
     if (!handoff) {
       const authError =
@@ -131,10 +121,27 @@ export function AuthProvider({ children }: PropsWithChildren) {
         }
       },
     }),
-    [completeGoogleSignIn, ready, signInWithGoogle, user]
+    [completeGoogleSignIn, ready, signInWithGoogle, user],
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {ready ? (
+        children
+      ) : (
+        <View
+          style={{
+            flex: 1,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: colors.bg,
+          }}
+        >
+          <ActivityIndicator accessibilityLabel="Restoring session" color={colors.primary} />
+        </View>
+      )}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

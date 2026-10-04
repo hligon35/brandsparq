@@ -14,7 +14,7 @@ const MAX_ANALYSIS_EDGE = 2000;
 
 export async function prepareCampaignAsset(
   asset: ImagePickerAsset,
-  index: number
+  index: number,
 ): Promise<PreparedCampaignAsset> {
   const width = asset.width || 0;
   const height = asset.height || 0;
@@ -29,14 +29,10 @@ export async function prepareCampaignAsset(
     }
   }
 
-  const result = await ImageManipulator.manipulateAsync(
-    asset.uri,
-    actions,
-    {
-      compress: 0.82,
-      format: ImageManipulator.SaveFormat.JPEG,
-    }
-  );
+  const result = await ImageManipulator.manipulateAsync(asset.uri, actions, {
+    compress: 0.82,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
 
   return {
     original: asset,

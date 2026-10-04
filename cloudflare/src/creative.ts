@@ -118,8 +118,15 @@ const SCORE_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: [
-    "overall","brandMatch","readability","platformFit","ctaStrength",
-    "composition","captionQuality","compliance","rationale"
+    "overall",
+    "brandMatch",
+    "readability",
+    "platformFit",
+    "ctaStrength",
+    "composition",
+    "captionQuality",
+    "compliance",
+    "rationale",
   ],
   properties: {
     overall: { type: "integer", minimum: 0, maximum: 100 },
@@ -145,11 +152,10 @@ export async function evaluateCreative(
     brandContext: unknown;
     composition: unknown;
     imageUrl?: string;
-  }
+  },
 ) {
   const content: Array<
-    { type: "input_text"; text: string } |
-    { type: "input_image"; image_url: string }
+    { type: "input_text"; text: string } | { type: "input_image"; image_url: string }
   > = [
     {
       type: "input_text",

@@ -23,17 +23,14 @@ async function encryptionKey(env: SecurityEnv) {
   }
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(env.SOCIAL_TOKEN_KEY)
+    new TextEncoder().encode(env.SOCIAL_TOKEN_KEY),
   );
-  return crypto.subtle.importKey("raw", digest, "AES-GCM", false, [
-    "encrypt",
-    "decrypt",
-  ]);
+  return crypto.subtle.importKey("raw", digest, "AES-GCM", false, ["encrypt", "decrypt"]);
 }
 
 export async function encryptSecret(
   value: string | null | undefined,
-  env: SecurityEnv
+  env: SecurityEnv,
 ): Promise<string | null> {
   if (!value) return null;
   const key = await encryptionKey(env);
@@ -41,14 +38,14 @@ export async function encryptSecret(
   const cipher = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     key,
-    new TextEncoder().encode(value)
+    new TextEncoder().encode(value),
   );
   return `v1.${bytesToBase64(iv)}.${bytesToBase64(new Uint8Array(cipher))}`;
 }
 
 export async function decryptSecret(
   payload: string | null | undefined,
-  env: SecurityEnv
+  env: SecurityEnv,
 ): Promise<string | null> {
   if (!payload) return null;
   const [version, iv64, cipher64] = payload.split(".");
@@ -59,7 +56,7 @@ export async function decryptSecret(
   const plain = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: base64ToBytes(iv64) },
     key,
-    base64ToBytes(cipher64)
+    base64ToBytes(cipher64),
   );
   return new TextDecoder().decode(plain);
 }
@@ -67,9 +64,7 @@ export async function decryptSecret(
 export async function hashSecret(value: string, pepper = "") {
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(`${pepper}:${value}`)
+    new TextEncoder().encode(`${pepper}:${value}`),
   );
-  return [...new Uint8Array(digest)]
-    .map((v) => v.toString(16).padStart(2, "0"))
-    .join("");
+  return [...new Uint8Array(digest)].map((v) => v.toString(16).padStart(2, "0")).join("");
 }

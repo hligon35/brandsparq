@@ -13,6 +13,19 @@
     },
     "production": {
       "autoIncrement": true
+    },
+    "e2e": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": true
+      },
+      "env": {
+        "BRANDSPARQ_E2E_BUILD": "1",
+        "EXPO_PUBLIC_API_URL": "http://127.0.0.1:8788"
+      }
     }
   }
 }

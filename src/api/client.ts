@@ -100,8 +100,7 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
     }
     const payload = await response.json().catch(() => null);
     throw new Error(
-      (payload as { error?: string } | null)?.error ??
-        `Request failed: ${response.status}`
+      (payload as { error?: string } | null)?.error ?? `Request failed: ${response.status}`,
     );
   }
 
@@ -123,12 +122,9 @@ export const api = {
       body: JSON.stringify({ handoff }),
     }),
 
-  getSession: () =>
-    jsonRequest<{ user: AuthUser }>("/v1/auth/session"),
+  getSession: () => jsonRequest<{ user: AuthUser }>("/v1/auth/session"),
 
-  signOut: () =>
-    jsonRequest<{ ok: true }>("/v1/auth/logout", { method: "POST" }),
-
+  signOut: () => jsonRequest<{ ok: true }>("/v1/auth/logout", { method: "POST" }),
 
   getDashboard: () =>
     jsonRequest<{
@@ -142,13 +138,10 @@ export const api = {
     }>("/v1/dashboard"),
 
   createClient: (name: string, timezone?: string) =>
-    jsonRequest<{ ok: true; id: string; name: string; timezone: string }>(
-      "/v1/clients",
-      {
-        method: "POST",
-        body: JSON.stringify({ name, timezone }),
-      }
-    ),
+    jsonRequest<{ ok: true; id: string; name: string; timezone: string }>("/v1/clients", {
+      method: "POST",
+      body: JSON.stringify({ name, timezone }),
+    }),
 
   updateClient: (clientId: string, payload: { name?: string; timezone?: string }) =>
     jsonRequest<{ ok: true }>(`/v1/clients/${clientId}`, {
@@ -164,29 +157,19 @@ export const api = {
   getBrandAssets: (clientId: string) =>
     jsonRequest<{ data: any[] }>(`/v1/clients/${clientId}/brand-assets`),
 
-  attachBrandAsset: (
-    clientId: string,
-    assetId: string,
-    role: string,
-    label?: string
-  ) =>
-    jsonRequest<{ ok: true; id: string }>(
-      `/v1/clients/${clientId}/brand-assets`,
-      {
-        method: "POST",
-        body: JSON.stringify({ assetId, role, label }),
-      }
-    ),
+  attachBrandAsset: (clientId: string, assetId: string, role: string, label?: string) =>
+    jsonRequest<{ ok: true; id: string }>(`/v1/clients/${clientId}/brand-assets`, {
+      method: "POST",
+      body: JSON.stringify({ assetId, role, label }),
+    }),
 
   getCampaigns: (clientId?: string) =>
     jsonRequest<{ data: any[] }>(
-      `/v1/campaigns${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`
+      `/v1/campaigns${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
     ),
 
   getCampaign: (campaignId: string) =>
-    jsonRequest<{ data: { campaign: any; posts: any[] } }>(
-      `/v1/campaigns/${campaignId}`
-    ),
+    jsonRequest<{ data: { campaign: any; posts: any[] } }>(`/v1/campaigns/${campaignId}`),
 
   updateCampaign: (campaignId: string, payload: Record<string, unknown>) =>
     jsonRequest<{ ok: true }>(`/v1/campaigns/${campaignId}`, {
@@ -196,7 +179,7 @@ export const api = {
 
   getSocialAccounts: (clientId?: string) =>
     jsonRequest<{ data: any[] }>(
-      `/v1/social/accounts${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`
+      `/v1/social/accounts${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
     ),
 
   getSocialConnectUrl(platform: string, clientId: string, returnTo: string) {
@@ -211,7 +194,7 @@ export const api = {
   verifySocialAccount: (accountId: string) =>
     jsonRequest<{ ok: true; data: { health: string; checkedAt: string } }>(
       `/v1/social/accounts/${accountId}/verify`,
-      { method: "POST" }
+      { method: "POST" },
     ),
 
   assignSocialAccount: (postId: string, socialAccountId: string) =>
@@ -220,8 +203,7 @@ export const api = {
       body: JSON.stringify({ socialAccountId }),
     }),
 
-  getNotifications: () =>
-    jsonRequest<{ data: any[]; unreadCount: number }>("/v1/notifications"),
+  getNotifications: () => jsonRequest<{ data: any[]; unreadCount: number }>("/v1/notifications"),
 
   markNotificationRead: (notificationId: string) =>
     jsonRequest<{ ok: true }>(`/v1/notifications/${notificationId}/read`, {
@@ -239,8 +221,7 @@ export const api = {
       body: JSON.stringify({ token, platform, deviceName }),
     }),
 
-  getSettings: () =>
-    jsonRequest<{ data: any }>("/v1/settings"),
+  getSettings: () => jsonRequest<{ data: any }>("/v1/settings"),
 
   saveSettings: (payload: Record<string, unknown>) =>
     jsonRequest<{ ok: true }>("/v1/settings", {
@@ -248,20 +229,17 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  testNotifications: () =>
-    jsonRequest<{ ok: true }>("/v1/notifications/test", { method: "POST" }),
+  testNotifications: () => jsonRequest<{ ok: true }>("/v1/notifications/test", { method: "POST" }),
 
-  getSystemOverview: () =>
-    jsonRequest<{ data: any }>("/v1/system/overview"),
+  getSystemOverview: () => jsonRequest<{ data: any }>("/v1/system/overview"),
 
   recoverSystemWork: () =>
     jsonRequest<{ ok: true; data: any }>("/v1/system/recover", { method: "POST" }),
 
   retryFailedPost: (postId: string) =>
-    jsonRequest<{ ok: true; publishJobId: string }>(
-      `/v1/system/posts/${postId}/retry`,
-      { method: "POST" }
-    ),
+    jsonRequest<{ ok: true; publishJobId: string }>(`/v1/system/posts/${postId}/retry`, {
+      method: "POST",
+    }),
 
   resolveSystemEvent: (eventId: string) =>
     jsonRequest<{ ok: true }>(`/v1/system/events/${eventId}/resolve`, {
@@ -269,22 +247,21 @@ export const api = {
     }),
 
   runLaunchCertification: () =>
-    jsonRequest<{ data: {
-      id: string;
-      status: "ready" | "ready_with_warnings" | "blocked";
-      blockers: string[];
-      warnings: string[];
-      checks: Array<{ name: string; ok: boolean; level: string; detail: string }>;
-      createdAt: string;
-    } }>("/v1/system/certify", { method: "POST" }),
+    jsonRequest<{
+      data: {
+        id: string;
+        status: "ready" | "ready_with_warnings" | "blocked";
+        blockers: string[];
+        warnings: string[];
+        checks: Array<{ name: string; ok: boolean; level: string; detail: string }>;
+        createdAt: string;
+      };
+    }>("/v1/system/certify", { method: "POST" }),
 
-  getLaunchCertifications: () =>
-    jsonRequest<{ data: any[] }>("/v1/system/certifications"),
+  getLaunchCertifications: () => jsonRequest<{ data: any[] }>("/v1/system/certifications"),
 
   getAccessManagement: () =>
-    jsonRequest<{ data: { users: any[]; clients: any[]; access: any[] } }>(
-      "/v1/system/access"
-    ),
+    jsonRequest<{ data: { users: any[]; clients: any[]; access: any[] } }>("/v1/system/access"),
 
   updateUserRole: (userId: string, role: string) =>
     jsonRequest<{ ok: true }>(`/v1/system/users/${userId}/role`, {
@@ -296,23 +273,18 @@ export const api = {
     userId: string,
     clientId: string,
     enabled: boolean,
-    accessRole?: string
+    accessRole?: string,
   ) =>
-    jsonRequest<{ ok: true }>(
-      `/v1/system/users/${userId}/clients/${clientId}`,
-      {
-        method: "POST",
-        body: JSON.stringify({ enabled, accessRole }),
-      }
-    ),
+    jsonRequest<{ ok: true }>(`/v1/system/users/${userId}/clients/${clientId}`, {
+      method: "POST",
+      body: JSON.stringify({ enabled, accessRole }),
+    }),
 
   getAnalyticsOverview: (clientId?: string, days = 30) => {
     const params = new URLSearchParams();
     if (clientId) params.set("clientId", clientId);
     params.set("days", String(days));
-    return jsonRequest<{ data: any }>(
-      `/v1/analytics/overview?${params.toString()}`
-    );
+    return jsonRequest<{ data: any }>(`/v1/analytics/overview?${params.toString()}`);
   },
 
   syncAnalytics: (accountId?: string) =>
@@ -324,17 +296,16 @@ export const api = {
   validateSchedule: (clientId: string, scheduledAt: string) =>
     jsonRequest<{ data: { requested: string; suggested: string; conflict: boolean } }>(
       `/v1/clients/${clientId}/schedule/validate`,
-      { method: "POST", body: JSON.stringify({ scheduledAt }) }
+      { method: "POST", body: JSON.stringify({ scheduledAt }) },
     ),
 
   recommendSchedule: (clientId: string, desiredAt?: string) =>
-    jsonRequest<{ data: { scheduledAt: string } }>(
-      `/v1/clients/${clientId}/schedule/recommend`,
-      { method: "POST", body: JSON.stringify({ desiredAt }) }
-    ),
+    jsonRequest<{ data: { scheduledAt: string } }>(`/v1/clients/${clientId}/schedule/recommend`, {
+      method: "POST",
+      body: JSON.stringify({ desiredAt }),
+    }),
 
-  getBrand: (clientId: string) =>
-    jsonRequest<{ data: any }>(`/v1/clients/${clientId}/brand`),
+  getBrand: (clientId: string) => jsonRequest<{ data: any }>(`/v1/clients/${clientId}/brand`),
 
   saveBrand: (clientId: string, brand: Record<string, unknown>) =>
     jsonRequest<{ ok: true; id: string }>(`/v1/clients/${clientId}/brand`, {
@@ -350,7 +321,7 @@ export const api = {
 
   async getPublicReview(token: string) {
     const result = await jsonRequest<{ data: ApiPost & { client_name?: string } }>(
-      `/v1/public/review/${encodeURIComponent(token)}`
+      `/v1/public/review/${encodeURIComponent(token)}`,
     );
     if (result.data.image_url) result.data.image_url = resolveApiUrl(result.data.image_url);
     return result;
@@ -359,33 +330,33 @@ export const api = {
   approvePublicReview: (token: string) =>
     jsonRequest<{ ok: true; postId: string; status: string }>(
       `/v1/public/review/${encodeURIComponent(token)}/approve`,
-      { method: "POST" }
+      { method: "POST" },
     ),
 
   editPublicReview: (
     token: string,
-    payload: { headline?: string; caption?: string; comment?: string }
+    payload: { headline?: string; caption?: string; comment?: string },
   ) =>
     jsonRequest<{ ok: true; postId: string }>(
       `/v1/public/review/${encodeURIComponent(token)}/edit`,
-      { method: "POST", body: JSON.stringify(payload) }
+      { method: "POST", body: JSON.stringify(payload) },
     ),
 
   rejectPublicReview: (token: string, reason?: string) =>
     jsonRequest<{ ok: true; postId: string; status: string }>(
       `/v1/public/review/${encodeURIComponent(token)}/reject`,
-      { method: "POST", body: JSON.stringify({ reason }) }
+      { method: "POST", body: JSON.stringify({ reason }) },
     ),
 
   regeneratePublicReview: (token: string, instruction?: string) =>
     jsonRequest<{ ok: true; data: unknown }>(
       `/v1/public/review/${encodeURIComponent(token)}/regenerate`,
-      { method: "POST", body: JSON.stringify({ instruction }) }
+      { method: "POST", body: JSON.stringify({ instruction }) },
     ),
 
   async getClients(includeArchived = false): Promise<Client[]> {
     const result = await jsonRequest<{ data: Client[] }>(
-      `/v1/clients${includeArchived ? "?includeArchived=1" : ""}`
+      `/v1/clients${includeArchived ? "?includeArchived=1" : ""}`,
     );
     return result.data;
   },
@@ -397,7 +368,7 @@ export const api = {
 
   async getCalendar(from: string, to: string): Promise<MarketingPost[]> {
     const result = await jsonRequest<{ data: ApiPost[] }>(
-      `/v1/posts/calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+      `/v1/posts/calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
     );
     return result.data.map(mapPost);
   },
@@ -439,10 +410,7 @@ export const api = {
       method: "POST",
     }),
 
-  editPost: (
-    postId: string,
-    payload: { headline?: string; caption?: string; comment?: string }
-  ) =>
+  editPost: (postId: string, payload: { headline?: string; caption?: string; comment?: string }) =>
     jsonRequest<{ ok: true }>(`/v1/posts/${postId}/edit`, {
       method: "POST",
       body: JSON.stringify(payload),
@@ -479,10 +447,9 @@ export const api = {
     }),
 
   keepSchedule: (postId: string) =>
-    jsonRequest<{ ok: true; status: string }>(
-      `/v1/posts/${postId}/keep-schedule`,
-      { method: "POST" }
-    ),
+    jsonRequest<{ ok: true; status: string }>(`/v1/posts/${postId}/keep-schedule`, {
+      method: "POST",
+    }),
 
   reschedulePost: (postId: string, scheduledPublishAt: string) =>
     jsonRequest<{
@@ -490,36 +457,30 @@ export const api = {
       status: string;
       scheduledPublishAt: string;
       adjusted: boolean;
-    }>(
-      `/v1/posts/${postId}/reschedule`,
-      {
-        method: "POST",
-        body: JSON.stringify({ scheduledPublishAt }),
-      }
-    ),
+    }>(`/v1/posts/${postId}/reschedule`, {
+      method: "POST",
+      body: JSON.stringify({ scheduledPublishAt }),
+    }),
 
   publishNow: (postId: string) =>
-    jsonRequest<{ ok: true; queued: true }>(
-      `/v1/posts/${postId}/publish-now`,
-      { method: "POST" }
-    ),
+    jsonRequest<{ ok: true; queued: true }>(`/v1/posts/${postId}/publish-now`, { method: "POST" }),
 
   rewritePostCaption: (postId: string, instruction?: string) =>
     jsonRequest<{ ok: true; data: { headline: string; caption: string; hashtags: string[] } }>(
       `/v1/posts/${postId}/ai-rewrite-caption`,
-      { method: "POST", body: JSON.stringify({ instruction }) }
+      { method: "POST", body: JSON.stringify({ instruction }) },
     ),
 
   editPostGraphic: (postId: string, instruction: string) =>
     jsonRequest<{ ok: true; data: { postId: string; imageModel: string; responseId?: string } }>(
       `/v1/posts/${postId}/ai-edit-image`,
-      { method: "POST", body: JSON.stringify({ instruction }) }
+      { method: "POST", body: JSON.stringify({ instruction }) },
     ),
 
   regeneratePost: (postId: string, instruction?: string) =>
     jsonRequest<{ ok: true; data: { postId: string; imageModel: string; responseId?: string } }>(
       `/v1/posts/${postId}/ai-regenerate`,
-      { method: "POST", body: JSON.stringify({ instruction }) }
+      { method: "POST", body: JSON.stringify({ instruction }) },
     ),
 
   async uploadAssetDerivative(
@@ -530,7 +491,7 @@ export const api = {
     filename = "analysis.jpg",
     contentType = "image/jpeg",
     width?: number,
-    height?: number
+    height?: number,
   ) {
     const source = await fetch(uri);
     const blob = await source.blob();
@@ -543,20 +504,17 @@ export const api = {
       ...(height ? { "x-image-height": String(height) } : {}),
     });
 
-    const response = await fetch(
-      `${API_URL}/v1/assets/${encodeURIComponent(assetId)}/derivative`,
-      {
-        method: "POST",
-        headers,
-        body: blob,
-      }
-    );
+    const response = await fetch(`${API_URL}/v1/assets/${encodeURIComponent(assetId)}/derivative`, {
+      method: "POST",
+      headers,
+      body: blob,
+    });
 
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
       throw new Error(
         (payload as { error?: string } | null)?.error ??
-          `Derivative upload failed: ${response.status}`
+          `Derivative upload failed: ${response.status}`,
       );
     }
 
@@ -569,7 +527,7 @@ export const api = {
     filename: string,
     contentType = "image/jpeg",
     width?: number,
-    height?: number
+    height?: number,
   ): Promise<Asset> {
     const source = await fetch(uri);
     const blob = await source.blob();
@@ -590,8 +548,7 @@ export const api = {
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
       throw new Error(
-        (payload as { error?: string } | null)?.error ??
-          `Upload failed: ${response.status}`
+        (payload as { error?: string } | null)?.error ?? `Upload failed: ${response.status}`,
       );
     }
 

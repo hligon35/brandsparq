@@ -13,16 +13,27 @@
     "deploy:worker": "npm run validate && npm --prefix cloudflare run deploy",
     "deploy:cloudflare": "npm run deploy:worker",
     "typecheck": "tsc --noEmit",
-    "validate": "npm run audit:launch && npm test && npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web",
+    "validate": "npm run audit:launch && npm run lint && npm run format:check && npm test && npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web && npm run test:e2e",
     "deploy:production": "npm run validate && npm --prefix cloudflare run deploy",
     "audit:launch": "node scripts/launch-audit.mjs",
     "smoke:production": "node scripts/smoke-production.mjs",
-    "test": "node --import ./tests/register.mjs --test tests/*.test.mjs"
+    "test": "node --import ./tests/register.mjs --test tests/*.test.mjs",
+    "test:unit": "node --import ./tests/register.mjs --test tests/unit.test.mjs",
+    "test:integration": "node --import ./tests/register.mjs --test tests/launch.test.mjs tests/providers.test.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium webkit",
+    "test:mobile": "node scripts/test-mobile.mjs",
+    "test:workspace": "node --import ./tests/register.mjs tests/e2e/server.mjs",
+    "lint": "biome lint .",
+    "format": "biome format . --write",
+    "format:check": "biome format .",
+    "smoke:staging": "node scripts/smoke-staging.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
     "expo": "~57.0.17",
     "expo-constants": "~57.0.20",
+    "expo-image-manipulator": "~57.0.17",
     "expo-image-picker": "~57.0.17",
     "expo-linking": "~8.0.11",
     "expo-notifications": "^57.0.21",
@@ -35,10 +46,11 @@
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
-    "react-native-web": "0.21.0",
-    "expo-image-manipulator": "~57.0.17"
+    "react-native-web": "0.21.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@playwright/test": "1.56.1",
     "@types/react": "~19.2.2",
     "typescript": "~5.9.2"
   },

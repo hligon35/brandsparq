@@ -38,7 +38,13 @@ function localParts(date: Date, timeZone: string) {
   }).formatToParts(date);
   const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   const weekdayMap: Record<string, number> = {
-    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
   };
   return {
     dateKey: `${map.year}-${map.month}-${map.day}`,
@@ -74,7 +80,7 @@ async function loadRules(env: SchedulingEnv, clientId: string): Promise<Rules> {
      FROM clients c
      JOIN workspace_settings ws ON ws.id = 'default'
      LEFT JOIN client_settings cs ON cs.client_id = c.id
-     WHERE c.id = ?`
+     WHERE c.id = ?`,
   )
     .bind(clientId)
     .first<any>();
@@ -87,7 +93,7 @@ async function loadRules(env: SchedulingEnv, clientId: string): Promise<Rules> {
     maxPerDay: Number(row.max_posts_per_day || 3),
     preferredWindows: parseJson(row.preferred_windows, ["09:00-11:00", "17:00-20:00"]),
     blackoutWindows: parseJson(row.blackout_windows, []),
-    allowedWeekdays: parseJson(row.allowed_weekdays, [0,1,2,3,4,5,6]),
+    allowedWeekdays: parseJson(row.allowed_weekdays, [0, 1, 2, 3, 4, 5, 6]),
   };
 }
 
@@ -95,12 +101,13 @@ export async function findNextAvailableSlot(
   env: SchedulingEnv,
   clientId: string,
   desiredAt?: string | null,
-  excludePostId?: string | null
+  excludePostId?: string | null,
 ) {
   const rules = await loadRules(env, clientId);
-  let candidate = desiredAt && !Number.isNaN(Date.parse(desiredAt))
-    ? new Date(desiredAt)
-    : new Date(Date.now() + 60 * 60 * 1000);
+  let candidate =
+    desiredAt && !Number.isNaN(Date.parse(desiredAt))
+      ? new Date(desiredAt)
+      : new Date(Date.now() + 60 * 60 * 1000);
 
   candidate.setSeconds(0, 0);
 
@@ -119,29 +126,26 @@ export async function findNextAvailableSlot(
            AND scheduled_publish_at >= ?
            AND scheduled_publish_at <= ?
            AND status NOT IN ('canceled','failed')
-           AND (? IS NULL OR id != ?)`
+           AND (? IS NULL OR id != ?)`,
       )
         .bind(
           clientId,
           new Date(candidate.getTime() - 24 * 60 * 60 * 1000).toISOString(),
           new Date(candidate.getTime() + 24 * 60 * 60 * 1000).toISOString(),
           excludePostId || null,
-          excludePostId || null
+          excludePostId || null,
         )
         .all<{ id: string; scheduled_publish_at: string }>();
 
       const sameLocalDay = nearby.results.filter(
         (row) =>
-          localParts(new Date(row.scheduled_publish_at), rules.timezone).dateKey ===
-          local.dateKey
+          localParts(new Date(row.scheduled_publish_at), rules.timezone).dateKey === local.dateKey,
       ).length;
 
       const collision = nearby.results.some(
         (row) =>
-          Math.abs(
-            Date.parse(row.scheduled_publish_at) - candidate.getTime()
-          ) <
-          rules.minSpacing * 60 * 1000
+          Math.abs(Date.parse(row.scheduled_publish_at) - candidate.getTime()) <
+          rules.minSpacing * 60 * 1000,
       );
 
       if (sameLocalDay < rules.maxPerDay && !collision) {
@@ -155,11 +159,7 @@ export async function findNextAvailableSlot(
   throw new Error("No available publishing slot found in the next 14 days.");
 }
 
-export async function validateSchedule(
-  env: SchedulingEnv,
-  clientId: string,
-  scheduledAt: string
-) {
+export async function validateSchedule(env: SchedulingEnv, clientId: string, scheduledAt: string) {
   const requested = new Date(scheduledAt).toISOString();
   const suggested = await findNextAvailableSlot(env, clientId, requested);
   return {

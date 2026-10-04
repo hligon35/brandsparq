@@ -9,3 +9,7 @@ web-build/
 
 .wrangler/
 cloudflare/.wrangler/
+
+playwright-report/
+test-results/
+.maestro/tests/

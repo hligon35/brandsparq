@@ -1,0 +1,23 @@
+name: BrandSparQ staging smoke
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Deployed staging HTTPS origin
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check staging health, login, OAuth and API guards
+        run: npm run smoke:staging
+        env:
+          BRANDSPARQ_BASE_URL: ${{ inputs.base_url }}

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,34 +16,28 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
-      - name: Install app dependencies
-        run: npm ci
-
-      - name: Install Worker dependencies
-        run: npm ci --prefix cloudflare
-
-      - name: Launch configuration audit
-        run: npm run audit:launch
-
-      - name: Launch regression tests
-        run: npm test
-
-      - name: Typecheck app
-        run: npm run typecheck
-
-      - name: Typecheck Worker
-        run: npm --prefix cloudflare run typecheck
-
-      - name: Export web build
-        run: npm run build:web
+      - name: Install dependencies
+        run: npm ci && npm ci --prefix cloudflare
+      - name: Install browser runners
+        run: npx playwright install --with-deps chromium webkit
+      - name: Run complete quality gate
+        run: npm run validate
+      - name: Upload browser traces and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: brandsparq-browser-results
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore

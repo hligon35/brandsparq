@@ -12,11 +12,11 @@ export type PublishQueueMessage = {
 export async function ensurePublishJob(
   env: PublishingEnv,
   postId: string,
-  scheduledFor?: string | null
+  scheduledFor?: string | null,
 ): Promise<{ jobId: string; executionKey: string; shouldEnqueue: boolean }> {
-  const post = await env.DB.prepare(
-    "SELECT publish_version FROM posts WHERE id = ?"
-  ).bind(postId).first<{ publish_version: number }>();
+  const post = await env.DB.prepare("SELECT publish_version FROM posts WHERE id = ?")
+    .bind(postId)
+    .first<{ publish_version: number }>();
   if (!post) throw new Error("Post not found while creating publish job.");
 
   const executionKey = `post:${postId}:publish:v${post.publish_version}`;
@@ -25,23 +25,22 @@ export async function ensurePublishJob(
   await env.DB.prepare(
     `INSERT OR IGNORE INTO publish_jobs
      (id, post_id, execution_key, status, scheduled_for)
-     VALUES (?, ?, ?, 'queued', ?)`
-  ).bind(
-    candidateId,
-    postId,
-    executionKey,
-    scheduledFor || null
-  ).run();
+     VALUES (?, ?, ?, 'queued', ?)`,
+  )
+    .bind(candidateId, postId, executionKey, scheduledFor || null)
+    .run();
 
   const row = await env.DB.prepare(
     `SELECT id, status, claimed_at
      FROM publish_jobs
-     WHERE execution_key = ?`
-  ).bind(executionKey).first<{
-    id: string;
-    status: string;
-    claimed_at: string | null;
-  }>();
+     WHERE execution_key = ?`,
+  )
+    .bind(executionKey)
+    .first<{
+      id: string;
+      status: string;
+      claimed_at: string | null;
+    }>();
 
   if (!row) {
     throw new Error("Unable to create or resolve publish job.");
@@ -56,7 +55,7 @@ export async function ensurePublishJob(
 
 export async function claimPublishJob(
   env: PublishingEnv,
-  publishJobId: string
+  publishJobId: string,
 ): Promise<{
   claimed: boolean;
   attempt: number;
@@ -66,10 +65,12 @@ export async function claimPublishJob(
 }> {
   const row = await env.DB.prepare(
     `SELECT id, post_id, execution_key, status, attempt_count, max_attempts
-     FROM publish_jobs WHERE id = ?`
-  ).bind(publishJobId).first<any>();
+     FROM publish_jobs WHERE id = ?`,
+  )
+    .bind(publishJobId)
+    .first<any>();
 
-  if (!row || !["queued","retrying"].includes(row.status)) {
+  if (!row || !["queued", "retrying"].includes(row.status)) {
     return {
       claimed: false,
       attempt: Number(row?.attempt_count || 0),
@@ -86,8 +87,10 @@ export async function claimPublishJob(
          attempt_count = attempt_count + 1,
          claimed_at = ?,
          updated_at = ?
-     WHERE id = ? AND status IN ('queued','retrying')`
-  ).bind(now, now, publishJobId).run();
+     WHERE id = ? AND status IN ('queued','retrying')`,
+  )
+    .bind(now, now, publishJobId)
+    .run();
 
   if (!result.meta.changes) {
     return {
@@ -108,43 +111,37 @@ export async function claimPublishJob(
   };
 }
 
-export async function markPublishJobRetry(
-  env: PublishingEnv,
-  publishJobId: string,
-  error: string
-) {
+export async function markPublishJobRetry(env: PublishingEnv, publishJobId: string, error: string) {
   await env.DB.prepare(
     `UPDATE publish_jobs
      SET status = 'retrying', claimed_at = NULL, last_error = ?, updated_at = ?
-     WHERE id = ?`
-  ).bind(error, new Date().toISOString(), publishJobId).run();
+     WHERE id = ?`,
+  )
+    .bind(error, new Date().toISOString(), publishJobId)
+    .run();
 }
 
 export async function markPublishJobFailed(
   env: PublishingEnv,
   publishJobId: string,
-  error: string
+  error: string,
 ) {
   await env.DB.prepare(
     `UPDATE publish_jobs
      SET status = 'failed', last_error = ?, completed_at = ?, updated_at = ?
-     WHERE id = ?`
-  ).bind(
-    error,
-    new Date().toISOString(),
-    new Date().toISOString(),
-    publishJobId
-  ).run();
+     WHERE id = ?`,
+  )
+    .bind(error, new Date().toISOString(), new Date().toISOString(), publishJobId)
+    .run();
 }
 
-export async function markPublishJobCompleted(
-  env: PublishingEnv,
-  publishJobId: string
-) {
+export async function markPublishJobCompleted(env: PublishingEnv, publishJobId: string) {
   const now = new Date().toISOString();
   await env.DB.prepare(
     `UPDATE publish_jobs
      SET status = 'completed', completed_at = ?, last_error = NULL, updated_at = ?
-     WHERE id = ?`
-  ).bind(now, now, publishJobId).run();
+     WHERE id = ?`,
+  )
+    .bind(now, now, publishJobId)
+    .run();
 }

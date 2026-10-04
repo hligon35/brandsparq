@@ -1,10 +1,4 @@
-export type OpenAIImageQuality =
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh"
-  | "max"
-  | "auto";
+export type OpenAIImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
 
 export type OpenAIEnv = {
   OPENAI_API_KEY?: string;
@@ -58,7 +52,7 @@ async function requestResponses(env: OpenAIEnv, body: Record<string, unknown>) {
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(
-      `OpenAI request failed (${response.status})${requestId ? ` [${requestId}]` : ""}: ${errorText.slice(0, 800)}`
+      `OpenAI request failed (${response.status})${requestId ? ` [${requestId}]` : ""}: ${errorText.slice(0, 800)}`,
     );
   }
 
@@ -91,7 +85,7 @@ export async function createStructuredResponse<T>(
     schema: Record<string, unknown>;
     model?: string;
     reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max";
-  }
+  },
 ): Promise<OpenAIResult<T>> {
   const model = options.model || env.OPENAI_TEXT_MODEL || "gpt-6.1-sol";
   const result = await requestResponses(env, {
@@ -138,7 +132,7 @@ export async function createImageResponse(
     imageModel?: string;
     quality?: OpenAIImageQuality;
     size?: string;
-  }
+  },
 ): Promise<OpenAIImageResult> {
   const model = env.OPENAI_TEXT_MODEL || "gpt-6.1-sol";
   const imageModel =
@@ -173,7 +167,7 @@ export async function createImageResponse(
   });
 
   const imageCall = (result.payload?.output || []).find(
-    (item: any) => item?.type === "image_generation_call" && typeof item?.result === "string"
+    (item: any) => item?.type === "image_generation_call" && typeof item?.result === "string",
   );
   if (!imageCall?.result) throw new Error("OpenAI returned no image generation result.");
 
@@ -185,6 +179,7 @@ export async function createImageResponse(
     usage: result.payload?.usage,
     model,
     imageModel,
-    revisedPrompt: typeof imageCall.revised_prompt === "string" ? imageCall.revised_prompt : undefined,
+    revisedPrompt:
+      typeof imageCall.revised_prompt === "string" ? imageCall.revised_prompt : undefined,
   };
 }

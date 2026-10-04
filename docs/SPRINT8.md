@@ -115,6 +115,7 @@ cd ..
 git pull origin main
 npm ci
 npm ci --prefix cloudflare
+npx playwright install --with-deps chromium webkit
 npm run audit:launch
 
 cd cloudflare

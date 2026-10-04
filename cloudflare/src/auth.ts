@@ -34,16 +34,11 @@ const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const HANDOFF_TTL_MS = 5 * 60 * 1000;
 
 function bytesToHex(bytes: Uint8Array) {
-  return [...bytes]
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
+  return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
 async function sha256(value: string) {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value)
-  );
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return bytesToHex(new Uint8Array(digest));
 }
 
@@ -106,10 +101,7 @@ function googleConfigured(env: AuthEnv) {
 }
 
 function redirectUri(url: URL, env: AuthEnv) {
-  return (
-    env.GOOGLE_REDIRECT_URI ||
-    `${url.origin}/v1/auth/google/callback`
-  );
+  return env.GOOGLE_REDIRECT_URI || `${url.origin}/v1/auth/google/callback`;
 }
 
 function validReturnTo(returnTo: string, requestOrigin: string, env: AuthEnv) {
@@ -147,7 +139,7 @@ function withQuery(returnTo: string, key: string, value: string) {
 
 async function createSession(
   env: AuthEnv,
-  user: SessionUser
+  user: SessionUser,
 ): Promise<{ token: string; expiresAt: number }> {
   const now = Date.now();
   const token = randomToken();
@@ -156,25 +148,15 @@ async function createSession(
   await env.DB.prepare(
     `INSERT INTO sessions
      (id, user_id, token_hash, expires_at, created_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?)`,
   )
-    .bind(
-      crypto.randomUUID(),
-      user.id,
-      await sessionHash(token, env),
-      expiresAt,
-      now,
-      now
-    )
+    .bind(crypto.randomUUID(), user.id, await sessionHash(token, env), expiresAt, now, now)
     .run();
 
   return { token, expiresAt };
 }
 
-export async function getSessionUser(
-  request: Request,
-  env: AuthEnv
-): Promise<SessionUser | null> {
+export async function getSessionUser(request: Request, env: AuthEnv): Promise<SessionUser | null> {
   const authorization = request.headers.get("authorization") || "";
   const match = authorization.match(/^Bearer\s+(.+)$/i);
   if (!match) return null;
@@ -188,16 +170,14 @@ export async function getSessionUser(
      JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = ?
        AND s.revoked_at IS NULL
-       AND s.expires_at > ?`
+       AND s.expires_at > ?`,
   )
     .bind(hash, now)
     .first<SessionUser & { session_id: string }>();
 
   if (!row) return null;
 
-  await env.DB.prepare(
-    "UPDATE sessions SET last_seen_at = ? WHERE id = ?"
-  )
+  await env.DB.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?")
     .bind(now, row.session_id)
     .run();
 
@@ -212,12 +192,9 @@ export async function getSessionUser(
 export async function handleAuthRoute(
   request: Request,
   url: URL,
-  env: AuthEnv
+  env: AuthEnv,
 ): Promise<RouteResult | null> {
-  if (
-    request.method === "GET" &&
-    url.pathname === "/v1/auth/google/start"
-  ) {
+  if (request.method === "GET" && url.pathname === "/v1/auth/google/start") {
     if (!googleConfigured(env)) {
       return {
         body: {
@@ -228,8 +205,7 @@ export async function handleAuthRoute(
       };
     }
 
-    const returnTo =
-      url.searchParams.get("return_to") || `${url.origin}/login`;
+    const returnTo = url.searchParams.get("return_to") || `${url.origin}/login`;
 
     if (!validReturnTo(returnTo, url.origin, env)) {
       return {
@@ -244,20 +220,18 @@ export async function handleAuthRoute(
     await env.DB.prepare(
       `INSERT INTO google_oauth_states
        (id, state_hash, return_to, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?)`,
     )
       .bind(
         crypto.randomUUID(),
         await stateHash(state, env),
         returnTo,
         now + OAUTH_STATE_TTL_MS,
-        now
+        now,
       )
       .run();
 
-    const google = new URL(
-      "https://accounts.google.com/o/oauth2/v2/auth"
-    );
+    const google = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     google.searchParams.set("client_id", googleClientId(env));
     google.searchParams.set("redirect_uri", redirectUri(url, env));
     google.searchParams.set("response_type", "code");
@@ -269,10 +243,7 @@ export async function handleAuthRoute(
     return { response: Response.redirect(google.toString(), 302) };
   }
 
-  if (
-    request.method === "GET" &&
-    url.pathname === "/v1/auth/google/callback"
-  ) {
+  if (request.method === "GET" && url.pathname === "/v1/auth/google/callback") {
     if (!googleConfigured(env)) {
       return {
         body: { error: "Google authentication is not configured." },
@@ -285,7 +256,7 @@ export async function handleAuthRoute(
       ? await env.DB.prepare(
           `SELECT id, return_to, expires_at, consumed_at
            FROM google_oauth_states
-           WHERE state_hash = ?`
+           WHERE state_hash = ?`,
         )
           .bind(await stateHash(state, env))
           .first<{
@@ -296,20 +267,14 @@ export async function handleAuthRoute(
           }>()
       : null;
 
-    if (
-      !stateRow ||
-      stateRow.consumed_at ||
-      stateRow.expires_at <= Date.now()
-    ) {
+    if (!stateRow || stateRow.consumed_at || stateRow.expires_at <= Date.now()) {
       return {
         body: { error: "Google sign-in state is invalid or expired." },
         status: 400,
       };
     }
 
-    await env.DB.prepare(
-      "UPDATE google_oauth_states SET consumed_at = ? WHERE id = ?"
-    )
+    await env.DB.prepare("UPDATE google_oauth_states SET consumed_at = ? WHERE id = ?")
       .bind(Date.now(), stateRow.id)
       .run();
 
@@ -319,42 +284,31 @@ export async function handleAuthRoute(
     if (oauthError || !code) {
       return {
         response: Response.redirect(
-          withQuery(
-            stateRow.return_to,
-            "auth_error",
-            oauthError || "Google sign-in was canceled."
-          ),
-          302
+          withQuery(stateRow.return_to, "auth_error", oauthError || "Google sign-in was canceled."),
+          302,
         ),
       };
     }
 
-    const tokenResponse = await fetch(
-      "https://oauth2.googleapis.com/token",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          client_id: googleClientId(env),
-          client_secret: googleClientSecret(env),
-          code,
-          grant_type: "authorization_code",
-          redirect_uri: redirectUri(url, env),
-        }),
-      }
-    );
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        client_id: googleClientId(env),
+        client_secret: googleClientSecret(env),
+        code,
+        grant_type: "authorization_code",
+        redirect_uri: redirectUri(url, env),
+      }),
+    });
 
     if (!tokenResponse.ok) {
       return {
         response: Response.redirect(
-          withQuery(
-            stateRow.return_to,
-            "auth_error",
-            "Google could not complete sign-in."
-          ),
-          302
+          withQuery(stateRow.return_to, "auth_error", "Google could not complete sign-in."),
+          302,
         ),
       };
     }
@@ -366,29 +320,21 @@ export async function handleAuthRoute(
     if (!tokens.id_token) {
       return {
         response: Response.redirect(
-          withQuery(
-            stateRow.return_to,
-            "auth_error",
-            "Google did not return an identity token."
-          ),
-          302
+          withQuery(stateRow.return_to, "auth_error", "Google did not return an identity token."),
+          302,
         ),
       };
     }
 
     const verifyResponse = await fetch(
-      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokens.id_token)}`
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokens.id_token)}`,
     );
 
     if (!verifyResponse.ok) {
       return {
         response: Response.redirect(
-          withQuery(
-            stateRow.return_to,
-            "auth_error",
-            "Google identity verification failed."
-          ),
-          302
+          withQuery(stateRow.return_to, "auth_error", "Google identity verification failed."),
+          302,
         ),
       };
     }
@@ -404,34 +350,20 @@ export async function handleAuthRoute(
     }>();
 
     const email = normalizeEmail(profile.email);
-    const verified =
-      profile.email_verified === true ||
-      profile.email_verified === "true";
+    const verified = profile.email_verified === true || profile.email_verified === "true";
     const issuerAllowed =
-      profile.iss === "accounts.google.com" ||
-      profile.iss === "https://accounts.google.com";
+      profile.iss === "accounts.google.com" || profile.iss === "https://accounts.google.com";
 
-    if (
-      profile.aud !== googleClientId(env) ||
-      !issuerAllowed ||
-      !verified ||
-      !email
-    ) {
+    if (profile.aud !== googleClientId(env) || !issuerAllowed || !verified || !email) {
       return {
         response: Response.redirect(
-          withQuery(
-            stateRow.return_to,
-            "auth_error",
-            "Google account verification failed."
-          ),
-          302
+          withQuery(stateRow.return_to, "auth_error", "Google account verification failed."),
+          302,
         ),
       };
     }
 
-    let user = await env.DB.prepare(
-      "SELECT id, email, name, role FROM users WHERE email = ?"
-    )
+    let user = await env.DB.prepare("SELECT id, email, name, role FROM users WHERE email = ?")
       .bind(email)
       .first<SessionUser>();
 
@@ -442,23 +374,23 @@ export async function handleAuthRoute(
             withQuery(
               stateRow.return_to,
               "auth_error",
-              "This Google account has not been authorized for BrandSparQ."
+              "This Google account has not been authorized for BrandSparQ.",
             ),
-            302
+            302,
           ),
         };
       }
 
-      const existingUsers = await env.DB.prepare(
-        "SELECT COUNT(*) AS count FROM users"
-      ).first<{ count: number }>();
+      const existingUsers = await env.DB.prepare("SELECT COUNT(*) AS count FROM users").first<{
+        count: number;
+      }>();
       const role = Number(existingUsers?.count || 0) === 0 ? "owner" : "viewer";
       const userId = crypto.randomUUID();
 
       await env.DB.prepare(
         `INSERT INTO users
          (id, email, name, role, google_sub, avatar_url)
-         VALUES (?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
         .bind(
           userId,
@@ -466,7 +398,7 @@ export async function handleAuthRoute(
           profile.name || null,
           role,
           profile.sub || null,
-          profile.picture || null
+          profile.picture || null,
         )
         .run();
 
@@ -483,14 +415,9 @@ export async function handleAuthRoute(
              google_sub = COALESCE(?, google_sub),
              avatar_url = COALESCE(?, avatar_url),
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`
+         WHERE id = ?`,
       )
-        .bind(
-          profile.name || null,
-          profile.sub || null,
-          profile.picture || null,
-          user.id
-        )
+        .bind(profile.name || null, profile.sub || null, profile.picture || null, user.id)
         .run();
     }
 
@@ -500,34 +427,25 @@ export async function handleAuthRoute(
     await env.DB.prepare(
       `INSERT INTO google_auth_handoffs
        (id, user_id, handoff_hash, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?)`,
     )
       .bind(
         crypto.randomUUID(),
         user.id,
         await handoffHash(handoff, env),
         now + HANDOFF_TTL_MS,
-        now
+        now,
       )
       .run();
 
     return {
-      response: Response.redirect(
-        withQuery(stateRow.return_to, "handoff", handoff),
-        302
-      ),
+      response: Response.redirect(withQuery(stateRow.return_to, "handoff", handoff), 302),
     };
   }
 
-  if (
-    request.method === "POST" &&
-    url.pathname === "/v1/auth/google/complete"
-  ) {
-    const payload = await request
-      .json<{ handoff?: string }>()
-      .catch(() => ({} as any));
-    const handoff =
-      typeof payload.handoff === "string" ? payload.handoff : "";
+  if (request.method === "POST" && url.pathname === "/v1/auth/google/complete") {
+    const payload = await request.json<{ handoff?: string }>().catch(() => ({}) as any);
+    const handoff = typeof payload.handoff === "string" ? payload.handoff : "";
 
     if (!handoff) {
       return {
@@ -542,7 +460,7 @@ export async function handleAuthRoute(
               u.email, u.name, u.role
        FROM google_auth_handoffs h
        JOIN users u ON u.id = h.user_id
-       WHERE h.handoff_hash = ?`
+       WHERE h.handoff_hash = ?`,
     )
       .bind(await handoffHash(handoff, env))
       .first<{
@@ -565,7 +483,7 @@ export async function handleAuthRoute(
     }
 
     const claimed = await env.DB.prepare(
-      "UPDATE google_auth_handoffs SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND expires_at > ?"
+      "UPDATE google_auth_handoffs SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND expires_at > ?",
     )
       .bind(now, row.id, now)
       .run();
@@ -595,10 +513,7 @@ export async function handleAuthRoute(
     };
   }
 
-  if (
-    request.method === "GET" &&
-    url.pathname === "/v1/auth/session"
-  ) {
+  if (request.method === "GET" && url.pathname === "/v1/auth/session") {
     const user = await getSessionUser(request, env);
     if (!user) {
       return {
@@ -609,18 +524,13 @@ export async function handleAuthRoute(
     return { body: { user } };
   }
 
-  if (
-    request.method === "POST" &&
-    url.pathname === "/v1/auth/logout"
-  ) {
+  if (request.method === "POST" && url.pathname === "/v1/auth/logout") {
     const authorization = request.headers.get("authorization") || "";
     const match = authorization.match(/^Bearer\s+(.+)$/i);
 
     if (match) {
       const hash = await sessionHash(match[1], env);
-      await env.DB.prepare(
-        "UPDATE sessions SET revoked_at = ? WHERE token_hash = ?"
-      )
+      await env.DB.prepare("UPDATE sessions SET revoked_at = ? WHERE token_hash = ?")
         .bind(Date.now(), hash)
         .run();
     }
