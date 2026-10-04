@@ -30,8 +30,16 @@ The existing one-minute Cloudflare cron now also:
 - removes expired review links
 - removes expired signed media/publish tokens
 - cleans old rate-limit buckets
+- sends messages that exhaust Cloudflare Queue retries to dedicated publish/generation dead-letter queues
 
 Recovery actions and operational incidents are persisted in D1.
+
+Cloudflare Queue consumers now use:
+
+- `brandsparq-publish-dlq`
+- `brandsparq-generation-dlq`
+
+These preserve messages that exhaust the configured queue retries instead of allowing them to be discarded.
 
 ## Access control
 
