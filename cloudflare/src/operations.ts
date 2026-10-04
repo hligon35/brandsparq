@@ -19,6 +19,15 @@ export interface OperationsEnv {
   OPENAI_API_KEY?: string;
   SOCIAL_TOKEN_KEY?: string;
   PUBLIC_BASE_URL?: string;
+  GOOGLE_REDIRECT_URI?: string;
+  META_APP_ID?: string;
+  META_APP_SECRET?: string;
+  LINKEDIN_CLIENT_ID?: string;
+  LINKEDIN_CLIENT_SECRET?: string;
+  TIKTOK_CLIENT_KEY?: string;
+  TIKTOK_CLIENT_SECRET?: string;
+  X_CLIENT_ID?: string;
+  X_CLIENT_SECRET?: string;
 }
 
 export async function recordSystemEvent(
@@ -223,6 +232,97 @@ export async function getSystemOverview(env:OperationsEnv){
   };
 }
 
+export async function runLaunchCertification(env:OperationsEnv,user:SessionUser){
+  const checks:Array<{name:string;ok:boolean;level:"blocker"|"warning";detail:string}>=[];
+  const check=(name:string,ok:boolean,level:"blocker"|"warning",detail:string)=>checks.push({name,ok,level,detail});
+
+  const health=await readiness(env);
+  for(const item of health.checks){
+    check(`readiness:${item.name}`,item.ok,"blocker",item.detail);
+  }
+
+  check(
+    "production:base-url",
+    env.PUBLIC_BASE_URL==="https://brandsparq.getsparqd.com",
+    "blocker",
+    env.PUBLIC_BASE_URL==="https://brandsparq.getsparqd.com"
+      ?"Production base URL is correct."
+      :"PUBLIC_BASE_URL must be https://brandsparq.getsparqd.com."
+  );
+  check(
+    "production:google-redirect",
+    env.GOOGLE_REDIRECT_URI==="https://brandsparq.getsparqd.com/v1/auth/google/callback",
+    "blocker",
+    env.GOOGLE_REDIRECT_URI==="https://brandsparq.getsparqd.com/v1/auth/google/callback"
+      ?"Google callback is production-safe."
+      :"Google redirect URI does not match the production callback."
+  );
+
+  const requiredTables=[
+    "users","clients","user_client_access","brand_profiles","assets","campaigns","posts",
+    "generation_jobs","graphic_jobs","publish_jobs","social_accounts","notifications",
+    "analytics_daily","system_events","recovery_actions","launch_certification_runs"
+  ];
+  const tableRows=await env.DB.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table'"
+  ).all<{name:string}>();
+  const tables=new Set(tableRows.results.map(row=>row.name));
+  for(const table of requiredTables){
+    check(`schema:${table}`,tables.has(table),"blocker",tables.has(table)?`${table} is present.`:`Missing required table: ${table}.`);
+  }
+
+  const owners=await env.DB.prepare("SELECT COUNT(*) AS count FROM users WHERE role='owner'")
+    .first<{count:number}>();
+  check("access:owner",Number(owners?.count||0)>0,"blocker",`${Number(owners?.count||0)} owner account(s) configured.`);
+
+  const orphanAccess=await env.DB.prepare(
+    `SELECT COUNT(*) AS count FROM user_client_access a
+     LEFT JOIN users u ON u.id=a.user_id
+     LEFT JOIN clients c ON c.id=a.client_id
+     WHERE u.id IS NULL OR c.id IS NULL`
+  ).first<{count:number}>();
+  check("access:integrity",Number(orphanAccess?.count||0)===0,"blocker",`${Number(orphanAccess?.count||0)} orphan client-access row(s).`);
+
+  const critical=await env.DB.prepare(
+    "SELECT COUNT(*) AS count FROM system_events WHERE resolved_at IS NULL AND severity IN ('critical','error')"
+  ).first<{count:number}>();
+  check("operations:incidents",Number(critical?.count||0)===0,"warning",`${Number(critical?.count||0)} unresolved critical/error incident(s).`);
+
+  const failedPosts=await env.DB.prepare("SELECT COUNT(*) AS count FROM posts WHERE status='failed'")
+    .first<{count:number}>();
+  check("operations:failed-posts",Number(failedPosts?.count||0)===0,"warning",`${Number(failedPosts?.count||0)} failed post(s) currently require attention.`);
+
+  const connected=await env.DB.prepare(
+    "SELECT platform,COUNT(*) AS count FROM social_accounts WHERE status='connected' GROUP BY platform"
+  ).all<{platform:string;count:number}>();
+  if(!connected.results.length){
+    check("social:connections",false,"warning","No production social accounts are connected yet.");
+  }
+  const providerConfig:Record<string,boolean>={
+    instagram:!!env.META_APP_ID&&!!env.META_APP_SECRET,
+    facebook:!!env.META_APP_ID&&!!env.META_APP_SECRET,
+    linkedin:!!env.LINKEDIN_CLIENT_ID&&!!env.LINKEDIN_CLIENT_SECRET,
+    tiktok:!!env.TIKTOK_CLIENT_KEY&&!!env.TIKTOK_CLIENT_SECRET,
+    x:!!env.X_CLIENT_ID&&!!env.X_CLIENT_SECRET,
+  };
+  for(const row of connected.results){
+    const ok=providerConfig[row.platform]!==false;
+    check(`social:${row.platform}`,ok,"blocker",ok?`${row.platform} credentials present for ${row.count} connected account(s).`:`${row.platform} has connected accounts but missing provider credentials.`);
+  }
+
+  const blockers=checks.filter(item=>!item.ok&&item.level==="blocker").map(item=>item.detail);
+  const warnings=checks.filter(item=>!item.ok&&item.level==="warning").map(item=>item.detail);
+  const status=blockers.length?"blocked":warnings.length?"ready_with_warnings":"ready";
+  const id=crypto.randomUUID();
+  await env.DB.prepare(
+    `INSERT INTO launch_certification_runs
+     (id,actor_user_id,status,blockers_json,warnings_json,checks_json)
+     VALUES (?,?,?,?,?,?)`
+  ).bind(id,user.id,status,JSON.stringify(blockers),JSON.stringify(warnings),JSON.stringify(checks)).run();
+
+  return {id,status,blockers,warnings,checks,createdAt:new Date().toISOString()};
+}
+
 export async function handleOperationsRoute(
   request:Request,url:URL,env:OperationsEnv,user:SessionUser
 ):Promise<{body:unknown;status?:number}|null>{
@@ -231,6 +331,21 @@ export async function handleOperationsRoute(
 
   if(request.method==="GET"&&url.pathname==="/v1/system/overview"){
     return {body:{data:await getSystemOverview(env)}};
+  }
+
+  if(request.method==="POST"&&url.pathname==="/v1/system/certify"){
+    return {body:{data:await runLaunchCertification(env,user)}};
+  }
+
+  if(request.method==="GET"&&url.pathname==="/v1/system/certifications"){
+    const rows=await env.DB.prepare(
+      "SELECT id,status,blockers_json,warnings_json,created_at FROM launch_certification_runs ORDER BY created_at DESC LIMIT 10"
+    ).all<any>();
+    return {body:{data:rows.results.map(row=>({
+      ...row,
+      blockers:JSON.parse(row.blockers_json||"[]"),
+      warnings:JSON.parse(row.warnings_json||"[]"),
+    }))}};
   }
 
   if(request.method==="GET"&&url.pathname==="/v1/system/access"){
