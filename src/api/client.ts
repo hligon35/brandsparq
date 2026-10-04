@@ -11,6 +11,11 @@ const API_URL =
       : "https://brandsparq.getsparqd.com");
 
 let sessionToken: string | null = null;
+let unauthorizedHandler: (() => void | Promise<void>) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void | Promise<void>) | null) {
+  unauthorizedHandler = handler;
+}
 
 export function setApiSessionToken(token: string | null) {
   sessionToken = token;
@@ -89,6 +94,9 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
+    if (response.status === 401 && unauthorizedHandler) {
+      await unauthorizedHandler();
+    }
     const payload = await response.json().catch(() => null);
     throw new Error(
       (payload as { error?: string } | null)?.error ??
