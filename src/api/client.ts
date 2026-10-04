@@ -3,7 +3,12 @@ import type { Asset, Client, MarketingPost, PrePublishDecision } from "@/types/d
 
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
 const API_URL =
-  configuredApiUrl ?? (Platform.OS === "web" ? "" : "http://localhost:8787");
+  configuredApiUrl ??
+  (Platform.OS === "web"
+    ? ""
+    : __DEV__
+      ? "http://localhost:8787"
+      : "https://brandsparq.getsparqd.com");
 
 let sessionToken: string | null = null;
 
