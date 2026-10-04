@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { Platform } from "react-native";
-import { api, setApiSessionToken } from "@/api/client";
+import { api, setApiSessionToken, setUnauthorizedHandler } from "@/api/client";
 import {
   clearSessionToken,
   getSessionToken,
@@ -39,6 +39,15 @@ const AuthContext = createContext<AuthValue | null>(null);
 export function AuthProvider({ children }: PropsWithChildren) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    setUnauthorizedHandler(async () => {
+      setApiSessionToken(null);
+      await clearSessionToken();
+      setUser(null);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
 
   useEffect(() => {
     void (async () => {
