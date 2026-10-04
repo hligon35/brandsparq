@@ -7,6 +7,7 @@ export type PostStatus =
   | "pre_publish"
   | "publish_queued"
   | "publishing"
+  | "provider_processing"
   | "published"
   | "edit_requested"
   | "regenerating"
