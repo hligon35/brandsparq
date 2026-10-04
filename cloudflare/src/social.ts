@@ -1125,9 +1125,100 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
       ).run();
     }
 
+    const completedAt = new Date().toISOString();
     await env.DB.prepare(
       "UPDATE analytics_sync_runs SET status = 'completed', completed_at = ? WHERE id = ?"
-    ).bind(new Date().toISOString(), runId).run();
+    ).bind(completedAt, runId).run();
+
+    const platformTotals = await env.DB.prepare(
+      `SELECT
+         COUNT(DISTINCT p.id) AS posts,
+         SUM(COALESCE(pm.impressions,0)) AS impressions,
+         SUM(COALESCE(pm.reach,0)) AS reach,
+         SUM(COALESCE(pm.likes,0)) AS likes,
+         SUM(COALESCE(pm.comments,0)) AS comments,
+         SUM(COALESCE(pm.shares,0)) AS shares,
+         SUM(COALESCE(pm.clicks,0)) AS clicks,
+         SUM(COALESCE(pm.saves,0)) AS saves
+       FROM posts p
+       LEFT JOIN (
+         SELECT m1.* FROM post_metrics m1
+         JOIN (
+           SELECT post_id,MAX(measured_at) AS measured_at
+           FROM post_metrics GROUP BY post_id
+         ) latest ON latest.post_id=m1.post_id AND latest.measured_at=m1.measured_at
+       ) pm ON pm.post_id=p.id
+       WHERE p.client_id=? AND p.platform=? AND p.status='published'`
+    ).bind(account.client_id, account.platform).first<any>();
+
+    const day = completedAt.slice(0,10);
+    await env.DB.prepare(
+      `INSERT INTO analytics_daily
+       (id,client_id,platform,day,posts,impressions,reach,likes,comments,shares,clicks,saves)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(client_id,platform,day) DO UPDATE SET
+         posts=excluded.posts,
+         impressions=excluded.impressions,
+         reach=excluded.reach,
+         likes=excluded.likes,
+         comments=excluded.comments,
+         shares=excluded.shares,
+         clicks=excluded.clicks,
+         saves=excluded.saves,
+         updated_at=CURRENT_TIMESTAMP`
+    ).bind(
+      crypto.randomUUID(),
+      account.client_id,
+      account.platform,
+      day,
+      Number(platformTotals?.posts||0),
+      Number(platformTotals?.impressions||0),
+      Number(platformTotals?.reach||0),
+      Number(platformTotals?.likes||0),
+      Number(platformTotals?.comments||0),
+      Number(platformTotals?.shares||0),
+      Number(platformTotals?.clicks||0),
+      Number(platformTotals?.saves||0)
+    ).run();
+
+    const clientTotals = await env.DB.prepare(
+      `SELECT
+         COUNT(DISTINCT CASE WHEN p.status='published' THEN p.id END) AS posts,
+         SUM(COALESCE(pm.impressions,0)) AS impressions,
+         SUM(COALESCE(pm.reach,0)) AS reach,
+         SUM(COALESCE(pm.likes,0)) AS likes,
+         SUM(COALESCE(pm.comments,0)) AS comments,
+         SUM(COALESCE(pm.shares,0)) AS shares,
+         SUM(COALESCE(pm.clicks,0)) AS clicks,
+         SUM(COALESCE(pm.saves,0)) AS saves
+       FROM posts p
+       LEFT JOIN (
+         SELECT m1.* FROM post_metrics m1
+         JOIN (
+           SELECT post_id,MAX(measured_at) AS measured_at
+           FROM post_metrics GROUP BY post_id
+         ) latest ON latest.post_id=m1.post_id AND latest.measured_at=m1.measured_at
+       ) pm ON pm.post_id=p.id
+       WHERE p.client_id=?`
+    ).bind(account.client_id).first<any>();
+
+    await env.DB.prepare(
+      `INSERT INTO analytics_snapshots
+       (id,client_id,posts,impressions,reach,likes,comments,shares,clicks,saves,captured_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      crypto.randomUUID(),
+      account.client_id,
+      Number(clientTotals?.posts||0),
+      Number(clientTotals?.impressions||0),
+      Number(clientTotals?.reach||0),
+      Number(clientTotals?.likes||0),
+      Number(clientTotals?.comments||0),
+      Number(clientTotals?.shares||0),
+      Number(clientTotals?.clicks||0),
+      Number(clientTotals?.saves||0),
+      completedAt
+    ).run();
   } catch (error) {
     await env.DB.prepare(
       "UPDATE analytics_sync_runs SET status = 'failed', completed_at = ?, error_message = ? WHERE id = ?"
