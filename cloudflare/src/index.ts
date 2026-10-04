@@ -1171,6 +1171,241 @@ export default {
       });
     }
 
+    if (request.method === "POST" && url.pathname === "/v1/posts/bulk/approve") {
+      const payload = await request.json<{ postIds?: string[] }>().catch(() => ({} as any));
+      const postIds = [...new Set(payload.postIds || [])].slice(0, 100);
+      if (!postIds.length) {
+        return response(request, env, { error: "postIds are required." }, { status: 400 });
+      }
+
+      const results = [];
+      for (const postId of postIds) {
+        const post = await env.DB.prepare(
+          "SELECT id,status,client_id,platform,social_account_id,suggested_publish_at FROM posts WHERE id=?"
+        ).bind(postId).first<any>();
+
+        if (!post) {
+          results.push({ postId, ok: false, error: "Post not found." });
+          continue;
+        }
+
+        const denied = await authorize(env, sessionUser!, "review", post.client_id);
+        if (denied) {
+          results.push({ postId, ok: false, error: denied });
+          continue;
+        }
+        if (post.status !== "awaiting_approval" || !post.suggested_publish_at) {
+          results.push({ postId, ok: false, error: "Post is not ready for approval." });
+          continue;
+        }
+
+        const destination = await ensurePostSocialDestination(env, post);
+        if (!destination) {
+          results.push({ postId, ok: false, error: "Publishing account required." });
+          continue;
+        }
+
+        const scheduledAt = await findNextAvailableSlot(
+          env,
+          post.client_id,
+          post.suggested_publish_at,
+          postId
+        );
+        const now = new Date().toISOString();
+
+        await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE posts SET
+             status='calendar_scheduled',
+             approved_at=?,
+             calendar_added_at=?,
+             scheduled_publish_at=?,
+             updated_at=?
+             WHERE id=?`
+          ).bind(now, now, scheduledAt, now, postId),
+          env.DB.prepare(
+            `INSERT INTO approvals
+             (id,post_id,decision,previous_status)
+             VALUES (?,?,'approved_bulk',?)`
+          ).bind(crypto.randomUUID(), postId, post.status),
+        ]);
+
+        results.push({ postId, ok: true, scheduledPublishAt: scheduledAt });
+      }
+
+      return response(request, env, { ok: true, results });
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/posts/bulk/reject") {
+      const payload = await request.json<{ postIds?: string[]; reason?: string }>().catch(() => ({} as any));
+      const postIds = [...new Set(payload.postIds || [])].slice(0, 100);
+      const reason = payload.reason?.trim().slice(0, 2000) || "Changes requested.";
+      if (!postIds.length) {
+        return response(request, env, { error: "postIds are required." }, { status: 400 });
+      }
+
+      const results = [];
+      for (const postId of postIds) {
+        const post = await env.DB.prepare(
+          "SELECT client_id,status FROM posts WHERE id=?"
+        ).bind(postId).first<any>();
+
+        if (!post) {
+          results.push({ postId, ok: false, error: "Post not found." });
+          continue;
+        }
+
+        const denied = await authorize(env, sessionUser!, "review", post.client_id);
+        if (denied) {
+          results.push({ postId, ok: false, error: denied });
+          continue;
+        }
+        if (!["awaiting_approval","edit_requested"].includes(post.status)) {
+          results.push({ postId, ok: false, error: "Post is not in review." });
+          continue;
+        }
+
+        const now = new Date().toISOString();
+        await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE posts SET
+             status='edit_requested',
+             rejected_at=?,
+             rejection_reason=?,
+             reviewer_comment=?,
+             updated_at=?
+             WHERE id=?`
+          ).bind(now, reason, reason, now, postId),
+          env.DB.prepare(
+            `INSERT INTO review_comments
+             (id,post_id,user_id,comment)
+             VALUES (?,?,?,?)`
+          ).bind(crypto.randomUUID(), postId, sessionUser!.id, reason),
+        ]);
+
+        results.push({ postId, ok: true });
+      }
+
+      return response(request, env, { ok: true, results });
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/posts/bulk/shift") {
+      const payload = await request.json<{ postIds?: string[]; shiftMinutes?: number }>().catch(() => ({} as any));
+      const postIds = [...new Set(payload.postIds || [])].slice(0, 100);
+      const shiftMinutes = Number(payload.shiftMinutes || 0);
+
+      if (!postIds.length || !Number.isFinite(shiftMinutes) || shiftMinutes === 0) {
+        return response(request, env, { error: "postIds and non-zero shiftMinutes are required." }, { status: 400 });
+      }
+
+      const results = [];
+      for (const postId of postIds) {
+        const post = await env.DB.prepare(
+          "SELECT client_id,status,scheduled_publish_at FROM posts WHERE id=?"
+        ).bind(postId).first<any>();
+
+        if (!post) {
+          results.push({ postId, ok: false, error: "Post not found." });
+          continue;
+        }
+
+        const denied = await authorize(env, sessionUser!, "calendar_manage", post.client_id);
+        if (denied) {
+          results.push({ postId, ok: false, error: denied });
+          continue;
+        }
+        if (!post.scheduled_publish_at || !["calendar_scheduled","pre_publish","rescheduled","paused"].includes(post.status)) {
+          results.push({ postId, ok: false, error: "Post cannot be shifted." });
+          continue;
+        }
+
+        const requested = new Date(
+          Date.parse(post.scheduled_publish_at) + shiftMinutes * 60 * 1000
+        ).toISOString();
+
+        const scheduledAt = await findNextAvailableSlot(
+          env,
+          post.client_id,
+          requested,
+          postId
+        );
+        const now = new Date().toISOString();
+
+        await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE publish_jobs SET
+             status='canceled',completed_at=?,updated_at=?
+             WHERE post_id=? AND status IN ('queued','retrying')`
+          ).bind(now, now, postId),
+          env.DB.prepare(
+            `UPDATE posts SET
+             scheduled_publish_at=?,
+             prepublish_response='reschedule',
+             prepublish_alert_at=NULL,
+             publish_version=publish_version+1,
+             status='rescheduled',
+             updated_at=?
+             WHERE id=?`
+          ).bind(scheduledAt, now, postId),
+        ]);
+
+        results.push({ postId, ok: true, scheduledPublishAt: scheduledAt });
+      }
+
+      return response(request, env, { ok: true, results });
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/posts/bulk/pause") {
+      const payload = await request.json<{ postIds?: string[] }>().catch(() => ({} as any));
+      const postIds = [...new Set(payload.postIds || [])].slice(0, 100);
+      if (!postIds.length) {
+        return response(request, env, { error: "postIds are required." }, { status: 400 });
+      }
+
+      const results = [];
+      for (const postId of postIds) {
+        const post = await env.DB.prepare(
+          "SELECT client_id,status FROM posts WHERE id=?"
+        ).bind(postId).first<any>();
+
+        if (!post) {
+          results.push({ postId, ok: false, error: "Post not found." });
+          continue;
+        }
+
+        const denied = await authorize(env, sessionUser!, "calendar_manage", post.client_id);
+        if (denied) {
+          results.push({ postId, ok: false, error: denied });
+          continue;
+        }
+
+        if (!["calendar_scheduled","pre_publish","rescheduled","publish_queued"].includes(post.status)) {
+          results.push({ postId, ok: false, error: "Post cannot be paused." });
+          continue;
+        }
+
+        const now = new Date().toISOString();
+        await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE publish_jobs SET
+             status='canceled',completed_at=?,updated_at=?
+             WHERE post_id=? AND status IN ('queued','retrying')`
+          ).bind(now, now, postId),
+          env.DB.prepare(
+            `UPDATE posts SET
+             status='paused',
+             publish_version=publish_version+1,
+             updated_at=?
+             WHERE id=?`
+          ).bind(now, postId),
+        ]);
+
+        results.push({ postId, ok: true });
+      }
+
+      return response(request, env, { ok: true, results });
+    }
+
     const postMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)$/);
     if (request.method === "GET" && postMatch) {
       const post = await getPost(env, postMatch[1]);
