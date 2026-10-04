@@ -207,7 +207,17 @@ export const api = {
     }),
 
   getNotifications: () =>
-    jsonRequest<{ data: any[] }>("/v1/notifications"),
+    jsonRequest<{ data: any[]; unreadCount: number }>("/v1/notifications"),
+
+  markNotificationRead: (notificationId: string) =>
+    jsonRequest<{ ok: true }>(`/v1/notifications/${notificationId}/read`, {
+      method: "POST",
+    }),
+
+  markAllNotificationsRead: () =>
+    jsonRequest<{ ok: true }>("/v1/notifications/read-all", {
+      method: "POST",
+    }),
 
   registerPushToken: (token: string, platform?: string, deviceName?: string) =>
     jsonRequest<{ ok: true }>("/v1/push-token", {
@@ -227,10 +237,14 @@ export const api = {
   testNotifications: () =>
     jsonRequest<{ ok: true }>("/v1/notifications/test", { method: "POST" }),
 
-  getAnalyticsOverview: (clientId?: string) =>
-    jsonRequest<{ data: any }>(
-      `/v1/analytics/overview${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`
-    ),
+  getAnalyticsOverview: (clientId?: string, days = 30) => {
+    const params = new URLSearchParams();
+    if (clientId) params.set("clientId", clientId);
+    params.set("days", String(days));
+    return jsonRequest<{ data: any }>(
+      `/v1/analytics/overview?${params.toString()}`
+    );
+  },
 
   syncAnalytics: (accountId?: string) =>
     jsonRequest<{ ok: true }>("/v1/analytics/sync", {
