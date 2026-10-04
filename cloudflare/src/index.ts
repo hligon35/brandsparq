@@ -1419,6 +1419,83 @@ export default {
       });
     }
 
+    const editPostMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/edit$/);
+    if (editPostMatch && request.method === "POST") {
+      const post = await env.DB.prepare(
+        "SELECT client_id,status FROM posts WHERE id=?"
+      ).bind(editPostMatch[1]).first<any>();
+      if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
+
+      const denied = await authorize(env, sessionUser!, "review", post.client_id);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+      if (!["awaiting_approval","edit_requested"].includes(post.status)) {
+        return response(request, env, { error: "This post is not editable from review." }, { status: 409 });
+      }
+
+      const payload = await request.json<{ headline?: string; caption?: string; comment?: string }>()
+        .catch(() => ({} as any));
+      const headline = payload.headline?.trim().slice(0, 300);
+      const caption = payload.caption?.trim().slice(0, 5000);
+      const comment = payload.comment?.trim().slice(0, 2000);
+
+      await env.DB.batch([
+        env.DB.prepare(
+          `UPDATE posts SET
+           headline=COALESCE(NULLIF(?,''),headline),
+           title=COALESCE(NULLIF(?,''),title),
+           caption=COALESCE(NULLIF(?,''),caption),
+           reviewer_comment=COALESCE(NULLIF(?,''),reviewer_comment),
+           status='awaiting_approval',
+           updated_at=CURRENT_TIMESTAMP
+           WHERE id=?`
+        ).bind(headline||null,headline||null,caption||null,comment||null,editPostMatch[1]),
+        ...(comment ? [
+          env.DB.prepare(
+            "INSERT INTO review_comments (id,post_id,user_id,comment) VALUES (?,?,?,?)"
+          ).bind(crypto.randomUUID(),editPostMatch[1],sessionUser!.id,comment)
+        ] : []),
+      ]);
+
+      await audit(env, editPostMatch[1], "post.edited_in_review");
+      return response(request, env, { ok: true });
+    }
+
+    const rejectPostMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/reject$/);
+    if (rejectPostMatch && request.method === "POST") {
+      const post = await env.DB.prepare(
+        "SELECT client_id,status FROM posts WHERE id=?"
+      ).bind(rejectPostMatch[1]).first<any>();
+      if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
+
+      const denied = await authorize(env, sessionUser!, "review", post.client_id);
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+      if (!["awaiting_approval","edit_requested"].includes(post.status)) {
+        return response(request, env, { error: "This post is not in review." }, { status: 409 });
+      }
+
+      const payload = await request.json<{ reason?: string }>().catch(() => ({} as any));
+      const reason = payload.reason?.trim().slice(0,2000) || "Changes requested.";
+      const now = new Date().toISOString();
+
+      await env.DB.batch([
+        env.DB.prepare(
+          `UPDATE posts SET
+           status='edit_requested',
+           rejected_at=?,
+           rejection_reason=?,
+           reviewer_comment=?,
+           updated_at=?
+           WHERE id=?`
+        ).bind(now,reason,reason,now,rejectPostMatch[1]),
+        env.DB.prepare(
+          "INSERT INTO review_comments (id,post_id,user_id,comment) VALUES (?,?,?,?)"
+        ).bind(crypto.randomUUID(),rejectPostMatch[1],sessionUser!.id,reason),
+      ]);
+
+      await audit(env, rejectPostMatch[1], "post.rejected", { reason });
+      return response(request, env, { ok: true, status: "edit_requested" });
+    }
+
     const approvalMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/approve$/);
     if (request.method === "POST" && approvalMatch) {
       const postId = approvalMatch[1];
