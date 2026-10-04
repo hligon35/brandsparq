@@ -13,8 +13,9 @@
     "deploy:worker": "npm run validate && npm --prefix cloudflare run deploy",
     "deploy:cloudflare": "npm run deploy:worker",
     "typecheck": "tsc --noEmit",
-    "validate": "npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web",
-    "deploy:production": "npm run validate && npm --prefix cloudflare run deploy"
+    "validate": "npm run audit:launch && npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web",
+    "deploy:production": "npm run validate && npm --prefix cloudflare run deploy",
+    "audit:launch": "node scripts/launch-audit.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
