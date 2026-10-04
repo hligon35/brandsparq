@@ -317,6 +317,13 @@ export async function checkExpoPushReceipts(env: NotificationEnv) {
 
       if (!ok) {
         failed++;
+        const remaining = await env.DB.prepare(
+          "SELECT COUNT(*) AS count FROM notification_deliveries WHERE notification_id=? AND status='sent'"
+        ).bind(row.notification_id).first<{count:number}>();
+        await env.DB.prepare(
+          "UPDATE notifications SET status=?,error_message=COALESCE(?,error_message) WHERE id=?"
+        ).bind(Number(remaining?.count||0)>0?"partial":"failed",error,row.notification_id).run();
+
         if (receipt.details?.error === "DeviceNotRegistered" && row.destination) {
           await env.DB.prepare(
             "UPDATE device_push_tokens SET enabled=0,updated_at=CURRENT_TIMESTAMP WHERE expo_push_token=?"
