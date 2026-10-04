@@ -12,6 +12,7 @@ export interface SocialEnv {
   LINKEDIN_CLIENT_ID?: string;
   LINKEDIN_CLIENT_SECRET?: string;
   LINKEDIN_REDIRECT_URI?: string;
+  LINKEDIN_ORGANIZATION_SCOPES?: string;
   TIKTOK_CLIENT_KEY?: string;
   TIKTOK_CLIENT_SECRET?: string;
   TIKTOK_REDIRECT_URI?: string;
@@ -234,7 +235,18 @@ export async function socialOAuthStart(
     auth.searchParams.set("client_id", env.LINKEDIN_CLIENT_ID!);
     auth.searchParams.set("redirect_uri", redirectUri);
     auth.searchParams.set("state", state);
-    auth.searchParams.set("scope", "openid profile email w_member_social");
+    auth.searchParams.set(
+      "scope",
+      [
+        "openid",
+        "profile",
+        "email",
+        "w_member_social",
+        ...(env.LINKEDIN_ORGANIZATION_SCOPES || "")
+          .split(/\s+/)
+          .filter(Boolean),
+      ].join(" ")
+    );
     return auth.toString();
   }
 
@@ -309,6 +321,8 @@ async function upsertAccount(
      ON CONFLICT(id) DO UPDATE SET
        account_name = excluded.account_name,
        status = 'connected',
+       health_status = 'healthy',
+       health_checked_at = excluded.last_verified_at,
        access_token_ciphertext = excluded.access_token_ciphertext,
        refresh_token_ciphertext = excluded.refresh_token_ciphertext,
        token_expires_at = excluded.token_expires_at,
