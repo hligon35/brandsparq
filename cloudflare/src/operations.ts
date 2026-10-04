@@ -158,8 +158,17 @@ export async function recoverStaleWork(env:OperationsEnv){
     await recordSystemEvent(env,{severity:"warning",category:"generation",eventType:"graphic_job_recovered",entityType:"graphic_job",entityId:job.id,message:"Recovered and requeued a stale graphic job.",metadata:{generationJobId:job.generation_job_id}});
   }
 
-  await env.DB.prepare("DELETE FROM request_rate_limits WHERE window_started_at < ?")
-    .bind(Date.now()-24*60*60*1000).run();
+  const nowMs=Date.now();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM request_rate_limits WHERE window_started_at < ?").bind(nowMs-24*60*60*1000),
+    env.DB.prepare("DELETE FROM google_oauth_states WHERE expires_at < ?").bind(nowMs),
+    env.DB.prepare("DELETE FROM google_auth_handoffs WHERE expires_at < ?").bind(nowMs),
+    env.DB.prepare("DELETE FROM social_oauth_states WHERE expires_at < ?").bind(nowMs),
+    env.DB.prepare("DELETE FROM media_access_tokens WHERE expires_at < ?").bind(nowMs),
+    env.DB.prepare("DELETE FROM publish_media_tokens WHERE expires_at < ?").bind(nowMs),
+    env.DB.prepare("DELETE FROM review_tokens WHERE expires_at < ?").bind(nowMs),
+    env.DB.prepare("DELETE FROM sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)").bind(nowMs,nowMs-7*24*60*60*1000),
+  ]);
 
   return {
     publishRecovered:stalePublish.results.length,
