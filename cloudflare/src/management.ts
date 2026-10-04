@@ -239,9 +239,15 @@ export async function handleManagementRoute(
     if (denied) return { body: { error: denied }, status: 403 };
 
     await env.DB.prepare(
-      `UPDATE social_accounts SET status = 'disconnected',
-       access_token_ciphertext = NULL, refresh_token_ciphertext = NULL,
-       updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+      `UPDATE social_accounts SET
+       status = 'disconnected',
+       health_status = 'disconnected',
+       permission_status = 'disconnected',
+       access_token_ciphertext = NULL,
+       refresh_token_ciphertext = NULL,
+       last_error = NULL,
+       updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`
     ).bind(disconnectMatch[1]).run();
     return { body: { ok: true } };
   }
