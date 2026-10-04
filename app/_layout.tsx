@@ -36,6 +36,8 @@ export default function RootLayout() {
         <Stack.Screen name="notifications/index" options={{ title: "Notifications" }} />
         <Stack.Screen name="analytics/index" options={{ title: "Analytics" }} />
         <Stack.Screen name="settings/index" options={{ title: "Settings" }} />
+        <Stack.Screen name="access/index" options={{ title: "Access Management" }} />
+        <Stack.Screen name="system/index" options={{ title: "System Health" }} />
         <Stack.Screen
           name="posts/[postId]"
           options={{ title: "Post Review", presentation: "modal" }}
