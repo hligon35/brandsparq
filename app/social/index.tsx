@@ -52,7 +52,14 @@ export default function SocialConnectionsScreen(){
       window.location.assign(url);
       return;
     }
-    await WebBrowser.openBrowserAsync(url);
+    const result=await WebBrowser.openAuthSessionAsync(url,returnTo);
+    if(result.type==="success"){
+      await load();
+      return;
+    }
+    if(result.type!=="cancel"&&result.type!=="dismiss"){
+      Alert.alert("Connection incomplete","The social provider did not return a completed authorization.");
+    }
   }
 
   async function verify(id:string){
@@ -83,7 +90,7 @@ export default function SocialConnectionsScreen(){
       eyebrow="Publishing destinations"
       title="Social connections"
       subtitle="Connect, verify, and monitor each client's publishing destinations."
-      action={<Pressable onPress={load}><Text style={styles.refresh}>Refresh</Text></Pressable>}
+      action={<Pressable accessibilityRole="button" accessibilityLabel="Refresh social connections" onPress={load}><Text style={styles.refresh}>Refresh</Text></Pressable>}
     />
 
     <Card>
@@ -92,6 +99,9 @@ export default function SocialConnectionsScreen(){
         {clients.map(client=>
           <Pressable
             key={client.id}
+            accessibilityRole="button"
+            accessibilityState={{selected:client.id===clientId}}
+            accessibilityLabel={`Select client ${client.name}`}
             onPress={()=>setClientId(client.id)}
             style={[styles.chip,client.id===clientId&&styles.chipActive]}
           >
