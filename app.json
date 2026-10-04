@@ -49,7 +49,6 @@
     ],
     "experiments": {
       "typedRoutes": true
-    },
-    "icon": "./assets/brandsparqIcon.png"
+    }
   }
 }
