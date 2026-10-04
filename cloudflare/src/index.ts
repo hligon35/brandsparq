@@ -130,6 +130,7 @@ async function sha256HexBytes(bytes: ArrayBuffer) {
 
 function response(request: Request, env: Env, body: unknown, init: ResponseInit = {}) {
   const policy = cors(request, env);
+  const requestId = request.headers.get("cf-ray") || crypto.randomUUID();
   return Response.json(body, {
     ...init,
     headers: {
@@ -138,6 +139,7 @@ function response(request: Request, env: Env, body: unknown, init: ResponseInit 
       "referrer-policy": "strict-origin-when-cross-origin",
       "permissions-policy": "camera=(), microphone=(), geolocation=()",
       "x-frame-options": "DENY",
+      "x-request-id": requestId,
       ...policy.headers,
       ...init.headers,
     },
@@ -588,6 +590,19 @@ export default {
           env,
           { error: error instanceof Error ? error.message : "Social connection failed." },
           { status: 400 }
+        );
+      }
+    }
+
+    if (request.method === "GET" && url.pathname === "/v1/auth/google/start") {
+      const ip = request.headers.get("cf-connecting-ip") || "unknown";
+      const limit = await enforceRateLimit(env, `google-auth:${ip}`, 30, 15 * 60 * 1000);
+      if (!limit.allowed) {
+        return response(
+          request,
+          env,
+          { error: "Too many sign-in attempts. Please wait and try again." },
+          { status: 429, headers: { "retry-after": String(limit.retryAfter) } }
         );
       }
     }
@@ -1963,6 +1978,14 @@ export default {
             "BrandSparQ confirmed your post is live."
           );
         } else if (confirmation.status === "failed" && confirmation.postId) {
+          await recordSystemEvent(env, {
+            severity: "error",
+            category: "publishing",
+            eventType: "provider_confirmation_failed",
+            entityType: "post",
+            entityId: confirmation.postId,
+            message: `Provider confirmation failed with status ${confirmation.providerStatus || "failed"}.`,
+          }).catch(() => undefined);
           await notifyPostOwners(
             env,
             confirmation.postId,
@@ -1986,7 +2009,16 @@ export default {
     for (const account of healthAccounts.results) {
       try {
         await verifySocialAccount(env, account.id);
-      } catch {}
+      } catch (error) {
+        await recordSystemEvent(env, {
+          severity: "warning",
+          category: "social",
+          eventType: "social_health_check_failed",
+          entityType: "social_account",
+          entityId: account.id,
+          message: error instanceof Error ? error.message.slice(0, 1000) : "Social health check failed.",
+        }).catch(() => undefined);
+      }
     }
 
     const settings = await env.DB.prepare(
@@ -2005,7 +2037,18 @@ export default {
     for (const account of accounts.results) {
       const last = account.last_sync ? Date.parse(account.last_sync) : 0;
       if (!last || Date.now() - last >= refreshMs) {
-        try { await syncAccountAnalytics(env, account.id); } catch {}
+        try {
+          await syncAccountAnalytics(env, account.id);
+        } catch (error) {
+          await recordSystemEvent(env, {
+            severity: "warning",
+            category: "analytics",
+            eventType: "analytics_sync_failed",
+            entityType: "social_account",
+            entityId: account.id,
+            message: error instanceof Error ? error.message.slice(0, 1000) : "Analytics sync failed.",
+          }).catch(() => undefined);
+        }
       }
     }
   },
@@ -2221,6 +2264,19 @@ export default {
 
         if (exhausted) {
           await markPublishJobFailed(env, message.body.publishJobId, errorMessage);
+          await recordSystemEvent(env, {
+            severity: "error",
+            category: "publishing",
+            eventType: "publish_job_failed",
+            entityType: "publish_job",
+            entityId: message.body.publishJobId,
+            message: errorMessage,
+            metadata: {
+              postId: message.body.postId,
+              category: providerError?.category || "provider",
+              attempt: claim.attempt,
+            },
+          }).catch(() => undefined);
           await notifyPostOwners(
             env,
             message.body.postId,
