@@ -1,3 +1,4 @@
+import { markGraphicJobFailure } from "./generation";
 import type { SessionUser } from "./auth";
 import { hasPermission } from "./authz";
 import { ensurePublishJob } from "./publishing";
@@ -144,9 +145,7 @@ export async function recoverStaleWork(env:OperationsEnv){
   let graphicsRecovered=0;
   for(const job of staleGraphics.results){
     if(Number(job.attempt_count)>=3){
-      await env.DB.prepare(
-        `UPDATE graphic_jobs SET status='failed',last_error=COALESCE(last_error,'Graphic worker timed out.'),completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`
-      ).bind(job.id).run();
+      await markGraphicJobFailure(env as any,job.id,"Graphic worker timed out.",true);
       await recordSystemEvent(env,{severity:"error",category:"generation",eventType:"graphic_job_timed_out",entityType:"graphic_job",entityId:job.id,message:"Graphic job exhausted attempts after becoming stale.",metadata:{generationJobId:job.generation_job_id}});
       continue;
     }
@@ -240,7 +239,7 @@ export async function handleOperationsRoute(
 
   const roleMatch=url.pathname.match(/^\/v1\/system\/users\/([^/]+)\/role$/);
   if(request.method==="POST"&&roleMatch){
-    const payload=await request.json<{role?:string}>().catch(()=>({}));
+    const payload=await request.json<{role?:string}>() .catch(() => ({} as any));
     const role=String(payload.role||"").toLowerCase();
     if(!["owner","admin","reviewer","publisher","viewer"].includes(role)){
       return {body:{error:"Invalid workspace role."},status:400};
@@ -261,7 +260,7 @@ export async function handleOperationsRoute(
 
   const accessMatch=url.pathname.match(/^\/v1\/system\/users\/([^/]+)\/clients\/([^/]+)$/);
   if(accessMatch&&request.method==="POST"){
-    const payload=await request.json<{enabled?:boolean;accessRole?:string}>().catch(()=>({}));
+    const payload=await request.json<{enabled?:boolean;accessRole?:string}>() .catch(() => ({} as any));
     const target=await env.DB.prepare("SELECT id,role FROM users WHERE id=?").bind(accessMatch[1]).first<any>();
     const client=await env.DB.prepare("SELECT id FROM clients WHERE id=?").bind(accessMatch[2]).first<any>();
     if(!target||!client)return {body:{error:"User or client not found."},status:404};
