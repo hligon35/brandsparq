@@ -37,7 +37,12 @@ export async function recordSystemEvent(
          AND created_at >= datetime('now','-30 minutes')
          LIMIT 1`
       ).bind(input.eventType,input.entityType,input.entityId).first()
-    : null;
+    : await env.DB.prepare(
+        `SELECT id FROM system_events
+         WHERE event_type=? AND entity_type IS NULL AND entity_id IS NULL AND resolved_at IS NULL
+         AND created_at >= datetime('now','-30 minutes')
+         LIMIT 1`
+      ).bind(input.eventType).first();
   if(recent)return;
 
   await env.DB.prepare(
@@ -239,7 +244,7 @@ export async function handleOperationsRoute(
 
   const roleMatch=url.pathname.match(/^\/v1\/system\/users\/([^/]+)\/role$/);
   if(request.method==="POST"&&roleMatch){
-    const payload=await request.json<{role?:string}>() .catch(() => ({} as any));
+    const payload=await request.json<{role?:string}>().catch(() => ({} as any));
     const role=String(payload.role||"").toLowerCase();
     if(!["owner","admin","reviewer","publisher","viewer"].includes(role)){
       return {body:{error:"Invalid workspace role."},status:400};
@@ -260,7 +265,7 @@ export async function handleOperationsRoute(
 
   const accessMatch=url.pathname.match(/^\/v1\/system\/users\/([^/]+)\/clients\/([^/]+)$/);
   if(accessMatch&&request.method==="POST"){
-    const payload=await request.json<{enabled?:boolean;accessRole?:string}>() .catch(() => ({} as any));
+    const payload=await request.json<{enabled?:boolean;accessRole?:string}>().catch(() => ({} as any));
     const target=await env.DB.prepare("SELECT id,role FROM users WHERE id=?").bind(accessMatch[1]).first<any>();
     const client=await env.DB.prepare("SELECT id FROM clients WHERE id=?").bind(accessMatch[2]).first<any>();
     if(!target||!client)return {body:{error:"User or client not found."},status:404};
