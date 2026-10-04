@@ -1,3 +1,9 @@
+ALTER TABLE notification_deliveries ADD COLUMN receipt_status TEXT;
+ALTER TABLE notification_deliveries ADD COLUMN receipt_checked_at TEXT;
+
+CREATE INDEX idx_notification_deliveries_receipts
+  ON notification_deliveries(channel, status, receipt_checked_at, sent_at);
+
 CREATE TABLE launch_certification_runs (
   id TEXT PRIMARY KEY,
   actor_user_id TEXT NOT NULL,
