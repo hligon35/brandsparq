@@ -116,6 +116,11 @@ function fallbackSlot(index:number){
   return date.toISOString();
 }
 function err(error:unknown){return error instanceof Error?error.message:"Unknown AI error";}
+function escapeHtml(value:string){
+  return String(value).replace(/[&<>"']/g,char=>({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[char]||char));
+}
 function clamp(value:number){return Math.max(0,Math.min(100,Math.round(Number(value)||0)));}
 
 function brandContext(row:any){
@@ -467,11 +472,11 @@ async function sendReviewEmail(
   if(!env.RESEND_API_KEY||!env.RESEND_FROM_EMAIL||!env.REVIEW_NOTIFICATION_EMAIL||!env.REVIEW_BASE_URL)return false;
   const base=env.REVIEW_BASE_URL.replace(/\/$/,"");
   const rows=items.map(item=>`
-    <div style="border:1px solid #e5e7eb;border-radius:14px;padding:18px;margin:14px 0">
-      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#6b7280">${item.platform}</div>
-      <h3 style="margin:8px 0">${item.title}</h3>
-      <p style="color:#6b7280">Suggested: ${new Date(item.time).toLocaleString()}</p>
-      <a href="${base}/review/${item.token}" style="display:inline-block;background:#7c3aed;color:white;text-decoration:none;padding:11px 16px;border-radius:10px;font-weight:700">Review / Edit / Approve</a>
+    <div style="border:1px solid #DCE8F8;border-radius:14px;padding:18px;margin:14px 0;background:#FFFFFF">
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#0B78F6">${escapeHtml(item.platform)}</div>
+      <h3 style="margin:8px 0;color:#10233F">${escapeHtml(item.title)}</h3>
+      <p style="color:#667795">Suggested: ${escapeHtml(new Date(item.time).toLocaleString())}</p>
+      <a href="${base}/review/${encodeURIComponent(item.token)}" style="display:inline-block;background:#0B78F6;color:#FFFFFF;text-decoration:none;padding:12px 17px;border-radius:11px;font-weight:800">Review / Edit / Approve</a>
     </div>`).join("");
 
   const result=await fetch("https://api.resend.com/emails",{
@@ -481,10 +486,28 @@ async function sendReviewEmail(
       from:`${env.RESEND_FROM_NAME||"BrandSparQ"} <${env.RESEND_FROM_EMAIL}>`,
       to:[env.REVIEW_NOTIFICATION_EMAIL],
       subject:`Review BrandSparQ campaign: ${clientName} · ${campaignName}`,
-      html:`<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;padding:28px">
-        <p style="letter-spacing:.12em;font-weight:700">BRANDSPARQ</p>
-        <h1>Campaign ready for review</h1><p><strong>${clientName}</strong> · ${campaignName}</p>
-        <p>Review each post before it enters the official marketing calendar.</p>${rows}</div>`
+      html:`<!doctype html>
+<html>
+<body style="margin:0;background:#F4F8FF;font-family:Arial,sans-serif;color:#10233F">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F4F8FF;padding:28px 12px">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:660px;background:#FFFFFF;border:1px solid #DCE8F8;border-radius:18px;overflow:hidden">
+        <tr><td style="padding:24px 28px;background:#071B33">
+          <div style="font-size:21px;font-weight:900;color:#FFFFFF">Brand<span style="color:#29C7F6">Spar</span><span style="color:#FF8A2B">Q</span></div>
+          <div style="margin-top:5px;font-size:10px;letter-spacing:.16em;font-weight:800;color:#A9C7E8">CREATE. CAPTION. POST.</div>
+        </td></tr>
+        <tr><td style="padding:30px 28px">
+          <h1 style="margin:0 0 10px;font-size:27px;color:#10233F">Campaign ready for review</h1>
+          <p style="margin:0 0 6px;color:#52667F"><strong>${escapeHtml(clientName)}</strong> · ${escapeHtml(campaignName)}</p>
+          <p style="margin:0 0 22px;color:#667795;line-height:1.55">Review each post before it enters the official marketing calendar.</p>
+          ${rows}
+        </td></tr>
+        <tr><td style="padding:16px 28px;border-top:1px solid #E5EDF7;font-size:12px;color:#8292A7">BrandSparQ · Your AI marketing production workspace</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`
     })
   });
   if(!result.ok)throw new Error(`Review email failed: ${result.status} ${(await result.text()).slice(0,300)}`);
