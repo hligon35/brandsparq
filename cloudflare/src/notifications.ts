@@ -177,7 +177,7 @@ export async function deliverNotification(
   await env.DB.prepare(
     `INSERT INTO notifications
      (id,user_id,post_id,type,channel,status,scheduled_for,title,body,deep_link)
-     VALUES (?,?,?,?, 'multi','queued',?,?,?,?,?)`
+     VALUES (?,?,?,?, 'multi','queued',?,?,?,?)`
   ).bind(
     id,
     input.userId || null,
