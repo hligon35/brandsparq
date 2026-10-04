@@ -68,12 +68,26 @@ export interface MarketingPost {
   socialAccountName?: string;
 }
 
+export interface NotificationDelivery {
+  channel: "in_app" | "email" | "push";
+  status: "sent" | "failed";
+  destination?: string;
+  providerMessageId?: string;
+  errorMessage?: string;
+  sentAt?: string;
+}
+
 export interface NotificationItem {
   id: string;
   postId?: string;
   type: string;
-  channel: "in_app" | "email" | "push";
-  status: "queued" | "sent" | "failed" | "read";
+  channel: "in_app" | "email" | "push" | "multi";
+  status: "queued" | "sent" | "failed" | "partial" | "suppressed";
+  title?: string;
+  body?: string;
+  deepLink?: string;
+  readAt?: string;
   scheduledFor?: string;
   createdAt: string;
+  deliveries?: NotificationDelivery[];
 }
