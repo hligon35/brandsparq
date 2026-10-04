@@ -710,7 +710,10 @@ async function accountToken(env: SocialEnv, account: SocialAccountRow) {
     await env.DB.prepare(
       "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
     ).bind("Access token expired and no refresh token is available.", account.id).run();
-    throw new Error("Social authorization expired. Reconnect this account.");
+    throw new SocialProviderError(
+      "Social authorization expired. Reconnect this account.",
+      { category: "authorization", retryable: false }
+    );
   }
 
   let tokenResponse: Response;
@@ -758,7 +761,10 @@ async function accountToken(env: SocialEnv, account: SocialAccountRow) {
     await env.DB.prepare(
       "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
     ).bind("Meta authorization expired. Reconnect this account.", account.id).run();
-    throw new Error("Meta authorization expired. Reconnect this account.");
+    throw new SocialProviderError(
+      "Meta authorization expired. Reconnect this account.",
+      { category: "authorization", retryable: false }
+    );
   }
 
   if (!tokenResponse.ok) {
@@ -766,7 +772,10 @@ async function accountToken(env: SocialEnv, account: SocialAccountRow) {
     await env.DB.prepare(
       "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
     ).bind(`Token refresh failed: ${detail}`, account.id).run();
-    throw new Error("Social authorization refresh failed. Reconnect this account.");
+    throw new SocialProviderError(
+      "Social authorization refresh failed. Reconnect this account.",
+      { category: "authorization", retryable: false }
+    );
   }
 
   const refreshed = await tokenResponse.json<any>();
@@ -1278,7 +1287,12 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
 
   if (!receipt) throw new Error("Publish receipt not found.");
   if (receipt.status === "published" || receipt.status === "failed") {
-    return { status: receipt.status, providerStatus: receipt.provider_status };
+    return {
+      status: receipt.status,
+      providerStatus: receipt.provider_status,
+      postId: receipt.post_id,
+      receiptId,
+    };
   }
 
   const account = receipt as SocialAccountRow;
@@ -1301,7 +1315,12 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
          WHERE id=?`
       ).bind(now, now, receipt.post_id),
     ]);
-    return { status: "published", providerStatus: "confirmed" };
+    return {
+      status: "published",
+      providerStatus: "confirmed",
+      postId: receipt.post_id,
+      receiptId,
+    };
   }
 
   const response = await fetch(
@@ -1360,7 +1379,12 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
          WHERE id=?`
       ).bind(now, now, receipt.post_id),
     ]);
-    return { status: "published", providerStatus };
+    return {
+      status: "published",
+      providerStatus,
+      postId: receipt.post_id,
+      receiptId,
+    };
   }
 
   if (failed) {
@@ -1381,7 +1405,12 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
          WHERE id=?`
       ).bind(detail, now, receipt.post_id),
     ]);
-    return { status: "failed", providerStatus };
+    return {
+      status: "failed",
+      providerStatus,
+      postId: receipt.post_id,
+      receiptId,
+    };
   }
 
   await env.DB.prepare(
@@ -1390,7 +1419,12 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
      WHERE id=?`
   ).bind(providerStatus, now, receiptId).run();
 
-  return { status: "provider_processing", providerStatus };
+  return {
+    status: "provider_processing",
+    providerStatus,
+    postId: receipt.post_id,
+    receiptId,
+  };
 }
 
 export async function checkPendingPublishReceipts(env: SocialEnv, limit = 25) {
