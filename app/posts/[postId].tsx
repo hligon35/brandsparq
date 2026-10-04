@@ -32,6 +32,8 @@ export default function PostReviewScreen() {
   const [saving, setSaving] = useState(false);
   const [aiAction, setAiAction] = useState<AiAction>(null);
   const [instruction, setInstruction] = useState("");
+  const [headlineDraft, setHeadlineDraft] = useState("");
+  const [captionDraft, setCaptionDraft] = useState("");
   const [socialAccounts, setSocialAccounts] = useState<any[]>([]);
   const [creative, setCreative] = useState<any>(null);
   const [assigningAccount, setAssigningAccount] = useState(false);
@@ -46,6 +48,8 @@ export default function PostReviewScreen() {
         api.getPostCreative(postId),
       ]);
       setPost(nextPost);
+      setHeadlineDraft(nextPost.title || "");
+      setCaptionDraft(nextPost.caption || "");
       setCreative(nextCreative.data);
     } catch (error) {
       setPost(undefined);
@@ -60,6 +64,8 @@ export default function PostReviewScreen() {
     Promise.all([api.getPost(postId), api.getPostCreative(postId)])
       .then(([nextPost, nextCreative]) => {
         setPost(nextPost);
+        setHeadlineDraft(nextPost.title || "");
+        setCaptionDraft(nextPost.caption || "");
         setCreative(nextCreative.data);
       })
       .catch((error) => {
@@ -109,6 +115,42 @@ export default function PostReviewScreen() {
       );
     } finally {
       setAssigningAccount(false);
+    }
+  }
+
+  async function saveCopy() {
+    setSaving(true);
+    try {
+      await api.editPost(post!.id, {
+        headline: headlineDraft,
+        caption: captionDraft,
+      });
+      await reload();
+    } catch (error) {
+      Alert.alert(
+        "Unable to save edits",
+        error instanceof Error ? error.message : "Try again."
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function reject() {
+    setSaving(true);
+    try {
+      await api.rejectPost(
+        post!.id,
+        instruction.trim() || "Changes requested."
+      );
+      await reload();
+    } catch (error) {
+      Alert.alert(
+        "Unable to request changes",
+        error instanceof Error ? error.message : "Try again."
+      );
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -198,10 +240,27 @@ export default function PostReviewScreen() {
         <View style={styles.copyColumn}>
           <Card>
             <SectionTitle
-              title={post.title}
-              subtitle="Caption"
+              title="Edit copy"
+              subtitle="Make final headline and caption changes before approval."
             />
-            <Text style={styles.body}>{post.caption}</Text>
+            <Text style={styles.label}>Headline</Text>
+            <TextInput
+              value={headlineDraft}
+              onChangeText={setHeadlineDraft}
+              style={styles.singleInput}
+            />
+            <Text style={styles.label}>Caption</Text>
+            <TextInput
+              value={captionDraft}
+              onChangeText={setCaptionDraft}
+              multiline
+              style={styles.input}
+            />
+            <Button
+              label={saving ? "Saving…" : "Save copy"}
+              secondary
+              onPress={saving || aiAction ? undefined : saveCopy}
+            />
           </Card>
 
           <Card>
@@ -271,10 +330,21 @@ export default function PostReviewScreen() {
             </Text>
           </Card>
 
-          <Button
-            label={saving ? "Approving…" : "Approve post"}
-            onPress={saving || aiAction || !post.socialAccountId ? undefined : approve}
-          />
+          <View style={styles.reviewActions}>
+            <View style={styles.reviewAction}>
+              <Button
+                label={saving ? "Working…" : "Request changes"}
+                secondary
+                onPress={saving || aiAction ? undefined : reject}
+              />
+            </View>
+            <View style={styles.reviewAction}>
+              <Button
+                label={saving ? "Approving…" : "Approve post"}
+                onPress={saving || aiAction || !post.socialAccountId ? undefined : approve}
+              />
+            </View>
+          </View>
         </View>
       </View>
 
@@ -393,6 +463,16 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     fontWeight: "800",
   },
+  singleInput: {
+    minHeight: 48,
+    color: colors.text,
+    backgroundColor: colors.surface2,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    fontSize: 15,
+  },
   input: {
     minHeight: 120,
     color: colors.text,
@@ -439,6 +519,15 @@ const styles = StyleSheet.create({
     color: colors.warning,
     lineHeight: 20,
     fontWeight: "700",
+  },
+  reviewActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  reviewAction: {
+    flexGrow: 1,
+    flexBasis: 180,
   },
   aiActions: {
     flexDirection: "row",
