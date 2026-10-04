@@ -315,6 +315,156 @@ export default {
       });
     }
 
+    const publicEditMatch = url.pathname.match(/^\/v1\/public\/review\/([^/]+)\/edit$/);
+    if (publicEditMatch && request.method === "POST") {
+      const tokenHash = await hashReviewToken(publicEditMatch[1], env);
+      const row = await env.DB.prepare(
+        `SELECT rt.post_id, rt.expires_at, p.status
+         FROM review_tokens rt
+         JOIN posts p ON p.id = rt.post_id
+         WHERE rt.token_hash = ?`
+      ).bind(tokenHash).first<any>();
+
+      if (!row || row.expires_at <= Date.now()) {
+        return response(request, env, { error: "This review link is invalid or expired." }, { status: 404 });
+      }
+      if (!["awaiting_approval","edit_requested"].includes(row.status)) {
+        return response(request, env, { error: "This post is no longer editable from review." }, { status: 409 });
+      }
+
+      const payload = await request.json<{
+        headline?: string;
+        caption?: string;
+        comment?: string;
+      }>().catch(() => ({} as any));
+
+      const headline = payload.headline?.trim().slice(0, 300);
+      const caption = payload.caption?.trim().slice(0, 5000);
+      const comment = payload.comment?.trim().slice(0, 2000);
+
+      await env.DB.batch([
+        env.DB.prepare(
+          `UPDATE posts SET
+           headline = COALESCE(NULLIF(?, ''), headline),
+           title = COALESCE(NULLIF(?, ''), title),
+           caption = COALESCE(NULLIF(?, ''), caption),
+           reviewer_comment = COALESCE(NULLIF(?, ''), reviewer_comment),
+           status = 'awaiting_approval',
+           updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`
+        ).bind(headline || null, headline || null, caption || null, comment || null, row.post_id),
+        ...(comment ? [
+          env.DB.prepare(
+            `INSERT INTO review_comments
+             (id,post_id,public_reviewer,comment)
+             VALUES (?, ?, 1, ?)`
+          ).bind(crypto.randomUUID(), row.post_id, comment)
+        ] : []),
+      ]);
+
+      return response(request, env, { ok: true, postId: row.post_id });
+    }
+
+    const publicRejectMatch = url.pathname.match(/^\/v1\/public\/review\/([^/]+)\/reject$/);
+    if (publicRejectMatch && request.method === "POST") {
+      const tokenHash = await hashReviewToken(publicRejectMatch[1], env);
+      const row = await env.DB.prepare(
+        `SELECT rt.post_id, rt.expires_at, p.status
+         FROM review_tokens rt
+         JOIN posts p ON p.id = rt.post_id
+         WHERE rt.token_hash = ?`
+      ).bind(tokenHash).first<any>();
+
+      if (!row || row.expires_at <= Date.now()) {
+        return response(request, env, { error: "This review link is invalid or expired." }, { status: 404 });
+      }
+      if (!["awaiting_approval","edit_requested"].includes(row.status)) {
+        return response(request, env, { error: "This post is no longer awaiting review." }, { status: 409 });
+      }
+
+      const payload = await request.json<{ reason?: string }>().catch(() => ({} as any));
+      const reason = payload.reason?.trim().slice(0, 2000) || "Changes requested.";
+      const now = new Date().toISOString();
+
+      await env.DB.batch([
+        env.DB.prepare(
+          `UPDATE posts SET
+           status='edit_requested',
+           rejected_at=?,
+           rejection_reason=?,
+           reviewer_comment=?,
+           updated_at=?
+           WHERE id=?`
+        ).bind(now, reason, reason, now, row.post_id),
+        env.DB.prepare(
+          `INSERT INTO review_comments
+           (id,post_id,public_reviewer,comment)
+           VALUES (?, ?, 1, ?)`
+        ).bind(crypto.randomUUID(), row.post_id, reason),
+        env.DB.prepare(
+          `INSERT INTO approvals
+           (id,post_id,decision,previous_status)
+           VALUES (?, ?, 'rejected_via_review_link', ?)`
+        ).bind(crypto.randomUUID(), row.post_id, row.status),
+      ]);
+
+      return response(request, env, {
+        ok: true,
+        postId: row.post_id,
+        status: "edit_requested",
+      });
+    }
+
+    const publicRegenerateMatch = url.pathname.match(/^\/v1\/public\/review\/([^/]+)\/regenerate$/);
+    if (publicRegenerateMatch && request.method === "POST") {
+      const tokenHash = await hashReviewToken(publicRegenerateMatch[1], env);
+      const row = await env.DB.prepare(
+        `SELECT rt.post_id, rt.expires_at, p.status
+         FROM review_tokens rt
+         JOIN posts p ON p.id = rt.post_id
+         WHERE rt.token_hash = ?`
+      ).bind(tokenHash).first<any>();
+
+      if (!row || row.expires_at <= Date.now()) {
+        return response(request, env, { error: "This review link is invalid or expired." }, { status: 404 });
+      }
+      if (!["awaiting_approval","edit_requested"].includes(row.status)) {
+        return response(request, env, { error: "This post cannot be regenerated from review." }, { status: 409 });
+      }
+
+      const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
+      const instruction = payload.instruction?.trim().slice(0, 2000);
+
+      try {
+        await env.DB.prepare(
+          "UPDATE posts SET status='regenerating',updated_at=CURRENT_TIMESTAMP WHERE id=?"
+        ).bind(row.post_id).run();
+
+        const data = await regeneratePostWithAI(env, row.post_id, instruction);
+        await env.DB.prepare(
+          `UPDATE posts SET
+           status='awaiting_approval',
+           rejected_at=NULL,
+           rejection_reason=NULL,
+           updated_at=CURRENT_TIMESTAMP
+           WHERE id=?`
+        ).bind(row.post_id).run();
+
+        return response(request, env, { ok: true, data });
+      } catch (error) {
+        await env.DB.prepare(
+          "UPDATE posts SET status='edit_requested',updated_at=CURRENT_TIMESTAMP WHERE id=?"
+        ).bind(row.post_id).run();
+
+        return response(
+          request,
+          env,
+          { error: error instanceof Error ? error.message : "Unable to regenerate this post." },
+          { status: 502 }
+        );
+      }
+    }
+
     const publicApproveMatch = url.pathname.match(/^\/v1\/public\/review\/([^/]+)\/approve$/);
     if (publicApproveMatch && request.method === "POST") {
       const tokenHash = await hashReviewToken(publicApproveMatch[1], env);
