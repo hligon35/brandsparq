@@ -13,6 +13,7 @@ import { handleManagementRoute } from "./management";
 import { notifyPostOwners } from "./notifications";
 import { hashSecret } from "./security";
 import {
+  checkPendingPublishReceipts,
   ensurePostSocialDestination,
   publishPostToSocial,
   socialOAuthCallback,
@@ -953,7 +954,7 @@ export default {
           `WHERE p.scheduled_publish_at IS NOT NULL
            AND p.scheduled_publish_at >= ?
            AND p.scheduled_publish_at < ?
-           AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued','publishing','published','failed')
+           AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued','publishing','provider_processing','published','failed')
            ORDER BY p.scheduled_publish_at ASC`
         )
       ).bind(from, to).all<any>();
@@ -1418,6 +1419,10 @@ export default {
       }
     }
 
+    try {
+      await checkPendingPublishReceipts(env, 25);
+    } catch {}
+
     const settings = await env.DB.prepare(
       "SELECT analytics_refresh_hours FROM workspace_settings WHERE id = 'default'"
     ).first<{ analytics_refresh_hours: number }>();
@@ -1580,23 +1585,35 @@ export default {
       ]);
 
       try {
-        await publishPostToSocial(env, message.body.postId);
+        const publishResult = await publishPostToSocial(env, message.body.postId);
         await env.DB.prepare(
-          "UPDATE publish_attempts SET status = 'published' WHERE id = ?"
-        ).bind(attemptId).run();
+          "UPDATE publish_attempts SET status = ? WHERE id = ?"
+        ).bind(
+          publishResult.confirmed ? "published" : "provider_processing",
+          attemptId
+        ).run();
         await markPublishJobCompleted(env, message.body.publishJobId);
-        await notifyPostOwners(
-          env,
-          message.body.postId,
-          "published",
-          "Post published",
-          "BrandSparQ successfully published your scheduled post."
-        );
+
+        if (publishResult.confirmed) {
+          await notifyPostOwners(
+            env,
+            message.body.postId,
+            "published",
+            "Post published",
+            "BrandSparQ confirmed your post is live."
+          );
+        }
+
         message.ack();
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message.slice(0, 1500) : "Publishing failed";
-        const exhausted = claim.attempt >= claim.maxAttempts;
+        const providerError = error as any;
+        const retryable =
+          typeof providerError?.retryable === "boolean"
+            ? providerError.retryable
+            : true;
+        const exhausted = !retryable || claim.attempt >= claim.maxAttempts;
 
         await env.DB.batch([
           env.DB.prepare(
@@ -1626,8 +1643,12 @@ export default {
           message.ack();
         } else {
           await markPublishJobRetry(env, message.body.publishJobId, errorMessage);
+          const retryAfter =
+            typeof providerError?.retryAfterSeconds === "number"
+              ? providerError.retryAfterSeconds
+              : Math.min(3600, 60 * 2 ** claim.attempt);
           message.retry({
-            delaySeconds: Math.min(3600, 60 * 2 ** claim.attempt),
+            delaySeconds: Math.max(60, Math.min(3600, retryAfter)),
           });
         }
       }
