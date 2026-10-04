@@ -18,6 +18,8 @@ export default function NotificationsScreen(){
     try{
       const result=await api.getNotifications();
       setItems(result.data);setUnread(result.unreadCount||0);
+    }catch(error){
+      Alert.alert("Unable to load notifications",error instanceof Error?error.message:"Try again.");
     }finally{setLoading(false);}
   }
   useEffect(()=>{void load();},[]);
