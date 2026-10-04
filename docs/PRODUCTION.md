@@ -15,7 +15,9 @@ Create or verify:
 - DLQ: `brandsparq-generation-dlq`
 - Custom domain: `brandsparq.getsparqd.com`
 
-Apply every pending migration before deploying the Worker:
+The production D1 binding is already configured in `cloudflare/wrangler.toml`.
+
+Apply every migration before deploying Worker code that depends on it:
 
 ```bash
 cd cloudflare
@@ -190,6 +192,8 @@ npm run smoke:production
 
 Production deployment now fails fast unless the app TypeScript check, Worker TypeScript check, and Expo web export all succeed.
 
+Migration `0008_production_readiness.sql` must be applied before deploying the production-readiness Worker changes.
+
 The deploy script exports Expo web to `dist/` and deploys the Worker plus static assets.
 
 ## Production verification
@@ -240,3 +244,17 @@ The canonical schema is the ordered migration set in `cloudflare/migrations/`; t
 After the latest migrations and deployment, sign in as an owner and open **More → System Health → Run launch check**. A `blocked` result is a release blocker. Review all warnings before launch.
 
 See `docs/SPRINT8.md` for the complete launch-certification and manual acceptance process.
+
+## Cloudflare Workers Builds configuration
+
+BrandSparQ uses `cloudflare/` as the Worker project root because that directory contains `wrangler.toml`.
+
+Configure the connected Worker with:
+
+```text
+Root directory: /cloudflare
+Build command: npm run build
+Deploy command: npm run deploy
+```
+
+Workers Builds installs `cloudflare/package.json` dependencies automatically. The Worker `build` script installs the parent Expo application dependencies and runs the Expo web export, producing `../dist` for the Worker assets binding.

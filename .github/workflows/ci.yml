@@ -2,7 +2,7 @@ name: BrandSparQ CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, production-readiness]
   pull_request:
 
 permissions:
@@ -12,6 +12,19 @@ concurrency:
   group: brandsparq-ci-${{ github.ref }}
   cancel-in-progress: true
 
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
 jobs:
   validate:
     runs-on: ubuntu-latest

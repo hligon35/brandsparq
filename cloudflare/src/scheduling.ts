@@ -47,20 +47,27 @@ function localParts(date: Date, timeZone: string) {
   };
 }
 
-function inPreferredWindow(minuteOfDay: number, windows: string[]) {
-  if (!windows.length) return true;
-  return windows.some((window) => {
-    const [start, end] = window.split("-");
-    return minuteOfDay >= minutes(start) && minuteOfDay <= minutes(end);
-  });
+function matchesWindow(minuteOfDay: number, window: string) {
+  const [start, end] = window.split("-");
+  if (!start || !end) return false;
+  const startMinute = minutes(start);
+  const endMinute = minutes(end);
+
+  // Support windows that cross midnight, e.g. 22:00-02:00.
+  if (endMinute < startMinute) {
+    return minuteOfDay >= startMinute || minuteOfDay <= endMinute;
+  }
+  return minuteOfDay >= startMinute && minuteOfDay <= endMinute;
 }
 
-function inBlackoutWindow(minuteOfDay: number, windows: string[]) {
-  if (!windows.length) return false;
-  return windows.some((window) => {
-    const [start, end] = window.split("-");
-    return minuteOfDay >= minutes(start) && minuteOfDay <= minutes(end);
-  });
+export function inPreferredWindow(minuteOfDay: number, windows: string[]) {
+  // No preferred windows means unrestricted.
+  return windows.length === 0 || windows.some((window) => matchesWindow(minuteOfDay, window));
+}
+
+export function inBlackoutWindow(minuteOfDay: number, windows: string[]) {
+  // No blackout windows means no blackout.
+  return windows.length > 0 && windows.some((window) => matchesWindow(minuteOfDay, window));
 }
 
 async function loadRules(env: SchedulingEnv, clientId: string): Promise<Rules> {
@@ -158,10 +165,11 @@ export async function findNextAvailableSlot(
 export async function validateSchedule(
   env: SchedulingEnv,
   clientId: string,
-  scheduledAt: string
+  scheduledAt: string,
+  excludePostId?: string | null
 ) {
   const requested = new Date(scheduledAt).toISOString();
-  const suggested = await findNextAvailableSlot(env, clientId, requested);
+  const suggested = await findNextAvailableSlot(env, clientId, requested, excludePostId);
   return {
     requested,
     suggested,

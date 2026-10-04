@@ -83,16 +83,38 @@ function authHeaders(extra?: HeadersInit): Headers {
   return headers;
 }
 
+const REQUEST_TIMEOUT_MS = 15_000;
+
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = authHeaders(init?.headers);
   if (init?.body && !(init.body instanceof FormData)) {
     headers.set("content-type", "application/json");
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers,
-  });
+  const method = (init?.method || "GET").toUpperCase();
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(`${API_URL}${path}`, {
+      ...init,
+      headers,
+    });
+  } catch (error) {
+    if (method !== "GET") throw error;
+    response = await fetchWithTimeout(`${API_URL}${path}`, {
+      ...init,
+      headers,
+    });
+  }
 
   if (!response.ok) {
     if (response.status === 401 && unauthorizedHandler) {
@@ -109,6 +131,35 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getDashboard: () =>
+    jsonRequest<{ data: {
+      needsReview: number;
+      scheduled: number;
+      publishingToday: number;
+      failed: number;
+      nextPost: {
+        status: string;
+        client_name: string;
+        platform: string;
+        scheduled_publish_at: string;
+      } | null;
+    } }>("/v1/dashboard"),
+
+  createClient: (name: string, timezone = "America/Indiana/Indianapolis") =>
+    jsonRequest<{ ok: true; data: Client }>("/v1/clients", {
+      method: "POST",
+      body: JSON.stringify({ name, timezone }),
+    }),
+
+  updateClient: (clientId: string, payload: { name?: string; timezone?: string; status?: string }) =>
+    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  archiveClient: (clientId: string) =>
+    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}/archive`, { method: "POST" }),
+
   getGoogleAuthStartUrl(returnTo: string) {
     return `${API_URL}/v1/auth/google/start?return_to=${encodeURIComponent(returnTo)}`;
   },
@@ -128,38 +179,6 @@ export const api = {
 
   signOut: () =>
     jsonRequest<{ ok: true }>("/v1/auth/logout", { method: "POST" }),
-
-
-  getDashboard: () =>
-    jsonRequest<{
-      data: {
-        needsReview: number;
-        scheduled: number;
-        publishingToday: number;
-        failed: number;
-        nextPost: (ApiPost & { client_name?: string }) | null;
-      };
-    }>("/v1/dashboard"),
-
-  createClient: (name: string, timezone?: string) =>
-    jsonRequest<{ ok: true; id: string; name: string; timezone: string }>(
-      "/v1/clients",
-      {
-        method: "POST",
-        body: JSON.stringify({ name, timezone }),
-      }
-    ),
-
-  updateClient: (clientId: string, payload: { name?: string; timezone?: string }) =>
-    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  archiveClient: (clientId: string) =>
-    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}/archive`, {
-      method: "POST",
-    }),
 
   getBrandAssets: (clientId: string) =>
     jsonRequest<{ data: any[] }>(`/v1/clients/${clientId}/brand-assets`),
@@ -571,7 +590,7 @@ export const api = {
     width?: number,
     height?: number
   ): Promise<Asset> {
-    const source = await fetch(uri);
+    const source = await fetchWithTimeout(uri);
     const blob = await source.blob();
     const headers = authHeaders({
       "content-type": blob.type || contentType,
@@ -581,7 +600,7 @@ export const api = {
       ...(height ? { "x-image-height": String(height) } : {}),
     });
 
-    const response = await fetch(`${API_URL}/v1/assets`, {
+    const response = await fetchWithTimeout(`${API_URL}/v1/assets`, {
       method: "POST",
       headers,
       body: blob,

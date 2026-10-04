@@ -18,7 +18,9 @@ import {
   recoverStaleWork,
 } from "./operations";
 import { checkExpoPushReceipts, notifyPostOwners } from "./notifications";
-import { hashSecret } from "./security";
+import {
+  hashSecret,
+} from "./security";
 import {
   checkPendingPublishReceipts,
   ensurePostSocialDestination,
@@ -97,6 +99,28 @@ type JobMessage = PublishMessage | GenerationMessage | GraphicMessage;
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
+function detectImageType(buffer: ArrayBuffer) {
+  const b = new Uint8Array(buffer);
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length >= 6 && String.fromCharCode(...b.slice(0, 6)).startsWith("GIF8")) return "image/gif";
+  if (
+    b.length >= 12 &&
+    String.fromCharCode(...b.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...b.slice(8, 12)) === "WEBP"
+  ) return "image/webp";
+  if (b.length >= 12 && String.fromCharCode(...b.slice(4, 8)) === "ftyp") {
+    const brand = String.fromCharCode(...b.slice(8, 12)).toLowerCase();
+    if (["heic","heix","hevc","hevx","mif1","msf1"].includes(brand)) return "image/heic";
+  }
+  return null;
+}
+
+async function sha256Hex(buffer: ArrayBuffer) {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  return [...new Uint8Array(digest)].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
 function cors(request: Request, env: Env) {
   const origin = request.headers.get("origin");
   const configured = new Set(
@@ -113,7 +137,7 @@ function cors(request: Request, env: Env) {
     allowed,
     headers: {
       "access-control-allow-origin": origin && allowed ? origin : "",
-      "access-control-allow-methods": "GET,POST,OPTIONS",
+      "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
       "access-control-allow-headers": "authorization,content-type,x-client-id,x-file-name,x-image-width,x-image-height,x-derivative-kind",
       "access-control-max-age": "86400",
       vary: "Origin",
@@ -140,6 +164,7 @@ function response(request: Request, env: Env, body: unknown, init: ResponseInit 
       "permissions-policy": "camera=(), microphone=(), geolocation=()",
       "x-frame-options": "DENY",
       "x-request-id": requestId,
+      "content-security-policy": "default-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' https:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
       ...policy.headers,
       ...init.headers,
     },
@@ -215,18 +240,55 @@ async function authorize(
   return null;
 }
 
-async function audit(env: Env, postId: string, action: string, metadata?: unknown) {
+function roleAllowed(role: string | undefined, allowed: string[]) {
+  return !!role && allowed.includes(role);
+}
+
+async function audit(env: Env, postId: string, action: string, metadata?: unknown, actorId = "system") {
   await env.DB.prepare(
     "INSERT INTO audit_logs (id, post_id, actor_id, action, metadata) VALUES (?, ?, ?, ?, ?)"
   )
     .bind(
       crypto.randomUUID(),
       postId,
-      "system",
+      actorId,
       action,
       metadata ? JSON.stringify(metadata) : null
     )
     .run();
+}
+
+async function syncDueAnalytics(env: Env) {
+  const settings = await env.DB.prepare(
+    "SELECT analytics_refresh_hours FROM workspace_settings WHERE id = 'default'"
+  ).first<{ analytics_refresh_hours: number }>();
+  const refreshMs = Number(settings?.analytics_refresh_hours || 6) * 60 * 60 * 1000;
+  const accounts = await env.DB.prepare(
+    `SELECT sa.id,
+        MAX(CASE WHEN ar.status = 'completed' THEN ar.completed_at END) AS last_sync
+     FROM social_accounts sa
+     LEFT JOIN analytics_sync_runs ar ON ar.social_account_id = sa.id
+     WHERE sa.status = 'connected'
+     GROUP BY sa.id`
+  ).all<{ id: string; last_sync: string | null }>();
+
+  for (const account of accounts.results) {
+    const last = account.last_sync ? Date.parse(account.last_sync) : 0;
+    if (!last || Date.now() - last >= refreshMs) {
+      try {
+        await syncAccountAnalytics(env, account.id);
+      } catch (error) {
+        await recordSystemEvent(env, {
+          severity: "warning",
+          category: "analytics",
+          eventType: "analytics_sync_failed",
+          entityType: "social_account",
+          entityId: account.id,
+          message: error instanceof Error ? error.message.slice(0, 1000) : "Analytics sync failed.",
+        }).catch(() => undefined);
+      }
+    }
+  }
 }
 
 export default {
@@ -296,7 +358,9 @@ export default {
         headers: {
           "content-type": object.httpMetadata?.contentType || "image/jpeg",
           "cache-control": "private, max-age=300",
+          "x-content-type-options": "nosniff",
           etag: object.httpEtag,
+          ...policy.headers,
         },
       });
     }
@@ -538,7 +602,6 @@ export default {
       if (!row.suggested_publish_at) {
         return response(request, env, { error: "This post does not have a proposed publishing slot." }, { status: 409 });
       }
-
       const destination = await ensurePostSocialDestination(env, {
         id: row.post_id,
         client_id: row.client_id,
@@ -648,16 +711,6 @@ export default {
         );
       }
 
-      const managed = await handleManagementRoute(request, url, env, sessionUser);
-      if (managed) {
-        if ("response" in managed) return managed.response;
-        return response(
-          request,
-          env,
-          managed.body,
-          managed.status ? { status: managed.status } : {}
-        );
-      }
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/v1/media/")) {
@@ -756,7 +809,7 @@ export default {
                 bp.fonts, bp.brand_examples, bp.prohibited_visual_styles,
                 bp.competitor_references, bp.brand_vocabulary, bp.hashtag_policy,
                 bp.target_locations, bp.platform_rules, bp.logo_asset_id,
-                bp.alternate_logo_asset_id
+                bp.alternate_logo_asset_id, bp.cta_library, bp.campaign_goals
          FROM clients c
          LEFT JOIN brand_profiles bp ON bp.client_id = c.id
          WHERE c.id = ?`
@@ -782,11 +835,11 @@ export default {
         `INSERT INTO brand_profiles
          (id, client_id, voice, audience, primary_color, secondary_color, website,
           social_handles, restricted_words, tagline, preferred_ctas,
-          imagery_preferences, posting_rules, fonts, brand_examples,
-          prohibited_visual_styles, competitor_references, brand_vocabulary,
-          hashtag_policy, target_locations, platform_rules, logo_asset_id,
-          alternate_logo_asset_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          imagery_preferences, posting_rules, logo_asset_id, alternate_logo_asset_id,
+          fonts, brand_examples, prohibited_visual_styles, competitor_references,
+          brand_vocabulary, hashtag_policy, cta_library, campaign_goals,
+          target_locations, platform_rules, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          ON CONFLICT(client_id) DO UPDATE SET
            voice = excluded.voice,
            audience = excluded.audience,
@@ -799,16 +852,18 @@ export default {
            preferred_ctas = excluded.preferred_ctas,
            imagery_preferences = excluded.imagery_preferences,
            posting_rules = excluded.posting_rules,
+           logo_asset_id = excluded.logo_asset_id,
+           alternate_logo_asset_id = excluded.alternate_logo_asset_id,
            fonts = excluded.fonts,
            brand_examples = excluded.brand_examples,
            prohibited_visual_styles = excluded.prohibited_visual_styles,
            competitor_references = excluded.competitor_references,
            brand_vocabulary = excluded.brand_vocabulary,
            hashtag_policy = excluded.hashtag_policy,
+           cta_library = excluded.cta_library,
+           campaign_goals = excluded.campaign_goals,
            target_locations = excluded.target_locations,
            platform_rules = excluded.platform_rules,
-           logo_asset_id = excluded.logo_asset_id,
-           alternate_logo_asset_id = excluded.alternate_logo_asset_id,
            updated_at = CURRENT_TIMESTAMP`
       ).bind(
         id,
@@ -824,22 +879,27 @@ export default {
         payload.preferredCtas || null,
         payload.imageryPreferences || null,
         payload.postingRules || null,
-        payload.fonts || null,
-        payload.brandExamples || null,
+        payload.logoAssetId || null,
+        payload.alternateLogoAssetId || null,
+        payload.fonts ? JSON.stringify(payload.fonts) : null,
+        payload.brandExamples ? JSON.stringify(payload.brandExamples) : null,
         payload.prohibitedVisualStyles || null,
         payload.competitorReferences || null,
         payload.brandVocabulary || null,
         payload.hashtagPolicy || null,
-        payload.targetLocations || null,
-        payload.platformRules || null,
-        payload.logoAssetId || null,
-        payload.alternateLogoAssetId || null
+        payload.ctaLibrary ? JSON.stringify(payload.ctaLibrary) : null,
+        payload.campaignGoals ? JSON.stringify(payload.campaignGoals) : null,
+        payload.targetLocations ? JSON.stringify(payload.targetLocations) : null,
+        payload.platformRules ? JSON.stringify(payload.platformRules) : null
       ).run();
 
       return response(request, env, { ok: true, id });
     }
 
     if (request.method === "POST" && url.pathname === "/v1/generation-jobs") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) {
+        return response(request, env, { error: "You do not have permission to create campaigns." }, { status: 403 });
+      }
       const payload = await request.json<{
         clientId?: string;
         objective?: string;
@@ -1023,10 +1083,13 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/v1/assets") {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) {
+        return response(request, env, { error: "You do not have permission to upload brand assets." }, { status: 403 });
+      }
       const clientId = request.headers.get("x-client-id")?.trim();
       const filename = request.headers.get("x-file-name")?.trim() || "upload.jpg";
-      const contentType = request.headers.get("content-type") || "application/octet-stream";
-      const declaredSize = Number(request.headers.get("content-length") || 0);
+      const declaredContentType = request.headers.get("content-type") || "application/octet-stream";
+      const declaredSize = Number(request.headers.get("content-length") || "0");
       const width = Number(request.headers.get("x-image-width") || 0) || null;
       const height = Number(request.headers.get("x-image-height") || 0) || null;
 
@@ -1035,26 +1098,63 @@ export default {
       const denied = await authorize(env, sessionUser!, "upload", clientId);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
-      if (!contentType.startsWith("image/")) {
-        return response(request, env, { error: "Only image uploads are supported." }, { status: 415 });
+      if (!declaredContentType.startsWith("image/")) {
+        return response(request, env, { error: "Only image uploads are accepted" }, { status: 415 });
       }
       if (declaredSize > MAX_IMAGE_BYTES) {
         return response(request, env, { error: "Image exceeds the 20 MB upload limit." }, { status: 413 });
       }
 
-      const bytes = await request.arrayBuffer();
-      if (bytes.byteLength > MAX_IMAGE_BYTES) {
-        return response(request, env, { error: "Image exceeds the 20 MB upload limit." }, { status: 413 });
+      const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ? AND status != 'archived'")
+        .bind(clientId).first();
+      if (!client) return response(request, env, { error: "Client not found or archived" }, { status: 404 });
+
+      const body = await request.arrayBuffer();
+      if (!body.byteLength) {
+        return response(request, env, { error: "Image upload is empty" }, { status: 400 });
+      }
+      if (body.byteLength > MAX_IMAGE_BYTES) {
+        return response(request, env, { error: "Image exceeds the 20 MB upload limit" }, { status: 413 });
+      }
+
+      const detectedContentType = detectImageType(body);
+      if (!detectedContentType) {
+        return response(request, env, { error: "Unsupported or malformed image file" }, { status: 415 });
+      }
+
+      const hash = await sha256Hex(body);
+      const duplicate = await env.DB.prepare(
+        `SELECT id,filename,content_type,status,created_at
+         FROM assets WHERE client_id=? AND sha256=? ORDER BY created_at DESC LIMIT 1`
+      ).bind(clientId,hash).first<any>();
+
+      if (duplicate) {
+        return response(request, env, {
+          data: {
+            id: duplicate.id,
+            clientId,
+            filename: duplicate.filename,
+            contentType: duplicate.content_type,
+            status: duplicate.status,
+            url: `/v1/assets/${duplicate.id}`,
+            createdAt: duplicate.created_at,
+            deduplicated: true,
+          },
+        }, { status: 200 });
       }
 
       const assetId = crypto.randomUUID();
-      const extension = filename.includes(".") ? filename.split(".").pop()!.toLowerCase() : "jpg";
-      const key = `originals/${clientId}/${assetId}.${extension}`;
-      const hash = await sha256HexBytes(bytes);
+      const safeName = filename.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-120);
+      const key = `clients/${clientId}/originals/${assetId}-${safeName}`;
 
-      await env.MEDIA.put(key, bytes, {
-        httpMetadata: { contentType },
-        customMetadata: { sha256: hash, originalFilename: filename },
+      await env.MEDIA.put(key, body, {
+        httpMetadata: { contentType: detectedContentType },
+        customMetadata: {
+          clientId,
+          originalFilename: filename,
+          sha256: hash,
+          declaredContentType,
+        },
       });
 
       await env.DB.prepare(
@@ -1066,8 +1166,8 @@ export default {
         clientId,
         key,
         filename,
-        contentType,
-        bytes.byteLength,
+        detectedContentType,
+        body.byteLength,
         width,
         height,
         hash
@@ -1078,10 +1178,11 @@ export default {
           id: assetId,
           clientId,
           filename,
-          contentType,
+          contentType: detectedContentType,
           status: "uploaded",
           url: `/v1/assets/${assetId}`,
           createdAt: new Date().toISOString(),
+          deduplicated: false,
         },
       }, { status: 201 });
     }
@@ -1592,6 +1693,9 @@ export default {
 
     const approvalMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/approve$/);
     if (request.method === "POST" && approvalMatch) {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) {
+        return response(request, env, { error: "You do not have permission to approve content." }, { status: 403 });
+      }
       const postId = approvalMatch[1];
       const now = new Date().toISOString();
       const post = await env.DB.prepare(
@@ -1614,6 +1718,9 @@ export default {
 
       if (!post.suggested_publish_at) {
         return response(request, env, { error: "Post does not have a proposed publishing slot" }, { status: 409 });
+      }
+      if (!post.social_account_id) {
+        return response(request, env, { error: "Assign a connected social account before approving this post." }, { status: 409 });
       }
 
       const destination = await ensurePostSocialDestination(env, post);
@@ -1647,13 +1754,16 @@ export default {
            VALUES (?, ?, 'approved', ?)`
         ).bind(crypto.randomUUID(), postId, post.status),
       ]);
-      await audit(env, postId, "post.approved");
+      await audit(env, postId, "post.approved", undefined, sessionUser?.id || "system");
 
       return response(request, env, { ok: true, postId, status: "calendar_scheduled" });
     }
 
     const keepMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/keep-schedule$/);
     if (request.method === "POST" && keepMatch) {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","publisher"])) {
+        return response(request, env, { error: "You do not have permission to control publishing." }, { status: 403 });
+      }
       const postId = keepMatch[1];
       const post = await env.DB.prepare(
         "SELECT client_id, status FROM posts WHERE id = ?"
@@ -1676,12 +1786,15 @@ export default {
       await env.DB.prepare(
         `UPDATE posts SET prepublish_response = 'keep', status = 'calendar_scheduled', updated_at = ? WHERE id = ?`
       ).bind(now, postId).run();
-      await audit(env, postId, "post.keep_schedule");
+      await audit(env, postId, "post.keep_schedule", undefined, sessionUser?.id || "system");
       return response(request, env, { ok: true, postId, status: "calendar_scheduled" });
     }
 
     const rescheduleMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/reschedule$/);
     if (request.method === "POST" && rescheduleMatch) {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","publisher"])) {
+        return response(request, env, { error: "You do not have permission to reschedule posts." }, { status: 403 });
+      }
       const postId = rescheduleMatch[1];
       const payload = await request.json<{ scheduledPublishAt?: string }>().catch(() => ({} as any));
       if (!payload.scheduledPublishAt || Number.isNaN(Date.parse(payload.scheduledPublishAt))) {
@@ -1748,6 +1861,9 @@ export default {
 
     const publishNowMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/publish-now$/);
     if (request.method === "POST" && publishNowMatch) {
+      if (!roleAllowed(sessionUser?.role, ["owner","admin","publisher"])) {
+        return response(request, env, { error: "You do not have permission to publish posts." }, { status: 403 });
+      }
       const postId = publishNowMatch[1];
       const post = await env.DB.prepare(
         "SELECT id, client_id, social_account_id, scheduled_publish_at, status FROM posts WHERE id = ?"
@@ -1820,7 +1936,7 @@ export default {
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
         const data = await rewritePostCaptionWithAI(env, rewriteCaptionMatch[1], instruction);
-        await audit(env, rewriteCaptionMatch[1], "post.ai_caption_rewritten", { instruction: instruction || null });
+        await audit(env, rewriteCaptionMatch[1], "post.ai_caption_rewritten", { instruction: instruction || null }, sessionUser?.id || "system");
         return response(request, env, { ok: true, data });
       } catch (error) {
         return response(request, env, { error: error instanceof Error ? error.message : "Unable to rewrite caption." }, { status: 502 });
@@ -1840,7 +1956,7 @@ export default {
       if (!instruction) return response(request, env, { error: "instruction is required." }, { status: 400 });
       try {
         const data = await editPostGraphicWithAI(env, editImageMatch[1], instruction);
-        await audit(env, editImageMatch[1], "post.ai_graphic_edited", { instruction });
+        await audit(env, editImageMatch[1], "post.ai_graphic_edited", { instruction }, sessionUser?.id || "system");
         return response(request, env, { ok: true, data });
       } catch (error) {
         return response(request, env, { error: error instanceof Error ? error.message : "Unable to edit graphic." }, { status: 502 });
@@ -1859,17 +1975,30 @@ export default {
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
         const data = await regeneratePostWithAI(env, regenerateMatch[1], instruction);
-        await audit(env, regenerateMatch[1], "post.ai_regenerated", { instruction: instruction || null });
+        await audit(env, regenerateMatch[1], "post.ai_regenerated", { instruction: instruction || null }, sessionUser?.id || "system");
         return response(request, env, { ok: true, data });
       } catch (error) {
         return response(request, env, { error: error instanceof Error ? error.message : "Unable to regenerate post." }, { status: 502 });
       }
     }
 
+    if (sessionUser) {
+      const managed = await handleManagementRoute(request, url, env, sessionUser);
+      if (managed) {
+        if ("response" in managed) return managed.response;
+        return response(
+          request,
+          env,
+          managed.body,
+          managed.status ? { status: managed.status } : {}
+        );
+      }
+    }
+
     return response(request, env, { error: "Not found" }, { status: 404 });
   },
 
-  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+  async scheduled(event: ScheduledController, env: Env): Promise<void> {
     try {
       await checkExpoPushReceipts(env);
     } catch (error) {
@@ -1933,7 +2062,7 @@ export default {
     }
 
     const due = await env.DB.prepare(
-      `SELECT p.id, p.prepublish_response,
+      `SELECT p.id, p.prepublish_response, p.scheduled_publish_at,
               COALESCE(cs.no_response_policy, np.no_response_policy,
                        ws.default_no_response_policy, 'auto_publish') AS no_response_policy
        FROM posts p
@@ -2067,36 +2196,10 @@ export default {
       }
     }
 
-    const settings = await env.DB.prepare(
-      "SELECT analytics_refresh_hours FROM workspace_settings WHERE id = 'default'"
-    ).first<{ analytics_refresh_hours: number }>();
-    const refreshMs = Number(settings?.analytics_refresh_hours || 6) * 60 * 60 * 1000;
-    const accounts = await env.DB.prepare(
-      `SELECT sa.id,
-          MAX(CASE WHEN ar.status = 'completed' THEN ar.completed_at END) AS last_sync
-       FROM social_accounts sa
-       LEFT JOIN analytics_sync_runs ar ON ar.social_account_id = sa.id
-       WHERE sa.status = 'connected'
-       GROUP BY sa.id`
-    ).all<{ id: string; last_sync: string | null }>();
-
-    for (const account of accounts.results) {
-      const last = account.last_sync ? Date.parse(account.last_sync) : 0;
-      if (!last || Date.now() - last >= refreshMs) {
-        try {
-          await syncAccountAnalytics(env, account.id);
-        } catch (error) {
-          await recordSystemEvent(env, {
-            severity: "warning",
-            category: "analytics",
-            eventType: "analytics_sync_failed",
-            entityType: "social_account",
-            entityId: account.id,
-            message: error instanceof Error ? error.message.slice(0, 1000) : "Analytics sync failed.",
-          }).catch(() => undefined);
-        }
-      }
+    if (event.cron === "7 */6 * * *") {
+      await syncDueAnalytics(env);
     }
+
   },
 
   async queue(batch: MessageBatch<JobMessage>, env: Env): Promise<void> {
@@ -2235,6 +2338,7 @@ export default {
         continue;
       }
 
+      const attemptNumber = claim.attempt;
       const attemptId = crypto.randomUUID();
       const attemptKey = `${message.body.executionKey}:attempt:${claim.attempt}`;
       const now = new Date().toISOString();
@@ -2294,7 +2398,7 @@ export default {
             ? providerError.retryable
             : true;
         const exhausted = !retryable || claim.attempt >= claim.maxAttempts;
-
+        const failedAt = new Date().toISOString();
         await env.DB.batch([
           env.DB.prepare(
             "UPDATE publish_attempts SET status = 'failed', error_message = ? WHERE id = ?"
@@ -2311,7 +2415,7 @@ export default {
                 ? "SOCIAL_RATE_LIMIT"
                 : "PROVIDER_ERROR",
             errorMessage,
-            new Date().toISOString(),
+            failedAt,
             message.body.postId
           ),
         ]);

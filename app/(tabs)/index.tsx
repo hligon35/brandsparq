@@ -1,6 +1,6 @@
 import { Link } from "expo-router";
-import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
 import { api } from "@/api/client";
 import { BrandLogo } from "@/components/brand";
 import { Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
@@ -12,7 +12,12 @@ type Dashboard = {
   scheduled: number;
   publishingToday: number;
   failed: number;
-  nextPost: any | null;
+  nextPost: {
+    status: string;
+    client_name: string;
+    platform: string;
+    scheduled_publish_at: string;
+  } | null;
 };
 
 export default function HomeScreen() {
@@ -73,17 +78,27 @@ export default function HomeScreen() {
             <ActivityIndicator color={colors.primary} />
           ) : error ? (
             <>
+              <StatusBadge label="failed" />
               <Text style={styles.upcomingLabel}>Dashboard unavailable</Text>
+              <Text style={styles.upcomingTitle}>Couldn’t load live workspace data</Text>
               <Text style={styles.upcomingBody}>{error}</Text>
-              <Pressable onPress={load}><Text style={styles.retry}>Try again</Text></Pressable>
+              <Pressable onPress={load}>
+                <Text style={styles.retry}>Retry</Text>
+              </Pressable>
             </>
           ) : next ? (
             <>
               <StatusBadge label={next.status} />
               <Text style={styles.upcomingLabel}>Next up</Text>
-              <Text style={styles.upcomingTitle}>{next.client_name} · {String(next.platform).toUpperCase()}</Text>
-              <Text style={styles.upcomingTime}>{new Date(next.scheduled_publish_at).toLocaleString()}</Text>
-              <Text style={styles.upcomingBody}>This is the next approved post currently queued on your marketing calendar.</Text>
+              <Text style={styles.upcomingTitle}>
+                {next.client_name} · {String(next.platform).toUpperCase()}
+              </Text>
+              <Text style={styles.upcomingTime}>
+                {new Date(next.scheduled_publish_at).toLocaleString()}
+              </Text>
+              <Text style={styles.upcomingBody}>
+                This is the next approved post currently queued on your marketing calendar.
+              </Text>
             </>
           ) : (
             <>
@@ -123,22 +138,147 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  page:{gap:spacing.lg}, mobileLogo:{marginBottom:4}, hero:{gap:spacing.lg},
-  heroWide:{flexDirection:"row",alignItems:"stretch"}, heroCopy:{flex:1.35,gap:spacing.lg,justifyContent:"center"},
-  quickActions:{flexDirection:"row",flexWrap:"wrap",gap:spacing.sm},
-  primaryAction:{backgroundColor:colors.primary,borderRadius:radius.md,paddingHorizontal:20,paddingVertical:13},
-  primaryActionText:{color:colors.white,fontWeight:"800"},
-  secondaryAction:{backgroundColor:colors.surface,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,paddingHorizontal:20,paddingVertical:13},
-  secondaryActionText:{color:colors.text,fontWeight:"800"},
-  upcomingCard:{flex:.75,minHeight:230,overflow:"hidden",justifyContent:"center"},
-  upcomingAccent:{position:"absolute",width:115,height:115,borderRadius:58,backgroundColor:"#E8FBFD",right:-25,top:-28},
-  upcomingLabel:{color:colors.muted,fontSize:12,fontWeight:"800",textTransform:"uppercase",letterSpacing:1},
-  upcomingTitle:{color:colors.text,fontSize:23,fontWeight:"900"}, upcomingTime:{color:colors.primary,fontSize:16,fontWeight:"800"},
-  upcomingBody:{color:colors.muted,lineHeight:21}, retry:{color:colors.primary,fontWeight:"800"},
-  statsGrid:{flexDirection:"row",flexWrap:"wrap",gap:spacing.md}, statCard:{flexGrow:1,flexBasis:180,minHeight:140,justifyContent:"center"},
-  statDot:{width:10,height:10,borderRadius:5}, metric:{color:colors.text,fontSize:34,lineHeight:39,fontWeight:"900"},
-  statLabel:{color:colors.muted,fontWeight:"700"}, workflow:{gap:spacing.md}, workflowWide:{flexDirection:"row"},
-  workflowCard:{flex:1,minHeight:170}, stepBadge:{width:38,height:38,borderRadius:12,backgroundColor:"#EAF3FF",alignItems:"center",justifyContent:"center"},
-  stepText:{color:colors.primary,fontWeight:"900"}, workflowTitle:{color:colors.text,fontSize:20,fontWeight:"900"},
-  workflowBody:{color:colors.muted,lineHeight:21},
+  page: {
+    gap: spacing.lg,
+  },
+  mobileLogo: {
+    marginBottom: 4,
+  },
+  hero: {
+    gap: spacing.lg,
+  },
+  heroWide: {
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  heroCopy: {
+    flex: 1.35,
+    gap: spacing.lg,
+    justifyContent: "center",
+  },
+  quickActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  primaryAction: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingHorizontal: 20,
+    paddingVertical: 13,
+  },
+  primaryActionText: {
+    color: colors.white,
+    fontWeight: "800",
+  },
+  secondaryAction: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 20,
+    paddingVertical: 13,
+  },
+  secondaryActionText: {
+    color: colors.text,
+    fontWeight: "800",
+  },
+  upcomingCard: {
+    flex: 0.75,
+    minHeight: 230,
+    overflow: "hidden",
+    justifyContent: "center",
+  },
+  upcomingAccent: {
+    position: "absolute",
+    width: 115,
+    height: 115,
+    borderRadius: 58,
+    backgroundColor: "#E8FBFD",
+    right: -25,
+    top: -28,
+  },
+  upcomingLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  upcomingTitle: {
+    color: colors.text,
+    fontSize: 23,
+    fontWeight: "900",
+  },
+  upcomingTime: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  upcomingBody: {
+    color: colors.muted,
+    lineHeight: 21,
+  },
+  statsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.md,
+  },
+  statCard: {
+    flexGrow: 1,
+    flexBasis: 220,
+    minHeight: 140,
+    justifyContent: "center",
+  },
+  statDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  metric: {
+    color: colors.text,
+    fontSize: 34,
+    lineHeight: 39,
+    fontWeight: "900",
+  },
+  statLabel: {
+    color: colors.muted,
+    fontWeight: "700",
+  },
+  retry: {
+    color: colors.primary,
+    fontWeight: "900",
+    paddingTop: 4,
+  },
+  workflow: {
+    gap: spacing.md,
+  },
+  workflowWide: {
+    flexDirection: "row",
+  },
+  workflowCard: {
+    flex: 1,
+    minHeight: 170,
+  },
+  stepBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#EAF3FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepText: {
+    color: colors.primary,
+    fontWeight: "900",
+  },
+  workflowTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  workflowBody: {
+    color: colors.muted,
+    lineHeight: 21,
+  },
 });

@@ -61,7 +61,7 @@ max_concurrency = 2
 dead_letter_queue = "brandsparq-generation-dlq"
 
 [triggers]
-crons = ["* * * * *"]
+crons = ["* * * * *", "7 */6 * * *"]
 
 [observability.logs]
 enabled = true

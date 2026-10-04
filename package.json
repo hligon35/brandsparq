@@ -13,6 +13,7 @@
     "deploy:worker": "npm run validate && npm --prefix cloudflare run deploy",
     "deploy:cloudflare": "npm run deploy:worker",
     "typecheck": "tsc --noEmit",
+    "build:cloudflare": "npm ci --prefix cloudflare && npm run build:web",
     "validate": "npm run audit:launch && npm test && npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web",
     "deploy:production": "npm run validate && npm --prefix cloudflare run deploy",
     "audit:launch": "node scripts/launch-audit.mjs",

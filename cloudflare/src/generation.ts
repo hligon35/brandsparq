@@ -121,8 +121,6 @@ function escapeHtml(value:string){
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
   }[char]||char));
 }
-function clamp(value:number){return Math.max(0,Math.min(100,Math.round(Number(value)||0)));}
-
 function brandContext(row:any){
   return {
     clientName:row.client_name,
@@ -563,11 +561,18 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
   if(job.plan_json){
     generated=JSON.parse(job.plan_json) as GeneratedCampaign;
   }else{
+    const connected=await env.DB.prepare(
+      "SELECT DISTINCT platform FROM social_accounts WHERE client_id=? AND status='connected'"
+    ).bind(job.client_id).all<{platform:string}>();
+    const connectedPlatforms=connected.results.map(row=>row.platform);
     const content:InputContent[]=[
       {type:"input_text",text:[
         "Create a coherent campaign of 3 to 5 social posts.",
         `Current time: ${new Date().toISOString()}`,
         `Campaign objective: ${job.objective||"Auto"}`,
+        connectedPlatforms.length
+          ? `Connected publishing platforms: ${connectedPlatforms.join(", ")}. Prefer these destinations.`
+          : "No social publishing destination is currently connected; create the campaign but it must not be approved for publishing until an account is assigned.",
         "Brand context JSON:",JSON.stringify(brandContext(job)),
         "Use only facts supplied in the context or visibly supported by the images."
       ].join("\n")},
@@ -590,7 +595,6 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
       });
       throw error;
     });
-
     generated=campaignCall.data;
     campaignModel=campaignCall.model;
     campaignResponseId=campaignCall.responseId||null;
@@ -643,18 +647,30 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
     ]);
   }
 
+  const connectedAccounts=await env.DB.prepare(
+    `SELECT id,platform FROM social_accounts
+     WHERE client_id=? AND status='connected'
+     ORDER BY updated_at DESC, created_at DESC`
+  ).bind(job.client_id).all<{id:string;platform:string}>();
+  const accountByPlatform=new Map<string,string>();
+  for(const account of connectedAccounts.results){
+    if(!accountByPlatform.has(account.platform))accountByPlatform.set(account.platform,account.id);
+  }
+
   const savedPostIds:string[]=job.post_ids
     ? JSON.parse(job.post_ids)
     : [];
 
   const existingPosts=savedPostIds.length
     ? await env.DB.prepare(
-        `SELECT id,platform,title,headline,caption,suggested_publish_at,graphic_key
+        `SELECT id,platform,title,headline,caption,suggested_publish_at,graphic_key,
+                generation_index,social_account_id
          FROM posts
          WHERE generation_job_id=?`
       ).bind(jobId).all<any>()
     : await env.DB.prepare(
-        `SELECT id,platform,title,headline,caption,suggested_publish_at,graphic_key
+        `SELECT id,platform,title,headline,caption,suggested_publish_at,graphic_key,
+                generation_index,social_account_id
          FROM posts
          WHERE generation_job_id=?
          ORDER BY rowid ASC`
@@ -672,11 +688,17 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
     const savedId=savedPostIds[index];
     let existing=savedId
       ? existingById.get(savedId)
-      : existingPosts.results[index];
+      : existingPosts.results.find((row:any)=>row.generation_index===index)
+        || existingPosts.results[index];
     let postId:string;
 
     if(existing){
       postId=existing.id;
+      const assignedAccount=accountByPlatform.get(p.platform);
+      if(!existing.social_account_id&&assignedAccount){
+        await env.DB.prepare("UPDATE posts SET social_account_id=?,updated_at=? WHERE id=?")
+          .bind(assignedAccount,new Date().toISOString(),postId).run();
+      }
     }else{
       postId=crypto.randomUUID();
       const suggested=p.suggestedPublishAt&&Date.parse(p.suggestedPublishAt)>Date.now()
@@ -688,13 +710,14 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
         job.client_id,
         p.platform
       );
+      const socialAccountId=defaultSocial?.id||accountByPlatform.get(p.platform)||null;
 
       await env.DB.prepare(
         `INSERT INTO posts
         (id,client_id,campaign_id,platform,status,title,headline,caption,hashtags,objective,
-         suggested_publish_at,sparq_score,generation_job_id,review_requested_at,
+         suggested_publish_at,sparq_score,generation_job_id,generation_index,review_requested_at,
          ai_caption_response_id,social_account_id,created_at,updated_at)
-         VALUES (?,?,?,?,'review_ready',?,?,?,?,?,?,?,?,?,?,?,?,?)`
+         VALUES (?,?,?,?,'review_ready',?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
         postId,
         job.client_id,
@@ -708,9 +731,10 @@ export async function runGenerationJob(env:GenerationEnv,jobId:string){
         suggested,
         null,
         jobId,
+        index,
         now,
         campaignResponseId,
-        defaultSocial?.id||null,
+        socialAccountId,
         now,
         now
       ).run();

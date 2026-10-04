@@ -3,10 +3,9 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "build": "npm --prefix .. run build",
     "deploy": "wrangler deploy",
-    "deploy:cloudflare": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "npm ci --prefix .. && npm --prefix .. run build:web"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260702.1",
