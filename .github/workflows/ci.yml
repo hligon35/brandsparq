@@ -1,0 +1,42 @@
+name: BrandSparQ CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: brandsparq-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Install Worker dependencies
+        run: npm ci --prefix cloudflare
+
+      - name: Typecheck app
+        run: npm run typecheck
+
+      - name: Typecheck Worker
+        run: npm --prefix cloudflare run typecheck
+
+      - name: Export web build
+        run: npm run build:web
