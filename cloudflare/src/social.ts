@@ -254,7 +254,7 @@ export async function socialOAuthStart(
     const auth = new URL("https://www.tiktok.com/v2/auth/authorize/");
     auth.searchParams.set("client_key", env.TIKTOK_CLIENT_KEY!);
     auth.searchParams.set("response_type", "code");
-    auth.searchParams.set("scope", "user.info.basic,video.publish,video.upload");
+    auth.searchParams.set("scope", "user.info.basic,video.publish,video.upload,video.list");
     auth.searchParams.set("redirect_uri", redirectUri);
     auth.searchParams.set("state", state);
     return auth.toString();
@@ -1104,6 +1104,60 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
             raw: payload,
           };
         }
+      } else if (account.platform === "tiktok") {
+        const result = await fetch(
+          "https://open.tiktokapis.com/v2/video/query/?fields=id,like_count,comment_count,share_count,view_count",
+          {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${token}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              filters: { video_ids: [String(post.platform_post_id)] },
+            }),
+          }
+        );
+        if (result.ok) {
+          const payload = await result.json<any>();
+          const video = payload?.data?.videos?.[0] || {};
+          metrics = {
+            impressions: video.view_count,
+            reach: video.view_count,
+            likes: video.like_count,
+            comments: video.comment_count,
+            shares: video.share_count,
+            raw: payload,
+          };
+        }
+      } else if (account.platform === "linkedin" && account.account_type === "organization") {
+        const postUrn = String(post.platform_post_id);
+        const parameter = postUrn.includes(":ugcPost:") ? "ugcPosts" : "shares";
+        const orgUrn = `urn:li:organization:${account.external_account_id}`;
+        const query = new URL("https://api.linkedin.com/rest/organizationalEntityShareStatistics");
+        query.searchParams.set("q", "organizationalEntity");
+        query.searchParams.set("organizationalEntity", orgUrn);
+        query.searchParams.set(parameter, `List(${postUrn})`);
+        const result = await fetch(query.toString(), {
+          headers: {
+            authorization: `Bearer ${token}`,
+            "LinkedIn-Version": "202610",
+            "X-Restli-Protocol-Version": "2.0.0",
+          },
+        });
+        if (result.ok) {
+          const payload = await result.json<any>();
+          const stats = payload?.elements?.[0]?.totalShareStatistics || {};
+          metrics = {
+            impressions: stats.impressionCount,
+            reach: stats.uniqueImpressionsCount ?? stats.uniqueImpressionsCounts,
+            likes: stats.likeCount,
+            comments: stats.commentCount,
+            shares: stats.shareCount,
+            clicks: stats.clickCount,
+            raw: payload,
+          };
+        }
       }
 
       await env.DB.prepare(
@@ -1465,19 +1519,24 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
   ).run();
 
   if (complete) {
+    const publicPostId = Array.isArray(payload?.data?.publicaly_available_post_id)
+      ? payload.data.publicaly_available_post_id[0]
+      : null;
     await env.DB.batch([
       env.DB.prepare(
         `UPDATE social_publish_receipts SET
-         status='published',provider_status=?,last_checked_at=?,confirmed_at=?
+         status='published',provider_status=?,last_checked_at=?,confirmed_at=?,
+         provider_post_id=COALESCE(?,provider_post_id)
          WHERE id=?`
-      ).bind(providerStatus, now, now, receiptId),
+      ).bind(providerStatus, now, now, publicPostId ? String(publicPostId) : null, receiptId),
       env.DB.prepare(
         `UPDATE posts SET
          status='published',
+         platform_post_id=COALESCE(?,platform_post_id),
          published_at=COALESCE(published_at,?),
          updated_at=?
          WHERE id=?`
-      ).bind(now, now, receipt.post_id),
+      ).bind(publicPostId ? String(publicPostId) : null, now, now, receipt.post_id),
     ]);
     return {
       status: "published",
