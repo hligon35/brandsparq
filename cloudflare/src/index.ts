@@ -2015,7 +2015,14 @@ export default {
           );
         }
       }
-    } catch {}
+    } catch (error) {
+      await recordSystemEvent(env, {
+        severity: "warning",
+        category: "publishing",
+        eventType: "publish_receipt_check_failed",
+        message: error instanceof Error ? error.message.slice(0, 1000) : "Provider receipt check failed.",
+      }).catch(() => undefined);
+    }
 
     const healthCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
     const healthAccounts = await env.DB.prepare(
@@ -2092,6 +2099,14 @@ export default {
           );
 
           if (terminal) {
+            await recordSystemEvent(env, {
+              severity: "error",
+              category: "generation",
+              eventType: "graphic_job_failed",
+              entityType: "graphic_job",
+              entityId: message.body.graphicJobId,
+              message: errorMessage,
+            }).catch(() => undefined);
             message.ack();
           } else {
             message.retry({
