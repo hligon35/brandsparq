@@ -90,8 +90,10 @@ export async function recoverStaleWork(env:OperationsEnv){
   const stalePublish=await env.DB.prepare(
     `SELECT id,post_id,execution_key,attempt_count,max_attempts,last_error
      FROM publish_jobs
-     WHERE status='publishing'
-       AND claimed_at < datetime('now','-15 minutes')
+     WHERE (
+       (status='publishing' AND claimed_at < datetime('now','-15 minutes'))
+       OR (status='retrying' AND updated_at < datetime('now','-15 minutes'))
+     )
      LIMIT 50`
   ).all<any>();
 
@@ -118,7 +120,7 @@ export async function recoverStaleWork(env:OperationsEnv){
 
   const staleGeneration=await env.DB.prepare(
     `SELECT id,status,stage FROM generation_jobs
-     WHERE status IN ('queued','running')
+     WHERE status IN ('queued','processing','retrying')
        AND COALESCE(stage_updated_at,created_at) < datetime('now','-30 minutes')
      LIMIT 25`
   ).all<any>();
@@ -131,10 +133,39 @@ export async function recoverStaleWork(env:OperationsEnv){
     await recordSystemEvent(env,{severity:"warning",category:"generation",eventType:"generation_job_recovered",entityType:"generation_job",entityId:job.id,message:"Recovered and requeued a stale generation job.",metadata:{stage:job.stage}});
   }
 
+  const staleGraphics=await env.DB.prepare(
+    `SELECT id,generation_job_id,status,attempt_count,max_attempts
+     FROM graphic_jobs
+     WHERE status IN ('queued','processing','retrying')
+       AND updated_at < datetime('now','-30 minutes')
+     LIMIT 50`
+  ).all<any>();
+
+  let graphicsRecovered=0;
+  for(const job of staleGraphics.results){
+    if(Number(job.attempt_count)>=Number(job.max_attempts||3)){
+      await env.DB.prepare(
+        `UPDATE graphic_jobs SET status='failed',last_error=COALESCE(last_error,'Graphic worker timed out.'),completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`
+      ).bind(job.id).run();
+      await recordSystemEvent(env,{severity:"error",category:"generation",eventType:"graphic_job_timed_out",entityType:"graphic_job",entityId:job.id,message:"Graphic job exhausted attempts after becoming stale.",metadata:{generationJobId:job.generation_job_id}});
+      continue;
+    }
+    await env.DB.prepare(
+      `UPDATE graphic_jobs SET status='retrying',claimed_at=NULL,last_error=COALESCE(last_error,'Recovered stale graphic job.'),updated_at=CURRENT_TIMESTAMP WHERE id=?`
+    ).bind(job.id).run();
+    await env.GENERATION_QUEUE.send({kind:"graphic",graphicJobId:job.id},{delaySeconds:30});
+    graphicsRecovered++;
+    await recordSystemEvent(env,{severity:"warning",category:"generation",eventType:"graphic_job_recovered",entityType:"graphic_job",entityId:job.id,message:"Recovered and requeued a stale graphic job.",metadata:{generationJobId:job.generation_job_id}});
+  }
+
   await env.DB.prepare("DELETE FROM request_rate_limits WHERE window_started_at < ?")
     .bind(Date.now()-24*60*60*1000).run();
 
-  return {publishRecovered:stalePublish.results.length,generationRecovered:staleGeneration.results.length};
+  return {
+    publishRecovered:stalePublish.results.length,
+    generationRecovered:staleGeneration.results.length,
+    graphicsRecovered,
+  };
 }
 
 export async function getSystemOverview(env:OperationsEnv){
