@@ -33,7 +33,9 @@ export default function SettingsScreen(){
         prepublishMinutes:data.notifications?.prepublish_minutes??30,
         noResponsePolicy:data.notifications?.no_response_policy||"auto_publish",
       });
-    }).catch(()=>{});
+    }).catch((error)=>{
+      Alert.alert("Unable to load settings",error instanceof Error?error.message:"Try again.");
+    });
   },[]);
 
   async function save(){
