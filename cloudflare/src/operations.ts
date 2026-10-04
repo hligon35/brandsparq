@@ -183,6 +183,68 @@ export async function handleOperationsRoute(
     return {body:{data:await getSystemOverview(env)}};
   }
 
+  if(request.method==="GET"&&url.pathname==="/v1/system/access"){
+    const [users,clients,access]=await Promise.all([
+      env.DB.prepare(
+        "SELECT id,email,name,role,created_at,updated_at FROM users ORDER BY CASE role WHEN 'owner' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END,email"
+      ).all<any>(),
+      env.DB.prepare(
+        "SELECT id,name,status FROM clients WHERE COALESCE(status,'active')!='archived' ORDER BY name"
+      ).all<any>(),
+      env.DB.prepare(
+        "SELECT user_id,client_id,access_role,created_at FROM user_client_access ORDER BY created_at"
+      ).all<any>(),
+    ]);
+    return {body:{data:{users:users.results,clients:clients.results,access:access.results}}};
+  }
+
+  const roleMatch=url.pathname.match(/^\/v1\/system\/users\/([^/]+)\/role$/);
+  if(request.method==="POST"&&roleMatch){
+    const payload=await request.json<{role?:string}>().catch(()=>({}));
+    const role=String(payload.role||"").toLowerCase();
+    if(!["owner","admin","reviewer","publisher","viewer"].includes(role)){
+      return {body:{error:"Invalid workspace role."},status:400};
+    }
+    const target=await env.DB.prepare("SELECT id,role FROM users WHERE id=?").bind(roleMatch[1]).first<any>();
+    if(!target)return {body:{error:"User not found."},status:404};
+    if(target.role==="owner"&&role!=="owner"){
+      const owners=await env.DB.prepare("SELECT COUNT(*) AS count FROM users WHERE role='owner'").first<{count:number}>();
+      if(Number(owners?.count||0)<=1)return {body:{error:"BrandSparQ must keep at least one owner."},status:409};
+    }
+    await env.DB.prepare("UPDATE users SET role=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(role,target.id).run();
+    await env.DB.prepare(
+      `INSERT INTO recovery_actions (id,actor_user_id,action,entity_type,entity_id,previous_state,next_state)
+       VALUES (?,?,'change_user_role','user',?,?,?)`
+    ).bind(crypto.randomUUID(),user.id,target.id,target.role,role).run();
+    return {body:{ok:true}};
+  }
+
+  const accessMatch=url.pathname.match(/^\/v1\/system\/users\/([^/]+)\/clients\/([^/]+)$/);
+  if(accessMatch&&request.method==="POST"){
+    const payload=await request.json<{enabled?:boolean;accessRole?:string}>().catch(()=>({}));
+    const target=await env.DB.prepare("SELECT id,role FROM users WHERE id=?").bind(accessMatch[1]).first<any>();
+    const client=await env.DB.prepare("SELECT id FROM clients WHERE id=?").bind(accessMatch[2]).first<any>();
+    if(!target||!client)return {body:{error:"User or client not found."},status:404};
+    if(target.role==="owner")return {body:{error:"Owners already have workspace-wide client access."},status:409};
+
+    if(payload.enabled===false){
+      await env.DB.prepare("DELETE FROM user_client_access WHERE user_id=? AND client_id=?")
+        .bind(target.id,client.id).run();
+    }else{
+      const accessRole=String(payload.accessRole||target.role||"viewer");
+      await env.DB.prepare(
+        `INSERT INTO user_client_access (user_id,client_id,access_role)
+         VALUES (?,?,?)
+         ON CONFLICT(user_id,client_id) DO UPDATE SET access_role=excluded.access_role`
+      ).bind(target.id,client.id,accessRole).run();
+    }
+    await env.DB.prepare(
+      `INSERT INTO recovery_actions (id,actor_user_id,action,entity_type,entity_id,metadata_json)
+       VALUES (?,?,'change_client_access','user',?,?)`
+    ).bind(crypto.randomUUID(),user.id,target.id,JSON.stringify({clientId:client.id,enabled:payload.enabled!==false})).run();
+    return {body:{ok:true}};
+  }
+
   if(request.method==="POST"&&url.pathname==="/v1/system/recover"){
     const result=await recoverStaleWork(env);
     await env.DB.prepare(
