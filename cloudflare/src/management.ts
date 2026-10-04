@@ -58,46 +58,6 @@ async function authorize(
   return null;
 }
 
-async function captureAnalyticsSnapshot(env: ManagementEnv, clientId: string) {
-  const totals = await env.DB.prepare(
-    `SELECT
-       COUNT(DISTINCT CASE WHEN p.status='published' THEN p.id END) AS posts,
-       SUM(COALESCE(pm.impressions,0)) AS impressions,
-       SUM(COALESCE(pm.reach,0)) AS reach,
-       SUM(COALESCE(pm.likes,0)) AS likes,
-       SUM(COALESCE(pm.comments,0)) AS comments,
-       SUM(COALESCE(pm.shares,0)) AS shares,
-       SUM(COALESCE(pm.clicks,0)) AS clicks,
-       SUM(COALESCE(pm.saves,0)) AS saves
-     FROM posts p
-     LEFT JOIN (
-       SELECT m1.* FROM post_metrics m1
-       JOIN (
-         SELECT post_id, MAX(measured_at) AS measured_at
-         FROM post_metrics GROUP BY post_id
-       ) latest ON latest.post_id=m1.post_id AND latest.measured_at=m1.measured_at
-     ) pm ON pm.post_id=p.id
-     WHERE p.client_id=?`
-  ).bind(clientId).first<any>();
-
-  await env.DB.prepare(
-    `INSERT INTO analytics_snapshots
-     (id,client_id,posts,impressions,reach,likes,comments,shares,clicks,saves)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`
-  ).bind(
-    crypto.randomUUID(),
-    clientId,
-    Number(totals?.posts || 0),
-    Number(totals?.impressions || 0),
-    Number(totals?.reach || 0),
-    Number(totals?.likes || 0),
-    Number(totals?.comments || 0),
-    Number(totals?.shares || 0),
-    Number(totals?.clicks || 0),
-    Number(totals?.saves || 0)
-  ).run();
-}
-
 export async function handleManagementRoute(
   request: Request,
   url: URL,
@@ -693,12 +653,10 @@ export async function handleManagementRoute(
         : rows.results.filter((row) => allowedClients.includes(row.client_id));
     }
 
-    const touchedClients = new Set<string>();
     const results = [];
     for (const account of accounts) {
       try {
         const result = await syncAccountAnalytics(env, account.id);
-        touchedClients.add(account.client_id);
         results.push({ accountId: account.id, ok: true, ...result });
       } catch (error) {
         results.push({
@@ -709,9 +667,6 @@ export async function handleManagementRoute(
       }
     }
 
-    for (const touchedClient of touchedClients) {
-      await captureAnalyticsSnapshot(env, touchedClient);
-    }
 
     return { body: { ok: true, results } };
   }
