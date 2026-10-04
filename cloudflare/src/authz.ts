@@ -49,7 +49,7 @@ export async function hasClientAccess(
   clientId: string
 ) {
   const role = roleOf(user);
-  if (role === "owner" || role === "admin") return true;
+  if (role === "owner") return true;
 
   const row = await db.prepare(
     "SELECT 1 AS allowed FROM user_client_access WHERE user_id = ? AND client_id = ?"
@@ -63,7 +63,7 @@ export async function accessibleClientIds(
   user: SessionUser
 ): Promise<string[] | null> {
   const role = roleOf(user);
-  if (role === "owner" || role === "admin") return null;
+  if (role === "owner") return null;
 
   const rows = await db.prepare(
     "SELECT client_id FROM user_client_access WHERE user_id = ?"
