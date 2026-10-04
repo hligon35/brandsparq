@@ -80,6 +80,8 @@ export default function SocialConnectionsScreen(){
     try{
       await api.disconnectSocialAccount(id);
       await load();
+    }catch(error){
+      Alert.alert("Unable to disconnect",error instanceof Error?error.message:"Try again.");
     }finally{
       setWorkingId("");
     }
