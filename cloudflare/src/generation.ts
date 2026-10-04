@@ -1039,6 +1039,11 @@ export async function finalizeGenerationReview(env:GenerationEnv,jobId:string){
   ).run();
 
   for(const post of posts.results){
+    const alreadyNotified=await env.DB.prepare(
+      "SELECT id FROM notifications WHERE post_id=? AND type='review_ready' LIMIT 1"
+    ).bind(post.id).first();
+    if(alreadyNotified)continue;
+
     const deepLink=env.REVIEW_BASE_URL
       ? `${env.REVIEW_BASE_URL.replace(/\/$/,"")}/posts/${post.id}`
       : undefined;
