@@ -566,7 +566,7 @@ export async function handleManagementRoute(
       : await topStatement.all<any>();
 
     let snapshotQuery = `SELECT * FROM analytics_snapshots
-      WHERE captured_at >= datetime('now', ?)`;
+      WHERE datetime(captured_at) >= datetime('now', ?)`;
     const snapshotBindings: any[] = [`-${days} days`];
     if (clientId) {
       snapshotQuery += " AND client_id=?";
