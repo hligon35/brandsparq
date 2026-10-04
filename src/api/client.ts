@@ -259,6 +259,19 @@ export const api = {
       method: "POST",
     }),
 
+  runLaunchCertification: () =>
+    jsonRequest<{ data: {
+      id: string;
+      status: "ready" | "ready_with_warnings" | "blocked";
+      blockers: string[];
+      warnings: string[];
+      checks: Array<{ name: string; ok: boolean; level: string; detail: string }>;
+      createdAt: string;
+    } }>("/v1/system/certify", { method: "POST" }),
+
+  getLaunchCertifications: () =>
+    jsonRequest<{ data: any[] }>("/v1/system/certifications"),
+
   getAccessManagement: () =>
     jsonRequest<{ data: { users: any[]; clients: any[]; access: any[] } }>(
       "/v1/system/access"
