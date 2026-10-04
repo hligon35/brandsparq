@@ -41,6 +41,7 @@ OPENAI_API_KEY
 
 META_APP_ID
 META_APP_SECRET
+META_WEBHOOK_VERIFY_TOKEN
 
 LINKEDIN_CLIENT_ID
 LINKEDIN_CLIENT_SECRET
@@ -101,8 +102,27 @@ Supported publishing adapters:
 - Instagram image publishing through Meta
 - Facebook Page photo publishing through Meta
 - LinkedIn member image posts
-- TikTok photo direct posting
+- LinkedIn organization image posts when approved organization scopes are configured
+- TikTok photo direct posting with provider-status polling
 - X image posts
+
+BrandSparQ now distinguishes provider acceptance from confirmed publication. TikTok posts remain in `provider_processing` until the provider confirms completion.
+
+Connected social accounts are health-checked periodically and can also be verified manually from Social Connections.
+
+Meta webhook endpoint:
+
+```text
+https://brandsparq.getsparqd.com/v1/social/webhooks/meta
+```
+
+Configure the same `META_WEBHOOK_VERIFY_TOKEN` in Meta and the Worker. POST events are validated with Meta's `x-hub-signature-256` signature before storage.
+
+Optional LinkedIn organization publishing requires app approval for organization scopes. Set only scopes your LinkedIn app has actually been granted, for example:
+
+```text
+LINKEDIN_ORGANIZATION_SCOPES=w_organization_social r_organization_social
+```
 
 Provider app permissions/review requirements still apply. BrandSparQ cannot bypass provider approval or account eligibility requirements.
 
@@ -176,7 +196,7 @@ Verify:
 7. Approval adds the post to Calendar.
 8. A social account can be connected and assigned.
 9. Test notification delivers.
-10. Publish Now creates a live provider post.
+10. Publish Now creates a provider post and asynchronous providers reach confirmed `published` status.
 11. Analytics sync stores a metric snapshot.
 12. A failed provider request produces a readable failure notification.
 
