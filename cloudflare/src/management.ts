@@ -168,7 +168,8 @@ export async function handleManagementRoute(
     const allowedClients = await accessibleClientIds(env.DB, user);
     const query = `SELECT id, client_id, platform, account_name, external_account_id,
        status, token_expires_at, scopes, account_type, last_verified_at, last_error,
-       created_at, updated_at FROM social_accounts`;
+       health_status, health_checked_at, permission_status, rate_limit_reset_at,
+       is_default, created_at, updated_at FROM social_accounts`;
     const rows = clientId
       ? await env.DB.prepare(`${query} WHERE client_id = ? ORDER BY platform, account_name`).bind(clientId).all()
       : await env.DB.prepare(`${query} ORDER BY client_id, platform, account_name`).all();
@@ -202,6 +203,27 @@ export async function handleManagementRoute(
       return {
         body: { error: error instanceof Error ? error.message : "Social connection failed." },
         status: 400,
+      };
+    }
+  }
+
+  const verifyMatch = url.pathname.match(/^\/v1\/social\/accounts\/([^/]+)\/verify$/);
+  if (verifyMatch && request.method === "POST") {
+    const account = await env.DB.prepare(
+      "SELECT client_id FROM social_accounts WHERE id = ?"
+    ).bind(verifyMatch[1]).first<{ client_id: string }>();
+    if (!account) return { body: { error: "Social account not found." }, status: 404 };
+
+    const denied = await authorize(env, user, "social_manage", account.client_id);
+    if (denied) return { body: { error: denied }, status: 403 };
+
+    try {
+      const result = await verifySocialAccount(env, verifyMatch[1]);
+      return { body: { ok: true, data: result } };
+    } catch (error) {
+      return {
+        body: { error: error instanceof Error ? error.message : "Verification failed." },
+        status: 409,
       };
     }
   }
