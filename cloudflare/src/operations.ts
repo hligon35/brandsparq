@@ -13,6 +13,8 @@ export interface OperationsEnv {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   RESEND_API_KEY?: string;
+  RESEND_FROM_EMAIL?: string;
+  REVIEW_NOTIFICATION_EMAIL?: string;
   OPENAI_API_KEY?: string;
   SOCIAL_TOKEN_KEY?: string;
   PUBLIC_BASE_URL?: string;
@@ -77,6 +79,8 @@ export async function readiness(env:OperationsEnv){
     ["GOOGLE_CLIENT_ID",env.GOOGLE_CLIENT_ID],
     ["GOOGLE_CLIENT_SECRET",env.GOOGLE_CLIENT_SECRET],
     ["RESEND_API_KEY",env.RESEND_API_KEY],
+    ["RESEND_FROM_EMAIL",env.RESEND_FROM_EMAIL],
+    ["REVIEW_NOTIFICATION_EMAIL",env.REVIEW_NOTIFICATION_EMAIL],
     ["OPENAI_API_KEY",env.OPENAI_API_KEY],
     ["SOCIAL_TOKEN_KEY",env.SOCIAL_TOKEN_KEY],
     ["PUBLIC_BASE_URL",env.PUBLIC_BASE_URL],
