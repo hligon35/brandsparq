@@ -185,6 +185,7 @@ cd cloudflare
 npx wrangler d1 migrations apply brandsparq --remote
 cd ..
 npm run deploy:production
+npm run smoke:production
 ```
 
 Production deployment now fails fast unless the app TypeScript check, Worker TypeScript check, and Expo web export all succeed.
@@ -232,3 +233,10 @@ BrandSparQ now uses live API data only. Client setup includes:
 - approved reference images
 
 The canonical schema is the ordered migration set in `cloudflare/migrations/`; the obsolete standalone `schema.sql` file was removed.
+
+
+## Launch certification
+
+After the latest migrations and deployment, sign in as an owner and open **More → System Health → Run launch check**. A `blocked` result is a release blocker. Review all warnings before launch.
+
+See `docs/SPRINT8.md` for the complete launch-certification and manual acceptance process.
