@@ -50,12 +50,14 @@ queue = "brandsparq-generation"
 queue = "brandsparq-publish"
 max_batch_size = 10
 max_retries = 3
+max_concurrency = 5
 dead_letter_queue = "brandsparq-publish-dlq"
 
 [[queues.consumers]]
 queue = "brandsparq-generation"
 max_batch_size = 2
 max_retries = 2
+max_concurrency = 2
 dead_letter_queue = "brandsparq-generation-dlq"
 
 [triggers]
