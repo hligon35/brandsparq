@@ -35,7 +35,73 @@ type SocialAccountRow = {
   scopes?: string | null;
   metadata?: string | null;
   account_type?: string | null;
+  health_status?: string | null;
+  health_checked_at?: string | null;
 };
+
+export class SocialProviderError extends Error {
+  status?: number;
+  category: "rate_limit" | "authorization" | "temporary" | "permanent";
+  retryable: boolean;
+  retryAfterSeconds?: number;
+
+  constructor(
+    message: string,
+    options: {
+      status?: number;
+      category?: "rate_limit" | "authorization" | "temporary" | "permanent";
+      retryable?: boolean;
+      retryAfterSeconds?: number;
+    } = {}
+  ) {
+    super(message);
+    this.name = "SocialProviderError";
+    this.status = options.status;
+    this.category = options.category || "permanent";
+    this.retryable = options.retryable ?? false;
+    this.retryAfterSeconds = options.retryAfterSeconds;
+  }
+}
+
+function classifyProviderResponse(response: Response, detail: string) {
+  const status = response.status;
+  const retryAfterHeader = response.headers.get("retry-after");
+  const retryAfter = retryAfterHeader ? Number(retryAfterHeader) : undefined;
+
+  if (status === 429) {
+    return new SocialProviderError(detail, {
+      status,
+      category: "rate_limit",
+      retryable: true,
+      retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : 300,
+    });
+  }
+  if (status === 401 || status === 403) {
+    return new SocialProviderError(detail, {
+      status,
+      category: "authorization",
+      retryable: false,
+    });
+  }
+  if (status >= 500 || status === 408) {
+    return new SocialProviderError(detail, {
+      status,
+      category: "temporary",
+      retryable: true,
+    });
+  }
+  return new SocialProviderError(detail, {
+    status,
+    category: "permanent",
+    retryable: false,
+  });
+}
+
+async function requireProviderOk(response: Response, label: string) {
+  if (response.ok) return response;
+  const detail = (await response.text()).slice(0, 1000);
+  throw classifyProviderResponse(response, `${label}: ${detail}`);
+}
 
 function randomToken(bytes = 32) {
   const value = new Uint8Array(bytes);
@@ -564,6 +630,8 @@ async function accountToken(env: SocialEnv, account: SocialAccountRow) {
        token_expires_at = ?,
        scopes = COALESCE(?, scopes),
        status = 'connected',
+       health_status = 'healthy',
+       health_checked_at = ?,
        last_error = NULL,
        last_verified_at = ?,
        updated_at = CURRENT_TIMESTAMP
@@ -573,6 +641,7 @@ async function accountToken(env: SocialEnv, account: SocialAccountRow) {
     await encryptSecret(nextRefresh, env),
     nextExpiresAt,
     refreshed.scope || null,
+    new Date().toISOString(),
     new Date().toISOString(),
     account.id
   ).run();
@@ -612,7 +681,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
         }),
       }
     );
-    if (!create.ok) throw new Error(`Instagram media creation failed: ${await create.text()}`);
+    await requireProviderOk(create, "Instagram media creation failed");
     const container = await create.json<any>();
     const publish = await fetch(
       `https://graph.facebook.com/v23.0/${post.external_account_id}/media_publish`,
@@ -625,7 +694,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
         }),
       }
     );
-    if (!publish.ok) throw new Error(`Instagram publishing failed: ${await publish.text()}`);
+    await requireProviderOk(publish, "Instagram publishing failed");
     raw = await publish.json<any>();
     providerPostId = (raw as any).id || null;
   } else if (post.platform === "facebook") {
@@ -641,7 +710,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
         }),
       }
     );
-    if (!publish.ok) throw new Error(`Facebook publishing failed: ${await publish.text()}`);
+    await requireProviderOk(publish, "Facebook publishing failed");
     raw = await publish.json<any>();
     providerPostId = (raw as any).post_id || (raw as any).id || null;
   } else if (post.platform === "linkedin") {
@@ -656,7 +725,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       },
       body: JSON.stringify({ initializeUploadRequest: { owner } }),
     });
-    if (!init.ok) throw new Error(`LinkedIn upload initialization failed: ${await init.text()}`);
+    await requireProviderOk(init, "LinkedIn upload initialization failed");
     const initPayload = await init.json<any>();
     const uploadUrl = initPayload.value?.uploadUrl;
     const imageUrn = initPayload.value?.image;
@@ -667,7 +736,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       headers: { authorization: `Bearer ${token}`, "content-type": imageBlob.type || "image/jpeg" },
       body: imageBlob,
     });
-    if (!upload.ok) throw new Error("LinkedIn image upload failed.");
+    await requireProviderOk(upload, "LinkedIn image upload failed");
 
     const publish = await fetch("https://api.linkedin.com/rest/posts", {
       method: "POST",
@@ -691,7 +760,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
         isReshareDisabledByAuthor: false,
       }),
     });
-    if (!publish.ok) throw new Error(`LinkedIn publishing failed: ${await publish.text()}`);
+    await requireProviderOk(publish, "LinkedIn publishing failed");
     raw = { id: publish.headers.get("x-restli-id") };
     providerPostId = (raw as any).id || null;
   } else if (post.platform === "tiktok") {
@@ -720,7 +789,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
         }),
       }
     );
-    if (!publish.ok) throw new Error(`TikTok publishing failed: ${await publish.text()}`);
+    await requireProviderOk(publish, "TikTok publishing failed");
     raw = await publish.json<any>();
     providerPostId = (raw as any).data?.publish_id || null;
   } else {
@@ -734,7 +803,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       headers: { authorization: `Bearer ${token}` },
       body: form,
     });
-    if (!media.ok) throw new Error(`X media upload failed: ${await media.text()}`);
+    await requireProviderOk(media, "X media upload failed");
     const mediaPayload = await media.json<any>();
     const mediaId = mediaPayload.data?.id || mediaPayload.media_id_string;
     const publish = await fetch("https://api.x.com/2/tweets", {
@@ -748,41 +817,62 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
         media: { media_ids: [mediaId] },
       }),
     });
-    if (!publish.ok) throw new Error(`X publishing failed: ${await publish.text()}`);
+    await requireProviderOk(publish, "X publishing failed");
     raw = await publish.json<any>();
     providerPostId = (raw as any).data?.id || null;
     if (providerPostId) providerPostUrl = `https://x.com/i/web/status/${providerPostId}`;
   }
 
   const receiptId = crypto.randomUUID();
+  const asynchronous = post.platform === "tiktok";
+  const receiptStatus = asynchronous ? "provider_processing" : "published";
+  const providerStatus = asynchronous ? "submitted" : "confirmed";
+  const now = new Date().toISOString();
+
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO social_publish_receipts
-       (id, post_id, social_account_id, provider_post_id, provider_post_url, status, raw_json)
-       VALUES (?, ?, ?, ?, ?, 'published', ?)`
+       (id, post_id, social_account_id, provider_post_id, provider_post_url,
+        status, provider_status, last_checked_at, confirmed_at, raw_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       receiptId,
       post.id,
       post.social_account_id,
       providerPostId,
       providerPostUrl,
+      receiptStatus,
+      providerStatus,
+      now,
+      asynchronous ? null : now,
       JSON.stringify(raw || {})
     ),
     env.DB.prepare(
       `UPDATE posts SET
-       status = 'published', platform_post_id = ?, platform_url = ?,
-       published_at = ?, updated_at = ?
+       status = ?,
+       platform_post_id = ?,
+       platform_url = ?,
+       published_at = ?,
+       updated_at = ?
        WHERE id = ?`
     ).bind(
+      asynchronous ? "provider_processing" : "published",
       providerPostId,
       providerPostUrl,
-      new Date().toISOString(),
-      new Date().toISOString(),
+      asynchronous ? null : now,
+      now,
       post.id
     ),
   ]);
 
-  return { receiptId, providerPostId, providerPostUrl, raw };
+  return {
+    receiptId,
+    providerPostId,
+    providerPostUrl,
+    raw,
+    confirmed: !asynchronous,
+    status: receiptStatus,
+  };
 }
 
 export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
@@ -940,4 +1030,226 @@ export async function ensurePostSocialDestination(
   ).bind(fallback.id, post.id).run();
 
   return fallback;
+}
+
+
+export async function verifySocialAccount(env: SocialEnv, accountId: string) {
+  const account = await env.DB.prepare(
+    "SELECT * FROM social_accounts WHERE id = ?"
+  ).bind(accountId).first<SocialAccountRow>();
+  if (!account) throw new Error("Social account not found.");
+
+  try {
+    const token = await accountToken(env, account);
+    let response: Response;
+
+    if (account.platform === "facebook" || account.platform === "instagram") {
+      response = await fetch(
+        `https://graph.facebook.com/v23.0/${account.external_account_id}?fields=id,name&access_token=${encodeURIComponent(token)}`
+      );
+    } else if (account.platform === "linkedin") {
+      response = await fetch("https://api.linkedin.com/v2/userinfo", {
+        headers: { authorization: `Bearer ${token}` },
+      });
+    } else if (account.platform === "tiktok") {
+      response = await fetch(
+        "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name",
+        { headers: { authorization: `Bearer ${token}` } }
+      );
+    } else {
+      response = await fetch("https://api.x.com/2/users/me", {
+        headers: { authorization: `Bearer ${token}` },
+      });
+    }
+
+    await requireProviderOk(response, "Social connection verification failed");
+    const now = new Date().toISOString();
+
+    await env.DB.prepare(
+      `UPDATE social_accounts SET
+       status='connected',
+       health_status='healthy',
+       health_checked_at=?,
+       permission_status='verified',
+       last_verified_at=?,
+       last_error=NULL,
+       updated_at=CURRENT_TIMESTAMP
+       WHERE id=?`
+    ).bind(now, now, accountId).run();
+
+    return { ok: true, health: "healthy", checkedAt: now };
+  } catch (error) {
+    const providerError = error instanceof SocialProviderError ? error : null;
+    const reauth = providerError?.category === "authorization";
+    const health = reauth ? "reauth_required" : "degraded";
+    const message = error instanceof Error ? error.message.slice(0, 1000) : "Verification failed";
+
+    await env.DB.prepare(
+      `UPDATE social_accounts SET
+       status=CASE WHEN ? THEN 'reauth_required' ELSE status END,
+       health_status=?,
+       health_checked_at=?,
+       permission_status=?,
+       last_error=?,
+       rate_limit_reset_at=?,
+       updated_at=CURRENT_TIMESTAMP
+       WHERE id=?`
+    ).bind(
+      reauth ? 1 : 0,
+      health,
+      new Date().toISOString(),
+      reauth ? "reauth_required" : "unknown",
+      message,
+      providerError?.retryAfterSeconds
+        ? new Date(Date.now() + providerError.retryAfterSeconds * 1000).toISOString()
+        : null,
+      accountId
+    ).run();
+
+    throw error;
+  }
+}
+
+export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
+  const receipt = await env.DB.prepare(
+    `SELECT r.*, sa.platform, sa.access_token_ciphertext,
+            sa.refresh_token_ciphertext, sa.token_expires_at,
+            sa.external_account_id, sa.metadata, sa.account_type
+     FROM social_publish_receipts r
+     JOIN social_accounts sa ON sa.id = r.social_account_id
+     WHERE r.id = ?`
+  ).bind(receiptId).first<any>();
+
+  if (!receipt) throw new Error("Publish receipt not found.");
+  if (receipt.status === "published" || receipt.status === "failed") {
+    return { status: receipt.status, providerStatus: receipt.provider_status };
+  }
+
+  const account = receipt as SocialAccountRow;
+  const token = await accountToken(env, account);
+
+  if (receipt.platform !== "tiktok") {
+    const now = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE social_publish_receipts SET
+         status='published',provider_status='confirmed',
+         last_checked_at=?,confirmed_at=COALESCE(confirmed_at,?)
+         WHERE id=?`
+      ).bind(now, now, receiptId),
+      env.DB.prepare(
+        `UPDATE posts SET
+         status='published',
+         published_at=COALESCE(published_at,?),
+         updated_at=?
+         WHERE id=?`
+      ).bind(now, now, receipt.post_id),
+    ]);
+    return { status: "published", providerStatus: "confirmed" };
+  }
+
+  const response = await fetch(
+    "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json; charset=UTF-8",
+      },
+      body: JSON.stringify({ publish_id: receipt.provider_post_id }),
+    }
+  );
+  await requireProviderOk(response, "TikTok publish status check failed");
+  const payload = await response.json<any>();
+  const providerStatus = String(
+    payload?.data?.status || payload?.data?.publish_status || "PROCESSING"
+  ).toUpperCase();
+  const now = new Date().toISOString();
+
+  const complete =
+    providerStatus.includes("COMPLETE") ||
+    providerStatus.includes("PUBLISHED") ||
+    providerStatus === "SUCCESS";
+  const failed =
+    providerStatus.includes("FAIL") ||
+    providerStatus.includes("ERROR") ||
+    providerStatus.includes("REJECT");
+
+  await env.DB.prepare(
+    `INSERT INTO social_status_checks
+     (id,receipt_id,social_account_id,platform,status,provider_status,error_message)
+     VALUES (?,?,?,?,?,?,?)`
+  ).bind(
+    crypto.randomUUID(),
+    receiptId,
+    receipt.social_account_id,
+    receipt.platform,
+    complete ? "published" : failed ? "failed" : "provider_processing",
+    providerStatus,
+    failed ? JSON.stringify(payload).slice(0, 1000) : null
+  ).run();
+
+  if (complete) {
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE social_publish_receipts SET
+         status='published',provider_status=?,last_checked_at=?,confirmed_at=?
+         WHERE id=?`
+      ).bind(providerStatus, now, now, receiptId),
+      env.DB.prepare(
+        `UPDATE posts SET
+         status='published',
+         published_at=COALESCE(published_at,?),
+         updated_at=?
+         WHERE id=?`
+      ).bind(now, now, receipt.post_id),
+    ]);
+    return { status: "published", providerStatus };
+  }
+
+  if (failed) {
+    const detail = JSON.stringify(payload).slice(0, 1500);
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE social_publish_receipts SET
+         status='failed',provider_status=?,last_checked_at=?,
+         error_category='permanent',error_code='PROVIDER_REJECTED'
+         WHERE id=?`
+      ).bind(providerStatus, now, receiptId),
+      env.DB.prepare(
+        `UPDATE posts SET
+         status='failed',
+         failure_code='PROVIDER_REJECTED',
+         failure_message=?,
+         updated_at=?
+         WHERE id=?`
+      ).bind(detail, now, receipt.post_id),
+    ]);
+    return { status: "failed", providerStatus };
+  }
+
+  await env.DB.prepare(
+    `UPDATE social_publish_receipts SET
+     status='provider_processing',provider_status=?,last_checked_at=?
+     WHERE id=?`
+  ).bind(providerStatus, now, receiptId).run();
+
+  return { status: "provider_processing", providerStatus };
+}
+
+export async function checkPendingPublishReceipts(env: SocialEnv, limit = 25) {
+  const rows = await env.DB.prepare(
+    `SELECT id FROM social_publish_receipts
+     WHERE status='provider_processing'
+     ORDER BY COALESCE(last_checked_at, created_at) ASC
+     LIMIT ?`
+  ).bind(limit).all<{ id: string }>();
+
+  const results = [];
+  for (const row of rows.results) {
+    try {
+      results.push(await checkPublishReceipt(env, row.id));
+    } catch {}
+  }
+  return results;
 }
