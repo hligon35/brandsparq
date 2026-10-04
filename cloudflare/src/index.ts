@@ -947,14 +947,23 @@ export default {
 
       const id = crypto.randomUUID();
       const timezone = payload.timezone?.trim() || "America/Indiana/Indianapolis";
-      await env.DB.batch([
+      const statements = [
         env.DB.prepare(
           "INSERT INTO clients (id, name, timezone, status, created_at, updated_at) VALUES (?, ?, ?, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
         ).bind(id, name, timezone),
         env.DB.prepare(
           "INSERT INTO brand_profiles (id, client_id, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
         ).bind(crypto.randomUUID(), id),
-      ]);
+      ];
+      if (sessionUser!.role !== "owner") {
+        statements.push(
+          env.DB.prepare(
+            `INSERT INTO user_client_access (user_id,client_id,access_role)
+             VALUES (?,?,?)`
+          ).bind(sessionUser!.id,id,sessionUser!.role)
+        );
+      }
+      await env.DB.batch(statements);
 
       return response(request, env, { ok: true, id, name, timezone }, { status: 201 });
     }
