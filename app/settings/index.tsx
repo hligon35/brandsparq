@@ -26,6 +26,10 @@ export default function SettingsScreen(){
         pushEnabled:Boolean(data.notifications?.push_enabled??1),
         inAppEnabled:Boolean(data.notifications?.in_app_enabled??1),
         reviewEmailEnabled:Boolean(data.notifications?.review_email_enabled??1),
+        reviewReadyEnabled:Boolean(data.notifications?.review_ready_enabled??1),
+        prepublishEnabled:Boolean(data.notifications?.prepublish_enabled??1),
+        publishSuccessEnabled:Boolean(data.notifications?.publish_success_enabled??1),
+        publishFailureEnabled:Boolean(data.notifications?.publish_failure_enabled??1),
         prepublishMinutes:data.notifications?.prepublish_minutes??30,
         noResponsePolicy:data.notifications?.no_response_policy||"auto_publish",
       });
@@ -69,7 +73,12 @@ export default function SettingsScreen(){
       {toggle("Email notifications","emailEnabled")}
       {toggle("Push notifications","pushEnabled")}
       {toggle("In-app notifications","inAppEnabled")}
-      {toggle("Review emails","reviewEmailEnabled")}
+      {toggle("Review-link emails","reviewEmailEnabled")}
+      <Text style={styles.groupLabel}>Alert types</Text>
+      {toggle("Content ready for review","reviewReadyEnabled")}
+      {toggle("Pre-publish decisions","prepublishEnabled")}
+      {toggle("Publish confirmations","publishSuccessEnabled")}
+      {toggle("Publish failures","publishFailureEnabled")}
       {numberField("Pre-publish alert (minutes)","prepublishMinutes",notifications.prepublishMinutes,v=>setNotifications({...notifications,prepublishMinutes:v}))}
       <View style={styles.field}><Text style={styles.label}>No-response policy</Text><View style={styles.policyRow}>{["auto_publish","hold","skip"].map(policy=><Text key={policy} onPress={()=>setNotifications({...notifications,noResponsePolicy:policy})} style={[styles.policy,notifications.noResponsePolicy===policy&&styles.policyActive]}>{policy.replace("_"," ")}</Text>)}</View></View>
     </Card>
@@ -84,6 +93,7 @@ const styles=StyleSheet.create({
   input:{minHeight:48,color:colors.text,backgroundColor:colors.surface2,borderRadius:radius.md,borderWidth:1,borderColor:colors.border,paddingHorizontal:spacing.md,fontSize:15},
   toggle:{flexDirection:"row",alignItems:"center",justifyContent:"space-between",paddingVertical:9,borderBottomWidth:1,borderBottomColor:colors.border},
   toggleText:{color:colors.text,fontWeight:"700"},
+  groupLabel:{color:colors.primary,fontSize:11,fontWeight:"900",textTransform:"uppercase",letterSpacing:.8,marginTop:spacing.md},
   policyRow:{flexDirection:"row",flexWrap:"wrap",gap:8},
   policy:{color:colors.textSoft,backgroundColor:colors.surface2,paddingHorizontal:13,paddingVertical:9,borderRadius:999,textTransform:"capitalize",overflow:"hidden"},
   policyActive:{backgroundColor:colors.primary,color:colors.white}
