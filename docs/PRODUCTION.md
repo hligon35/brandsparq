@@ -177,9 +177,15 @@ Metrics are stored as snapshots in `post_metrics`, preserving historical measure
 From the repository root:
 
 ```bash
-npm install
-npm run deploy:worker
+npm ci
+npm ci --prefix cloudflare
+cd cloudflare
+npx wrangler d1 migrations apply brandsparq --remote
+cd ..
+npm run deploy:production
 ```
+
+Production deployment now fails fast unless the app TypeScript check, Worker TypeScript check, and Expo web export all succeed.
 
 The deploy script exports Expo web to `dist/` and deploys the Worker plus static assets.
 
@@ -199,6 +205,19 @@ Verify:
 10. Publish Now creates a provider post and asynchronous providers reach confirmed `published` status.
 11. Analytics sync stores a metric snapshot.
 12. A failed provider request produces a readable failure notification.
+13. Owner can open More → System Health and readiness is healthy.
+14. Owner can open More → Access management.
+15. A non-owner account can access only explicitly assigned clients.
+
+## Production operations
+
+Sprint 7 adds owner-only System Health and Access Management workspaces.
+
+The one-minute cron recovers stale publishing, generation, and graphic work and cleans expired authentication/review/media tokens. Operational incidents are persisted in D1.
+
+Only owners have implicit access to all clients. Every non-owner role requires an explicit row in `user_client_access`.
+
+The public `/health` endpoint intentionally returns only minimal dependency state. Detailed diagnostics are authenticated and owner-only.
 
 
 ## Client and Brand Brain production data
