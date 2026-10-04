@@ -32,6 +32,9 @@ jobs:
       - name: Install Worker dependencies
         run: npm ci --prefix cloudflare
 
+      - name: Launch configuration audit
+        run: npm run audit:launch
+
       - name: Typecheck app
         run: npm run typecheck
 
