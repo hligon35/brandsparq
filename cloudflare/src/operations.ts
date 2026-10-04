@@ -134,7 +134,7 @@ export async function recoverStaleWork(env:OperationsEnv){
   }
 
   const staleGraphics=await env.DB.prepare(
-    `SELECT id,generation_job_id,status,attempt_count,max_attempts
+    `SELECT id,generation_job_id,status,attempt_count
      FROM graphic_jobs
      WHERE status IN ('queued','processing','retrying')
        AND updated_at < datetime('now','-30 minutes')
@@ -143,7 +143,7 @@ export async function recoverStaleWork(env:OperationsEnv){
 
   let graphicsRecovered=0;
   for(const job of staleGraphics.results){
-    if(Number(job.attempt_count)>=Number(job.max_attempts||3)){
+    if(Number(job.attempt_count)>=3){
       await env.DB.prepare(
         `UPDATE graphic_jobs SET status='failed',last_error=COALESCE(last_error,'Graphic worker timed out.'),completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`
       ).bind(job.id).run();
