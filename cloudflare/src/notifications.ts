@@ -250,7 +250,8 @@ export async function notifyPostOwners(
   type: string,
   title: string,
   body: string,
-  deepLink?: string
+  deepLink?: string,
+  options?: { suppressEmail?: boolean }
 ) {
   const users = await env.DB.prepare(
     "SELECT id FROM users WHERE role IN ('owner','admin')"
@@ -265,6 +266,7 @@ export async function notifyPostOwners(
       title,
       body,
       deepLink,
+      suppressEmail: options?.suppressEmail,
     }));
   }
   return results;
