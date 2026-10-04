@@ -14,6 +14,7 @@ type NotifyInput = {
   body: string;
   deepLink?: string | null;
   email?: string | null;
+  suppressEmail?: boolean;
 };
 
 type DeliveryResult = {
@@ -160,6 +161,7 @@ export async function deliverNotification(
                 COALESCE(np.email_enabled, 1) AS email_enabled,
                 COALESCE(np.push_enabled, 1) AS push_enabled,
                 COALESCE(np.in_app_enabled, 1) AS in_app_enabled,
+                COALESCE(np.review_email_enabled, 1) AS review_email_enabled,
                 COALESCE(np.review_ready_enabled, 1) AS review_ready_enabled,
                 COALESCE(np.prepublish_enabled, 1) AS prepublish_enabled,
                 COALESCE(np.publish_success_enabled, 1) AS publish_success_enabled,
@@ -204,7 +206,9 @@ export async function deliverNotification(
     await recordDelivery(env, id, "in_app", input.userId || null, result);
   }
 
-  if (email && Number(user?.email_enabled ?? 1)) {
+  const reviewEmailAllowed =
+    !input.type.includes("review") || Number(user?.review_email_enabled ?? 1) === 1;
+  if (!input.suppressEmail && email && Number(user?.email_enabled ?? 1) && reviewEmailAllowed) {
     const result = await sendEmail(env, email, input);
     outcomes.push(result);
     await recordDelivery(env, id, "email", email, result);
