@@ -17,6 +17,7 @@ const requiredFiles=[
   "assets/brandsparqLogo.png",
   "cloudflare/wrangler.toml",
   "cloudflare/migrations/0015_sprint7_production_hardening.sql",
+  "cloudflare/migrations/0016_sprint8_launch_certification.sql",
   "docs/PRODUCTION.md",
 ];
 for(const file of requiredFiles) if(!exists(file)) fail(`Missing required release file: ${file}`);
@@ -43,6 +44,7 @@ if(app.expo?.scheme!=="brandsparq") fail("Expo scheme must be brandsparq.");
 if(app.expo?.web?.output!=="single") fail("Expo web output must remain single-page for Worker asset routing.");
 if(!app.expo?.icon||!exists(app.expo.icon.replace(/^\.\//,""))) fail("Expo app icon is missing.");
 if(!app.expo?.web?.favicon||!exists(app.expo.web.favicon.replace(/^\.\//,""))) fail("Expo favicon is missing.");
+if(!app.expo?.extra?.eas?.projectId) warn("EAS projectId is not linked yet; native push/release setup remains incomplete until eas init.");
 
 const api=read("src/api/client.ts");
 if(!api.includes('https://brandsparq.getsparqd.com')) fail("Native production API fallback is not configured.");
