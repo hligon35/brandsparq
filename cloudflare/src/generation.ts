@@ -1,4 +1,5 @@
 import { resolveDefaultSocialAccount } from "./social";
+import { notifyPostOwners } from "./notifications";
 import {
   creativeProfile,
   deterministicComposition,
@@ -960,7 +961,15 @@ export async function finalizeGenerationReview(env:GenerationEnv,jobId:string){
   ).bind(jobId).all<any>();
 
   let emailSent=!!job.review_email_sent_at;
-  if(!emailSent&&posts.results.length){
+  const reviewEmailPreference=await env.DB.prepare(
+    `SELECT COALESCE(np.review_email_enabled,1) AS enabled
+     FROM users u
+     LEFT JOIN notification_preferences np ON np.user_id=u.id
+     WHERE u.role='owner'
+     ORDER BY u.created_at ASC LIMIT 1`
+  ).first<{enabled:number}>();
+  const reviewEmailEnabled=Number(reviewEmailPreference?.enabled??1)===1;
+  if(!emailSent&&reviewEmailEnabled&&posts.results.length){
     const reviewItems:Array<{title:string;platform:string;time:string;token:string}>=[];
     for(const [index,post] of posts.results.entries()){
       const token=randomToken();
@@ -1028,6 +1037,21 @@ export async function finalizeGenerationReview(env:GenerationEnv,jobId:string){
     Number(failed?.count||0),
     jobId
   ).run();
+
+  for(const post of posts.results){
+    const deepLink=env.REVIEW_BASE_URL
+      ? `${env.REVIEW_BASE_URL.replace(/\/$/,"")}/posts/${post.id}`
+      : undefined;
+    await notifyPostOwners(
+      env,
+      post.id,
+      "review_ready",
+      "New BrandSparQ post ready for review",
+      `${job.client_name} has a ${String(post.platform).toUpperCase()} post waiting for approval.`,
+      deepLink,
+      { suppressEmail:true }
+    );
+  }
 
   return {
     ready:true,
