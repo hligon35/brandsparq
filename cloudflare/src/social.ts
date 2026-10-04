@@ -1089,19 +1089,49 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
         }
       } else if (account.platform === "instagram") {
         const result = await fetch(
-          `https://graph.facebook.com/v23.0/${post.platform_post_id}/insights?metric=impressions,reach,likes,comments,saved,shares&access_token=${encodeURIComponent(token)}`
+          `https://graph.facebook.com/v23.0/${post.platform_post_id}/insights?metric=views,reach,likes,comments,saved,shares&access_token=${encodeURIComponent(token)}`
         );
         if (result.ok) {
           const payload = await result.json<any>();
           const byName = Object.fromEntries((payload.data || []).map((m: any) => [m.name, m.values?.[0]?.value ?? m.total_value?.value]));
           metrics = {
-            impressions: byName.impressions,
+            impressions: byName.views ?? byName.impressions,
             reach: byName.reach,
             likes: byName.likes,
             comments: byName.comments,
             shares: byName.shares,
             saves: byName.saved,
             raw: payload,
+          };
+        }
+      } else if (account.platform === "facebook") {
+        const insights = await fetch(
+          `https://graph.facebook.com/v23.0/${post.platform_post_id}/insights?metric=post_media_view,post_total_media_view_unique,post_clicks,post_reactions_by_type_total&access_token=${encodeURIComponent(token)}`
+        );
+        const engagement = await fetch(
+          `https://graph.facebook.com/v23.0/${post.platform_post_id}?fields=comments.limit(0).summary(true),shares&access_token=${encodeURIComponent(token)}`
+        );
+        if (insights.ok || engagement.ok) {
+          const insightPayload = insights.ok ? await insights.json<any>() : {};
+          const engagementPayload = engagement.ok ? await engagement.json<any>() : {};
+          const byName = Object.fromEntries(
+            (insightPayload.data || []).map((m: any) => [
+              m.name,
+              m.values?.[0]?.value ?? m.total_value?.value,
+            ])
+          );
+          const reactions = byName.post_reactions_by_type_total || {};
+          const likes = typeof reactions === "number"
+            ? reactions
+            : Object.values(reactions).reduce((sum: number, value: any) => sum + Number(value || 0), 0);
+          metrics = {
+            impressions: byName.post_media_view,
+            reach: byName.post_total_media_view_unique,
+            likes,
+            comments: engagementPayload?.comments?.summary?.total_count,
+            shares: engagementPayload?.shares?.count,
+            clicks: byName.post_clicks,
+            raw: { insights: insightPayload, engagement: engagementPayload },
           };
         }
       } else if (account.platform === "tiktok") {
