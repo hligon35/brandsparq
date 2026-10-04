@@ -350,6 +350,15 @@ async function upsertAccount(
     )
     .run();
 
+  await env.DB.prepare(
+    `UPDATE social_accounts SET
+     health_status='healthy',
+     health_checked_at=COALESCE(health_checked_at,last_verified_at,CURRENT_TIMESTAMP),
+     permission_status=COALESCE(permission_status,'verified'),
+     last_error=NULL
+     WHERE id=?`
+  ).bind(id).run();
+
   const defaultAccount = await env.DB.prepare(
     `SELECT id FROM social_accounts
      WHERE client_id = ? AND platform = ? AND is_default = 1 AND status = 'connected'
