@@ -9,6 +9,8 @@ function count(rows:any[],status:string){return Number(rows?.find(row=>row.statu
 export default function SystemHealthScreen(){
   const [data,setData]=useState<any>();
   const [loading,setLoading]=useState(false);
+  const [certification,setCertification]=useState<any>();
+  const [certifying,setCertifying]=useState(false);
 
   async function load(){
     setLoading(true);
@@ -17,6 +19,23 @@ export default function SystemHealthScreen(){
     finally{setLoading(false);}
   }
   useEffect(()=>{void load();},[]);
+
+  async function certify(){
+    setCertifying(true);
+    try{
+      const result=await api.runLaunchCertification();
+      setCertification(result.data);
+      if(result.data.status==="blocked"){
+        Alert.alert("Launch blocked",result.data.blockers.join("\n")||"Resolve the failed launch checks.");
+      }else{
+        Alert.alert(
+          result.data.status==="ready"?"Launch checks passed":"Ready with warnings",
+          result.data.warnings.join("\n")||"BrandSparQ passed all automated launch checks."
+        );
+      }
+    }catch(e){Alert.alert("Certification failed",e instanceof Error?e.message:"Try again.");}
+    finally{setCertifying(false);}
+  }
 
   async function recover(){
     try{
@@ -45,6 +64,7 @@ export default function SystemHealthScreen(){
       subtitle="Production readiness, queue recovery, active incidents, and failed publishing."
       action={<View style={styles.actions}>
         <Button label={loading?"Refreshing…":"Refresh"} small secondary onPress={loading?undefined:load}/>
+        <Button label={certifying?"Checking…":"Run launch check"} small secondary onPress={certifying?undefined:certify}/>
         <Button label="Recover stuck work" small onPress={recover}/>
       </View>}
     />
@@ -67,6 +87,25 @@ export default function SystemHealthScreen(){
         <Text style={styles.muted}>Active system events</Text>
       </Card>
     </View>
+
+    <Card>
+      <SectionTitle title="Launch certification" subtitle="Owner-only automated release checks for schema, production configuration, access integrity, providers, and incidents."/>
+      {certification ? <>
+        <View style={styles.inline}>
+          <StatusBadge label={certification.status}/>
+          <Text style={styles.muted}>Checked {new Date(certification.createdAt).toLocaleString()}</Text>
+        </View>
+        {!!certification.blockers?.length && <View style={styles.certGroup}>
+          <Text style={styles.error}>Launch blockers</Text>
+          {certification.blockers.map((item:string,index:number)=><Text key={index} style={styles.muted}>• {item}</Text>)}
+        </View>}
+        {!!certification.warnings?.length && <View style={styles.certGroup}>
+          <Text style={styles.warning}>Warnings</Text>
+          {certification.warnings.map((item:string,index:number)=><Text key={index} style={styles.muted}>• {item}</Text>)}
+        </View>}
+        {!certification.blockers?.length&&!certification.warnings?.length&&<Text style={styles.goodText}>All automated launch checks passed.</Text>}
+      </> : <Text style={styles.muted}>Run the launch check after applying the latest migrations and production secrets.</Text>}
+    </Card>
 
     <Card>
       <SectionTitle title="Readiness checks" subtitle={checked}/>
@@ -119,6 +158,6 @@ const styles=StyleSheet.create({
   incident:{flexDirection:"row",alignItems:"flex-start",justifyContent:"space-between",gap:spacing.md,paddingVertical:12,borderBottomWidth:1,borderBottomColor:colors.border},
   copy:{flex:1,gap:4},title:{color:colors.text,fontWeight:"900",textTransform:"capitalize"},inline:{flexDirection:"row",alignItems:"center",gap:8,flexWrap:"wrap"},
   time:{color:colors.muted,fontSize:11},link:{color:colors.primary,fontWeight:"900"},error:{color:colors.danger,fontSize:12,lineHeight:18},
-  group:{color:colors.textSoft,fontWeight:"900",marginTop:spacing.sm},pills:{flexDirection:"row",flexWrap:"wrap",gap:8},
+  group:{color:colors.textSoft,fontWeight:"900",marginTop:spacing.sm},certGroup:{gap:4,marginTop:spacing.sm},warning:{color:colors.warning,fontWeight:"900"},goodText:{color:colors.success,fontWeight:"800"},pills:{flexDirection:"row",flexWrap:"wrap",gap:8},
   pill:{backgroundColor:colors.surface2,borderRadius:radius.pill,paddingHorizontal:11,paddingVertical:7},pillText:{color:colors.textSoft,fontWeight:"800",textTransform:"capitalize"},
 });
