@@ -13,7 +13,8 @@ export type Permission =
   | "social_manage"
   | "settings_manage"
   | "analytics_manage"
-  | "notifications_manage";
+  | "notifications_manage"
+  | "system_manage";
 
 type Role = "owner" | "admin" | "reviewer" | "publisher" | "viewer";
 
@@ -21,7 +22,7 @@ const ROLE_PERMISSIONS: Record<Role, Set<Permission>> = {
   owner: new Set<Permission>([
     "read","generate","upload","brand_manage","review","ai_edit","publish",
     "calendar_manage","client_manage","social_manage","settings_manage",
-    "analytics_manage","notifications_manage",
+    "analytics_manage","notifications_manage","system_manage",
   ]),
   admin: new Set<Permission>([
     "read","generate","upload","brand_manage","review","ai_edit","publish",
