@@ -11,6 +11,8 @@ Create or verify:
 - R2: `brandsparq-media`
 - Queue: `brandsparq-publish`
 - Queue: `brandsparq-generation`
+- DLQ: `brandsparq-publish-dlq`
+- DLQ: `brandsparq-generation-dlq`
 - Custom domain: `brandsparq.getsparqd.com`
 
 Apply every pending migration before deploying the Worker:
