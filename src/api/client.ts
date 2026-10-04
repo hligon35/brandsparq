@@ -279,6 +279,27 @@ export const api = {
       { method: "POST" }
     ),
 
+  editPublicReview: (
+    token: string,
+    payload: { headline?: string; caption?: string; comment?: string }
+  ) =>
+    jsonRequest<{ ok: true; postId: string }>(
+      `/v1/public/review/${encodeURIComponent(token)}/edit`,
+      { method: "POST", body: JSON.stringify(payload) }
+    ),
+
+  rejectPublicReview: (token: string, reason?: string) =>
+    jsonRequest<{ ok: true; postId: string; status: string }>(
+      `/v1/public/review/${encodeURIComponent(token)}/reject`,
+      { method: "POST", body: JSON.stringify({ reason }) }
+    ),
+
+  regeneratePublicReview: (token: string, instruction?: string) =>
+    jsonRequest<{ ok: true; data: unknown }>(
+      `/v1/public/review/${encodeURIComponent(token)}/regenerate`,
+      { method: "POST", body: JSON.stringify({ instruction }) }
+    ),
+
   async getClients(includeArchived = false): Promise<Client[]> {
     const result = await jsonRequest<{ data: Client[] }>(
       `/v1/clients${includeArchived ? "?includeArchived=1" : ""}`
@@ -333,6 +354,30 @@ export const api = {
   approvePost: (postId: string) =>
     jsonRequest<{ ok: true; status: string }>(`/v1/posts/${postId}/approve`, {
       method: "POST",
+    }),
+
+  bulkApprovePosts: (postIds: string[]) =>
+    jsonRequest<{ ok: true; results: any[] }>("/v1/posts/bulk/approve", {
+      method: "POST",
+      body: JSON.stringify({ postIds }),
+    }),
+
+  bulkRejectPosts: (postIds: string[], reason?: string) =>
+    jsonRequest<{ ok: true; results: any[] }>("/v1/posts/bulk/reject", {
+      method: "POST",
+      body: JSON.stringify({ postIds, reason }),
+    }),
+
+  bulkShiftPosts: (postIds: string[], shiftMinutes: number) =>
+    jsonRequest<{ ok: true; results: any[] }>("/v1/posts/bulk/shift", {
+      method: "POST",
+      body: JSON.stringify({ postIds, shiftMinutes }),
+    }),
+
+  bulkPausePosts: (postIds: string[]) =>
+    jsonRequest<{ ok: true; results: any[] }>("/v1/posts/bulk/pause", {
+      method: "POST",
+      body: JSON.stringify({ postIds }),
     }),
 
   keepSchedule: (postId: string) =>
