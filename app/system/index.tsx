@@ -21,7 +21,7 @@ export default function SystemHealthScreen(){
   async function recover(){
     try{
       const result=await api.recoverSystemWork();
-      Alert.alert("Recovery complete","Publishing recovered: "+result.data.publishRecovered+"\nGeneration recovered: "+result.data.generationRecovered);
+      Alert.alert("Recovery complete","Publishing recovered: "+result.data.publishRecovered+"\nGeneration recovered: "+result.data.generationRecovered+"\nGraphics recovered: "+(result.data.graphicsRecovered||0));
       await load();
     }catch(e){Alert.alert("Recovery failed",e instanceof Error?e.message:"Try again.");}
   }
