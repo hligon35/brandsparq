@@ -106,6 +106,8 @@ export function Button({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !onPress }}
       disabled={!onPress}
       onPress={onPress}
       style={({ pressed }) => [
@@ -143,7 +145,11 @@ export function StatusBadge({ label }: { label: string }) {
             : { bg: "#EAF2FF", text: colors.primaryDark };
 
   return (
-    <View style={[styles.badge, { backgroundColor: palette.bg }]}>
+    <View
+      accessibilityRole="text"
+      accessibilityLabel={`Status: ${label.replaceAll("_", " ")}`}
+      style={[styles.badge, { backgroundColor: palette.bg }]}
+    >
       <Text style={[styles.badgeText, { color: palette.text }]}>
         {label.replaceAll("_", " ")}
       </Text>
