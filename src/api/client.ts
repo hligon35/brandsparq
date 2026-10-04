@@ -194,6 +194,12 @@ export const api = {
       method: "POST",
     }),
 
+  verifySocialAccount: (accountId: string) =>
+    jsonRequest<{ ok: true; data: { health: string; checkedAt: string } }>(
+      `/v1/social/accounts/${accountId}/verify`,
+      { method: "POST" }
+    ),
+
   assignSocialAccount: (postId: string, socialAccountId: string) =>
     jsonRequest<{ ok: true }>(`/v1/posts/${postId}/social-account`, {
       method: "POST",
