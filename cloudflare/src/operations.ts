@@ -47,13 +47,13 @@ export async function recordSystemEvent(
     ? await env.DB.prepare(
         `SELECT id FROM system_events
          WHERE event_type=? AND entity_type=? AND entity_id=? AND resolved_at IS NULL
-         AND created_at >= datetime('now','-30 minutes')
+         AND datetime(created_at) >= datetime('now','-30 minutes')
          LIMIT 1`
       ).bind(input.eventType,input.entityType,input.entityId).first()
     : await env.DB.prepare(
         `SELECT id FROM system_events
          WHERE event_type=? AND entity_type IS NULL AND entity_id IS NULL AND resolved_at IS NULL
-         AND created_at >= datetime('now','-30 minutes')
+         AND datetime(created_at) >= datetime('now','-30 minutes')
          LIMIT 1`
       ).bind(input.eventType).first();
   if(recent)return;
@@ -113,8 +113,8 @@ export async function recoverStaleWork(env:OperationsEnv){
     `SELECT id,post_id,execution_key,attempt_count,max_attempts,last_error
      FROM publish_jobs
      WHERE (
-       (status='publishing' AND claimed_at < datetime('now','-15 minutes'))
-       OR (status='retrying' AND updated_at < datetime('now','-15 minutes'))
+       (status='publishing' AND datetime(claimed_at) < datetime('now','-15 minutes'))
+       OR (status='retrying' AND datetime(updated_at) < datetime('now','-15 minutes'))
      )
      LIMIT 50`
   ).all<any>();
@@ -143,7 +143,7 @@ export async function recoverStaleWork(env:OperationsEnv){
   const staleGeneration=await env.DB.prepare(
     `SELECT id,status,stage FROM generation_jobs
      WHERE status IN ('queued','processing','retrying')
-       AND COALESCE(stage_updated_at,created_at) < datetime('now','-30 minutes')
+       AND datetime(COALESCE(stage_updated_at,created_at)) < datetime('now','-30 minutes')
      LIMIT 25`
   ).all<any>();
 
@@ -159,7 +159,7 @@ export async function recoverStaleWork(env:OperationsEnv){
     `SELECT id,generation_job_id,status,attempt_count
      FROM graphic_jobs
      WHERE status IN ('queued','processing','retrying')
-       AND updated_at < datetime('now','-30 minutes')
+       AND datetime(updated_at) < datetime('now','-30 minutes')
      LIMIT 50`
   ).all<any>();
 
@@ -202,11 +202,11 @@ export async function getSystemOverview(env:OperationsEnv){
     readiness(env),
     env.DB.prepare(
       `SELECT status,COUNT(*) AS count FROM publish_jobs
-       WHERE created_at>=datetime('now','-7 days') GROUP BY status`
+       WHERE datetime(created_at)>=datetime('now','-7 days') GROUP BY status`
     ).all<any>(),
     env.DB.prepare(
       `SELECT status,COUNT(*) AS count FROM generation_jobs
-       WHERE created_at>=datetime('now','-7 days') GROUP BY status`
+       WHERE datetime(created_at)>=datetime('now','-7 days') GROUP BY status`
     ).all<any>(),
     env.DB.prepare(
       `SELECT p.id,p.title,p.platform,p.failure_code,p.failure_message,p.updated_at,c.name AS client_name
