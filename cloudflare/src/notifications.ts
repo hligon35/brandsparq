@@ -281,7 +281,7 @@ export async function checkExpoPushReceipts(env: NotificationEnv) {
        AND status='sent'
        AND provider_message_id IS NOT NULL
        AND receipt_checked_at IS NULL
-       AND sent_at <= datetime('now','-15 minutes')
+       AND datetime(sent_at) <= datetime('now','-15 minutes')
      ORDER BY sent_at ASC
      LIMIT 500`
   ).all<{id:string;notification_id:string;destination:string;provider_message_id:string}>();
