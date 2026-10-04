@@ -1427,7 +1427,26 @@ export default {
     }
 
     try {
-      await checkPendingPublishReceipts(env, 25);
+      const confirmations = await checkPendingPublishReceipts(env, 25);
+      for (const confirmation of confirmations) {
+        if (confirmation.status === "published" && confirmation.postId) {
+          await notifyPostOwners(
+            env,
+            confirmation.postId,
+            "published",
+            "Post published",
+            "BrandSparQ confirmed your post is live."
+          );
+        } else if (confirmation.status === "failed" && confirmation.postId) {
+          await notifyPostOwners(
+            env,
+            confirmation.postId,
+            "publish_failed",
+            "Post failed at the provider",
+            `Provider status: ${confirmation.providerStatus || "failed"}`
+          );
+        }
+      }
     } catch {}
 
     const settings = await env.DB.prepare(
@@ -1627,11 +1646,16 @@ export default {
             "UPDATE publish_attempts SET status = 'failed', error_message = ? WHERE id = ?"
           ).bind(errorMessage, attemptId),
           env.DB.prepare(
-            `UPDATE posts SET status = ?, publish_retry_count = ?, failure_code = 'PROVIDER_ERROR',
+            `UPDATE posts SET status = ?, publish_retry_count = ?, failure_code = ?,
                failure_message = ?, updated_at = ? WHERE id = ?`
           ).bind(
             exhausted ? "failed" : "publish_queued",
             claim.attempt,
+            providerError?.category === "authorization"
+              ? "SOCIAL_AUTH_REQUIRED"
+              : providerError?.category === "rate_limit"
+                ? "SOCIAL_RATE_LIMIT"
+                : "PROVIDER_ERROR",
             errorMessage,
             new Date().toISOString(),
             message.body.postId
