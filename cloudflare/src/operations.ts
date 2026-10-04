@@ -111,7 +111,7 @@ export async function recoverStaleWork(env:OperationsEnv){
           `UPDATE publish_jobs SET status='failed',completed_at=?,last_error=COALESCE(last_error,'Publishing worker timed out.'),updated_at=? WHERE id=?`
         ).bind(now,now,job.id),
         env.DB.prepare(
-          `UPDATE posts SET status='failed',failure_code='WORKER_TIMEOUT',failure_message='Publishing worker timed out.',updated_at=? WHERE id=? AND status='publishing'`
+          `UPDATE posts SET status='failed',failure_code='WORKER_TIMEOUT',failure_message='Publishing worker timed out.',updated_at=? WHERE id=? AND status IN ('publishing','publish_queued')`
         ).bind(now,job.post_id),
       ]);
       await recordSystemEvent(env,{severity:"error",category:"publishing",eventType:"publish_job_timed_out",entityType:"publish_job",entityId:job.id,message:"Publish job exhausted attempts after a stale worker claim.",metadata:{postId:job.post_id}});
