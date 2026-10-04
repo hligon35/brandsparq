@@ -306,7 +306,7 @@ export async function runLaunchCertification(env:OperationsEnv,user:SessionUser)
     x:!!env.X_CLIENT_ID&&!!env.X_CLIENT_SECRET,
   };
   for(const row of connected.results){
-    const ok=providerConfig[row.platform]!==false;
+    const ok=providerConfig[row.platform]===true;
     check(`social:${row.platform}`,ok,"blocker",ok?`${row.platform} credentials present for ${row.count} connected account(s).`:`${row.platform} has connected accounts but missing provider credentials.`);
   }
 
