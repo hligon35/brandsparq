@@ -356,6 +356,21 @@ export const api = {
       method: "POST",
     }),
 
+  editPost: (
+    postId: string,
+    payload: { headline?: string; caption?: string; comment?: string }
+  ) =>
+    jsonRequest<{ ok: true }>(`/v1/posts/${postId}/edit`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  rejectPost: (postId: string, reason?: string) =>
+    jsonRequest<{ ok: true; status: string }>(`/v1/posts/${postId}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+
   bulkApprovePosts: (postIds: string[]) =>
     jsonRequest<{ ok: true; results: any[] }>("/v1/posts/bulk/approve", {
       method: "POST",
