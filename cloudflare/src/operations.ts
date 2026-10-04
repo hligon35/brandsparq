@@ -88,7 +88,7 @@ export async function readiness(env:OperationsEnv){
 
 export async function recoverStaleWork(env:OperationsEnv){
   const stalePublish=await env.DB.prepare(
-    `SELECT id,post_id,attempt_count,max_attempts,last_error
+    `SELECT id,post_id,execution_key,attempt_count,max_attempts,last_error
      FROM publish_jobs
      WHERE status='publishing'
        AND claimed_at < datetime('now','-15 minutes')
@@ -111,7 +111,7 @@ export async function recoverStaleWork(env:OperationsEnv){
       await env.DB.prepare(
         `UPDATE publish_jobs SET status='retrying',claimed_at=NULL,last_error=COALESCE(last_error,'Recovered stale publishing claim.'),updated_at=CURRENT_TIMESTAMP WHERE id=?`
       ).bind(job.id).run();
-      await env.PUBLISH_QUEUE.send({kind:"publish",publishJobId:job.id,postId:job.post_id,executionKey:`recovery:${job.id}`},{delaySeconds:30});
+      await env.PUBLISH_QUEUE.send({kind:"publish",publishJobId:job.id,postId:job.post_id,executionKey:job.execution_key},{delaySeconds:30});
       await recordSystemEvent(env,{severity:"warning",category:"publishing",eventType:"publish_job_recovered",entityType:"publish_job",entityId:job.id,message:"Recovered and requeued a stale publishing job.",metadata:{postId:job.post_id}});
     }
   }
@@ -125,7 +125,7 @@ export async function recoverStaleWork(env:OperationsEnv){
 
   for(const job of staleGeneration.results){
     await env.DB.prepare(
-      `UPDATE generation_jobs SET status='queued',stage='queued',stage_updated_at=CURRENT_TIMESTAMP,last_error='Recovered stale generation job.' WHERE id=?`
+      `UPDATE generation_jobs SET status='queued',stage='queued',stage_updated_at=CURRENT_TIMESTAMP,error_message='Recovered stale generation job.' WHERE id=?`
     ).bind(job.id).run();
     await env.GENERATION_QUEUE.send({kind:"generate",jobId:job.id},{delaySeconds:30});
     await recordSystemEvent(env,{severity:"warning",category:"generation",eventType:"generation_job_recovered",entityType:"generation_job",entityId:job.id,message:"Recovered and requeued a stale generation job.",metadata:{stage:job.stage}});
