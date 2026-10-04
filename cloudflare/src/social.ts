@@ -18,6 +18,7 @@ export interface SocialEnv {
   X_CLIENT_ID?: string;
   X_CLIENT_SECRET?: string;
   X_REDIRECT_URI?: string;
+  META_WEBHOOK_VERIFY_TOKEN?: string;
 }
 
 type Platform = "facebook" | "instagram" | "linkedin" | "tiktok" | "x";
@@ -350,6 +351,138 @@ async function upsertAccount(
   return id;
 }
 
+async function discoverLinkedInOrganizations(
+  env: SocialEnv,
+  input: {
+    clientId: string;
+    accessToken: string;
+    connectedBy?: string | null;
+    scopes?: string | null;
+  }
+) {
+  const scopeSet = new Set((input.scopes || "").split(/\s+/).filter(Boolean));
+  const hasOrgScope =
+    scopeSet.has("w_organization_social") ||
+    scopeSet.has("r_organization_social") ||
+    scopeSet.has("rw_organization_admin");
+
+  if (!hasOrgScope) return [];
+
+  const aclResponse = await fetch(
+    "https://api.linkedin.com/v2/organizationalEntityAcls?q=roleAssignee&state=APPROVED",
+    { headers: { authorization: `Bearer ${input.accessToken}` } }
+  );
+  if (!aclResponse.ok) return [];
+
+  const payload = await aclResponse.json<any>();
+  const organizationIds = (payload.elements || [])
+    .map((entry: any) => String(entry.organizationalTarget || ""))
+    .map((urn: string) => urn.split(":").pop())
+    .filter(Boolean);
+
+  const connected: string[] = [];
+  for (const organizationId of organizationIds) {
+    let name = `LinkedIn Organization ${organizationId}`;
+    try {
+      const orgResponse = await fetch(
+        `https://api.linkedin.com/v2/organizations/${organizationId}`,
+        { headers: { authorization: `Bearer ${input.accessToken}` } }
+      );
+      if (orgResponse.ok) {
+        const org = await orgResponse.json<any>();
+        name =
+          org.localizedName ||
+          org.name?.localized?.en_US ||
+          name;
+      }
+    } catch {}
+
+    await upsertAccount(env, {
+      clientId: input.clientId,
+      platform: "linkedin",
+      name,
+      externalId: organizationId,
+      accessToken: input.accessToken,
+      scopes: input.scopes,
+      metadata: { organizationUrn: `urn:li:organization:${organizationId}` },
+      accountType: "organization",
+      connectedBy: input.connectedBy,
+    });
+    connected.push(organizationId);
+  }
+
+  return connected;
+}
+
+async function hmacHex(secret: string, payload: string) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(payload)
+  );
+  return [...new Uint8Array(signature)]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export async function handleMetaWebhook(
+  env: SocialEnv,
+  request: Request,
+  url: URL
+) {
+  if (request.method === "GET") {
+    const mode = url.searchParams.get("hub.mode");
+    const verifyToken = url.searchParams.get("hub.verify_token");
+    const challenge = url.searchParams.get("hub.challenge");
+    if (
+      mode === "subscribe" &&
+      env.META_WEBHOOK_VERIFY_TOKEN &&
+      verifyToken === env.META_WEBHOOK_VERIFY_TOKEN &&
+      challenge
+    ) {
+      return new Response(challenge, { status: 200 });
+    }
+    return new Response("Forbidden", { status: 403 });
+  }
+
+  if (request.method !== "POST" || !env.META_APP_SECRET) {
+    return new Response("Method not allowed", { status: 405 });
+  }
+
+  const raw = await request.text();
+  const signature = request.headers.get("x-hub-signature-256") || "";
+  const expected = `sha256=${await hmacHex(env.META_APP_SECRET, raw)}`;
+  if (signature !== expected) {
+    return new Response("Invalid signature", { status: 401 });
+  }
+
+  const payload = JSON.parse(raw || "{}");
+  const eventId =
+    payload?.entry?.[0]?.id && payload?.entry?.[0]?.time
+      ? `${payload.entry[0].id}:${payload.entry[0].time}`
+      : null;
+
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO social_webhook_events
+     (id,provider,event_type,external_event_id,payload_json,processed_at)
+     VALUES (?,'meta',?,?,?,CURRENT_TIMESTAMP)`
+  ).bind(
+    crypto.randomUUID(),
+    payload?.object || "unknown",
+    eventId,
+    raw
+  ).run();
+
+  return new Response("EVENT_RECEIVED", { status: 200 });
+}
+
 export async function socialOAuthCallback(
   env: SocialEnv,
   url: URL,
@@ -440,6 +573,12 @@ export async function socialOAuthCallback(
       metadata: { picture: profile.picture },
       accountType: "member",
       connectedBy: saved.user_id,
+    });
+    await discoverLinkedInOrganizations(env, {
+      clientId: saved.client_id,
+      accessToken: token.access_token,
+      connectedBy: saved.user_id,
+      scopes: token.scope,
     });
   } else if (provider === "tiktok") {
     const body = new URLSearchParams({
@@ -714,7 +853,10 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
     raw = await publish.json<any>();
     providerPostId = (raw as any).post_id || (raw as any).id || null;
   } else if (post.platform === "linkedin") {
-    const owner = `urn:li:person:${post.external_account_id}`;
+    const owner =
+      post.account_type === "organization"
+        ? `urn:li:organization:${post.external_account_id}`
+        : `urn:li:person:${post.external_account_id}`;
     const init = await fetch("https://api.linkedin.com/rest/images?action=initializeUpload", {
       method: "POST",
       headers: {
