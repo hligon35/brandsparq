@@ -22,6 +22,7 @@ export interface OperationsEnv {
   GOOGLE_REDIRECT_URI?: string;
   META_APP_ID?: string;
   META_APP_SECRET?: string;
+  META_WEBHOOK_VERIFY_TOKEN?: string;
   LINKEDIN_CLIENT_ID?: string;
   LINKEDIN_CLIENT_SECRET?: string;
   TIKTOK_CLIENT_KEY?: string;
@@ -308,6 +309,17 @@ export async function runLaunchCertification(env:OperationsEnv,user:SessionUser)
   for(const row of connected.results){
     const ok=providerConfig[row.platform]===true;
     check(`social:${row.platform}`,ok,"blocker",ok?`${row.platform} credentials present for ${row.count} connected account(s).`:`${row.platform} has connected accounts but missing provider credentials.`);
+  }
+  const hasMeta=connected.results.some(row=>row.platform==="facebook"||row.platform==="instagram");
+  if(hasMeta){
+    check(
+      "social:meta-webhook",
+      !!env.META_WEBHOOK_VERIFY_TOKEN,
+      "warning",
+      env.META_WEBHOOK_VERIFY_TOKEN
+        ?"Meta webhook verification token is configured."
+        :"Meta accounts are connected but META_WEBHOOK_VERIFY_TOKEN is not configured."
+    );
   }
 
   const blockers=checks.filter(item=>!item.ok&&item.level==="blocker").map(item=>item.detail);
