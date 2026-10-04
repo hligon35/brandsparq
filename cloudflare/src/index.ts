@@ -15,6 +15,7 @@ import { hashSecret } from "./security";
 import {
   checkPendingPublishReceipts,
   ensurePostSocialDestination,
+  handleMetaWebhook,
   publishPostToSocial,
   socialOAuthCallback,
   syncAccountAnalytics,
@@ -59,9 +60,11 @@ interface Env {
   META_APP_ID?: string;
   META_APP_SECRET?: string;
   META_REDIRECT_URI?: string;
+  META_WEBHOOK_VERIFY_TOKEN?: string;
   LINKEDIN_CLIENT_ID?: string;
   LINKEDIN_CLIENT_SECRET?: string;
   LINKEDIN_REDIRECT_URI?: string;
+  LINKEDIN_ORGANIZATION_SCOPES?: string;
   TIKTOK_CLIENT_KEY?: string;
   TIKTOK_CLIENT_SECRET?: string;
   TIKTOK_REDIRECT_URI?: string;
@@ -222,6 +225,10 @@ export default {
 
     if (url.pathname === "/health") {
       return response(request, env, { ok: true, service: "brandsparq-api" });
+    }
+
+    if (url.pathname === "/v1/social/webhooks/meta") {
+      return handleMetaWebhook(env, request, url);
     }
 
     const publicPublishMediaMatch = url.pathname.match(/^\/v1\/public\/publish-media\/([^/]+)$/);
