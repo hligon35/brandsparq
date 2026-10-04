@@ -10,6 +10,13 @@ import {
   type PublishQueueMessage,
 } from "./publishing";
 import { handleManagementRoute } from "./management";
+import {
+  enforceRateLimit,
+  handleOperationsRoute,
+  readiness,
+  recordSystemEvent,
+  recoverStaleWork,
+} from "./operations";
 import { notifyPostOwners } from "./notifications";
 import { hashSecret } from "./security";
 import {
@@ -127,6 +134,10 @@ function response(request: Request, env: Env, body: unknown, init: ResponseInit 
     ...init,
     headers: {
       "content-type": "application/json",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "strict-origin-when-cross-origin",
+      "permissions-policy": "camera=(), microphone=(), geolocation=()",
+      "x-frame-options": "DENY",
       ...policy.headers,
       ...init.headers,
     },
@@ -225,7 +236,13 @@ export default {
     if (!policy.allowed) return response(request, env, { error: "Origin not allowed" }, { status: 403 });
 
     if (url.pathname === "/health") {
-      return response(request, env, { ok: true, service: "brandsparq-api" });
+      const health = await readiness(env);
+      return response(
+        request,
+        env,
+        health,
+        { status: health.ok ? 200 : 503, headers: { "cache-control": "no-store" } }
+      );
     }
 
     if (url.pathname === "/v1/social/webhooks/meta") {
@@ -313,6 +330,24 @@ export default {
           ...policy.headers,
         },
       });
+    }
+
+    if (
+      request.method === "POST" &&
+      /^\/v1\/public\/review\/[^/]+\/(edit|reject|regenerate|approve)$/.test(url.pathname)
+    ) {
+      const tokenPart = url.pathname.split("/")[4] || "unknown";
+      const tokenHash = await hashSecret(tokenPart, env.AUTH_PEPPER || "");
+      const ip = request.headers.get("cf-connecting-ip") || "unknown";
+      const limit = await enforceRateLimit(env, `review:${tokenHash}:${ip}`, 30, 15 * 60 * 1000);
+      if (!limit.allowed) {
+        return response(
+          request,
+          env,
+          { error: "Too many review actions. Please wait and try again." },
+          { status: 429, headers: { "retry-after": String(limit.retryAfter) } }
+        );
+      }
     }
 
     const publicEditMatch = url.pathname.match(/^\/v1\/public\/review\/([^/]+)\/edit$/);
@@ -577,6 +612,16 @@ export default {
     }
 
     if (sessionUser) {
+      const operations = await handleOperationsRoute(request, url, env, sessionUser);
+      if (operations) {
+        return response(
+          request,
+          env,
+          operations.body,
+          operations.status ? { status: operations.status } : {}
+        );
+      }
+
       const managed = await handleManagementRoute(request, url, env, sessionUser);
       if (managed) {
         if ("response" in managed) return managed.response;
@@ -1776,6 +1821,17 @@ export default {
   },
 
   async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+    try {
+      await recoverStaleWork(env);
+    } catch (error) {
+      await recordSystemEvent(env, {
+        severity: "error",
+        category: "recovery",
+        eventType: "scheduled_recovery_failed",
+        message: error instanceof Error ? error.message.slice(0, 1000) : "Scheduled recovery failed.",
+      }).catch(() => undefined);
+    }
+
     const now = new Date();
     const nowIso = now.toISOString();
 
@@ -2007,6 +2063,14 @@ export default {
           ).run();
 
           if (terminal) {
+            await recordSystemEvent(env, {
+              severity: "error",
+              category: "generation",
+              eventType: "generation_job_failed",
+              entityType: "generation_job",
+              entityId: message.body.jobId,
+              message: errorMessage,
+            }).catch(() => undefined);
             message.ack();
           } else {
             message.retry({
@@ -2048,6 +2112,15 @@ export default {
           ),
         ]);
         await markPublishJobFailed(env, message.body.publishJobId, errorMessage);
+        await recordSystemEvent(env, {
+          severity: "error",
+          category: "publishing",
+          eventType: "publish_job_failed",
+          entityType: "publish_job",
+          entityId: message.body.publishJobId,
+          message: errorMessage,
+          metadata: { postId: message.body.postId },
+        }).catch(() => undefined);
         await notifyPostOwners(
           env,
           message.body.postId,
