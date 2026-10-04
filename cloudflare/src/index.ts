@@ -108,7 +108,7 @@ function cors(request: Request, env: Env) {
   const isLocal = !!origin && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
   const requestOrigin = new URL(request.url).origin;
   const sameOrigin = !!origin && origin === requestOrigin;
-  const allowed = !origin || sameOrigin || configured.has(origin) || isLocal;
+  const allowed = !origin || sameOrigin || configured.has(origin) || (isLocal && env.ENVIRONMENT !== "production");
   return {
     allowed,
     headers: {
@@ -144,6 +144,11 @@ function response(request: Request, env: Env, body: unknown, init: ResponseInit 
       ...init.headers,
     },
   });
+}
+
+function bulkPostIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((id): id is string => typeof id === "string" && id.trim().length > 0))].slice(0, 100);
 }
 
 function postSelect(where = "") {
@@ -658,6 +663,20 @@ export default {
     if (request.method === "GET" && url.pathname.startsWith("/v1/media/")) {
       const key = decodeURIComponent(url.pathname.slice("/v1/media/".length));
       if (!key) return response(request, env, { error: "Media key is required." }, { status: 400 });
+      const resource = await env.DB.prepare(
+        `SELECT client_id FROM assets WHERE r2_key = ?
+         UNION SELECT a.client_id FROM asset_derivatives d JOIN assets a ON a.id = d.asset_id WHERE d.r2_key = ?
+         UNION SELECT client_id FROM posts WHERE graphic_key = ?
+         UNION SELECT p.client_id FROM creative_variants v JOIN posts p ON p.id = v.post_id WHERE v.r2_key = ?`
+      ).bind(key, key, key, key).all<{ client_id: string }>();
+      let allowed = false;
+      for (const row of resource.results) {
+        if (await hasClientAccess(env.DB, sessionUser!, row.client_id)) {
+          allowed = true;
+          break;
+        }
+      }
+      if (!allowed) return response(request, env, { error: "Media not found." }, { status: 404 });
       const object = await env.MEDIA.get(key);
       if (!object) return response(request, env, { error: "Media not found." }, { status: 404 });
       return new Response(object.body, {
@@ -767,7 +786,7 @@ export default {
           prohibited_visual_styles, competitor_references, brand_vocabulary,
           hashtag_policy, target_locations, platform_rules, logo_asset_id,
           alternate_logo_asset_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          ON CONFLICT(client_id) DO UPDATE SET
            voice = excluded.voice,
            audience = excluded.audience,
@@ -1248,7 +1267,7 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/v1/posts/bulk/approve") {
       const payload = await request.json<{ postIds?: string[] }>().catch(() => ({} as any));
-      const postIds = [...new Set(payload.postIds || [])].slice(0, 100);
+      const postIds = bulkPostIds(payload.postIds);
       if (!postIds.length) {
         return response(request, env, { error: "postIds are required." }, { status: 400 });
       }
@@ -1313,7 +1332,7 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/v1/posts/bulk/reject") {
       const payload = await request.json<{ postIds?: string[]; reason?: string }>().catch(() => ({} as any));
-      const postIds = [...new Set(payload.postIds || [])].slice(0, 100);
+      const postIds = bulkPostIds(payload.postIds);
       const reason = payload.reason?.trim().slice(0, 2000) || "Changes requested.";
       if (!postIds.length) {
         return response(request, env, { error: "postIds are required." }, { status: 400 });
@@ -1366,7 +1385,7 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/v1/posts/bulk/shift") {
       const payload = await request.json<{ postIds?: string[]; shiftMinutes?: number }>().catch(() => ({} as any));
-      const postIds = [...new Set(payload.postIds || [])].slice(0, 100);
+      const postIds = bulkPostIds(payload.postIds);
       const shiftMinutes = Number(payload.shiftMinutes || 0);
 
       if (!postIds.length || !Number.isFinite(shiftMinutes) || shiftMinutes === 0) {
@@ -1432,7 +1451,7 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/v1/posts/bulk/pause") {
       const payload = await request.json<{ postIds?: string[] }>().catch(() => ({} as any));
-      const postIds = [...new Set(payload.postIds || [])].slice(0, 100);
+      const postIds = bulkPostIds(payload.postIds);
       if (!postIds.length) {
         return response(request, env, { error: "postIds are required." }, { status: 400 });
       }

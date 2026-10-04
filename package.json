@@ -13,10 +13,11 @@
     "deploy:worker": "npm run validate && npm --prefix cloudflare run deploy",
     "deploy:cloudflare": "npm run deploy:worker",
     "typecheck": "tsc --noEmit",
-    "validate": "npm run audit:launch && npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web",
+    "validate": "npm run audit:launch && npm test && npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web",
     "deploy:production": "npm run validate && npm --prefix cloudflare run deploy",
     "audit:launch": "node scripts/launch-audit.mjs",
-    "smoke:production": "node scripts/smoke-production.mjs"
+    "smoke:production": "node scripts/smoke-production.mjs",
+    "test": "node --import ./tests/register.mjs --test tests/*.test.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -40,5 +41,8 @@
   "devDependencies": {
     "@types/react": "~19.2.2",
     "typescript": "~5.9.2"
+  },
+  "engines": {
+    "node": ">=22.15.0"
   }
 }

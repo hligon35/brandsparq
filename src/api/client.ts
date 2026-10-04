@@ -37,6 +37,7 @@ type ApiPost = {
   platform: MarketingPost["platform"];
   status: MarketingPost["status"];
   title: string;
+  headline?: string | null;
   caption: string;
   image_url?: string | null;
   suggested_publish_at?: string | null;

@@ -564,11 +564,18 @@ export async function handleAuthRoute(
       };
     }
 
-    await env.DB.prepare(
-      "UPDATE google_auth_handoffs SET consumed_at = ? WHERE id = ?"
+    const claimed = await env.DB.prepare(
+      "UPDATE google_auth_handoffs SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND expires_at > ?"
     )
-      .bind(now, row.id)
+      .bind(now, row.id, now)
       .run();
+
+    if (!claimed.meta.changes) {
+      return {
+        body: { error: "Google sign-in handoff is invalid or expired." },
+        status: 401,
+      };
+    }
 
     const user: SessionUser = {
       id: row.user_id,

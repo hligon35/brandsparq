@@ -6,6 +6,7 @@ import {
   socialOAuthCallback,
   socialOAuthStart,
   syncAccountAnalytics,
+  verifySocialAccount,
 } from "./social";
 
 export interface ManagementEnv {

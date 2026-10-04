@@ -174,7 +174,7 @@ export function PageHeader({
     <View style={[styles.pageHeader, !compact && styles.pageHeaderWide]}>
       <View style={styles.pageHeaderCopy}>
         {!!eyebrow && <Text style={styles.eyebrow}>{eyebrow}</Text>}
-        <Text style={[styles.pageTitle, compact && styles.pageTitleCompact]}>
+        <Text accessibilityRole="header" style={[styles.pageTitle, compact && styles.pageTitleCompact]}>
           {title}
         </Text>
         {!!subtitle && <Text style={styles.pageSubtitle}>{subtitle}</Text>}
@@ -193,7 +193,7 @@ export function SectionTitle({
 }) {
   return (
     <View style={styles.sectionTitleWrap}>
-      <Text style={styles.sectionTitle}>{title}</Text>
+      <Text accessibilityRole="header" style={styles.sectionTitle}>{title}</Text>
       {!!subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}
     </View>
   );
@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   buttonSmall: {
-    minHeight: 40,
+    minHeight: 44,
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
   },

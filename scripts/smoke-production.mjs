@@ -5,7 +5,7 @@ const fail=(name,detail)=>{failures.push(`${name}: ${detail}`);console.error("FA
 
 async function request(name,url,options={},validate){
   try{
-    const response=await fetch(url,options);
+    const response=await fetch(url,{...options,signal:AbortSignal.timeout(15000)});
     const result=await validate(response);
     if(result===true)pass(name);else fail(name,String(result||`HTTP ${response.status}`));
   }catch(error){fail(name,error instanceof Error?error.message:String(error));}

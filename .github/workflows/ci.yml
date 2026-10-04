@@ -35,6 +35,9 @@ jobs:
       - name: Launch configuration audit
         run: npm run audit:launch
 
+      - name: Launch regression tests
+        run: npm test
+
       - name: Typecheck app
         run: npm run typecheck
 
