@@ -29,19 +29,15 @@ export async function registerThisDeviceForPush() {
     throw new Error("Push notification permission was not granted.");
   }
 
-  const projectId =
-    Constants.expoConfig?.extra?.eas?.projectId ??
-    Constants.easConfig?.projectId;
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
 
   if (!projectId) {
     throw new Error(
-      "EAS projectId is not configured yet. Link the app to an EAS project before enabling push."
+      "EAS projectId is not configured yet. Link the app to an EAS project before enabling push.",
     );
   }
 
-  const token = (
-    await Notifications.getExpoPushTokenAsync({ projectId })
-  ).data;
+  const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
 
   await api.registerPushToken(token, Platform.OS);
   return token;

@@ -16,7 +16,7 @@ export async function issuePostMediaUrl(
   requestUrl: string,
   userId: string,
   postId: string,
-  r2Key?: string | null
+  r2Key?: string | null,
 ) {
   if (!r2Key) return null;
 
@@ -26,29 +26,30 @@ export async function issuePostMediaUrl(
   await env.DB.prepare(
     `INSERT INTO media_access_tokens
      (id, post_id, user_id, token_hash, r2_key, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).bind(
-    crypto.randomUUID(),
-    postId,
-    userId,
-    await hashSecret(token, env.AUTH_PEPPER || ""),
-    r2Key,
-    expiresAt,
-    Date.now()
-  ).run();
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      postId,
+      userId,
+      await hashSecret(token, env.AUTH_PEPPER || ""),
+      r2Key,
+      expiresAt,
+      Date.now(),
+    )
+    .run();
 
   const origin = new URL(requestUrl).origin;
   return `${origin}/v1/public/media/${encodeURIComponent(token)}`;
 }
 
-export async function resolveMediaToken(
-  env: MediaEnv,
-  token: string
-) {
+export async function resolveMediaToken(env: MediaEnv, token: string) {
   const tokenHash = await hashSecret(token, env.AUTH_PEPPER || "");
   return env.DB.prepare(
     `SELECT r2_key, expires_at
      FROM media_access_tokens
-     WHERE token_hash = ?`
-  ).bind(tokenHash).first<{ r2_key: string; expires_at: number }>();
+     WHERE token_hash = ?`,
+  )
+    .bind(tokenHash)
+    .first<{ r2_key: string; expires_at: number }>();
 }

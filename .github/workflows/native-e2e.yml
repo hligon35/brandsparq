@@ -1,0 +1,33 @@
+name: BrandSparQ native E2E
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Booted device with the EAS e2e build installed
+        required: true
+        default: android
+        type: choice
+        options: [android, ios]
+permissions:
+  contents: read
+jobs:
+  native:
+    # Dedicated runner must have Maestro, the booted device and the e2e build.
+    runs-on: [self-hosted, brandsparq-mobile]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run build:web
+      - run: npm run test:mobile
+        env:
+          BRANDSPARQ_MOBILE_PLATFORM: ${{ inputs.platform }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: brandsparq-native-results
+          path: test-results/
+          if-no-files-found: ignore

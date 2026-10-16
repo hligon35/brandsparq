@@ -183,6 +183,7 @@ From the repository root:
 ```bash
 npm ci
 npm ci --prefix cloudflare
+npx playwright install --with-deps chromium webkit
 cd cloudflare
 npx wrangler d1 migrations apply brandsparq --remote
 cd ..
@@ -245,6 +246,7 @@ After the latest migrations and deployment, sign in as an owner and open **More 
 
 See `docs/SPRINT8.md` for the complete launch-certification and manual acceptance process.
 
+<<<<<<< HEAD
 ## Cloudflare Workers Builds configuration
 
 BrandSparQ uses `cloudflare/` as the Worker project root because that directory contains `wrangler.toml`.
@@ -258,3 +260,8 @@ Deploy command: npm run deploy
 ```
 
 Workers Builds installs `cloudflare/package.json` dependencies automatically. The Worker `build` script installs the parent Expo application dependencies and runs the Expo web export, producing `../dist` for the Worker assets binding.
+=======
+## Workflow safety update
+
+Apply migration `0017_workflow_safety.sql` before publishing the updated Worker and Expo app together. See [workflow safety](WORKFLOW_SAFETY.md) for notification retry behavior, archive safeguards and the manual hold for ambiguous provider outcomes.
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27

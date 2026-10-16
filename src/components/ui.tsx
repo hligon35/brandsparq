@@ -1,7 +1,4 @@
-import type {
-  PropsWithChildren,
-  ReactNode,
-} from "react";
+import type { PropsWithChildren, ReactNode } from "react";
 import {
   Pressable,
   ScrollView,
@@ -15,10 +12,7 @@ import {
 import { useResponsive } from "@/hooks/useResponsive";
 import { colors, radius, shadows, spacing } from "@/theme/tokens";
 
-export function Screen({
-  children,
-  style,
-}: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
+export function Screen({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
   const responsive = useResponsive();
 
   return (
@@ -44,9 +38,7 @@ export function PageScroll({
   children,
   contentStyle,
   ...props
-}: PropsWithChildren<
-  ScrollViewProps & { contentStyle?: StyleProp<ViewStyle> }
->) {
+}: PropsWithChildren<ScrollViewProps & { contentStyle?: StyleProp<ViewStyle> }>) {
   const responsive = useResponsive();
 
   return (
@@ -63,14 +55,7 @@ export function PageScroll({
       keyboardShouldPersistTaps="handled"
       {...props}
     >
-      <View
-        style={[
-          styles.scrollInner,
-          { maxWidth: responsive.maxContentWidth },
-        ]}
-      >
-        {children}
-      </View>
+      <View style={[styles.scrollInner, { maxWidth: responsive.maxContentWidth }]}>{children}</View>
     </ScrollView>
   );
 }
@@ -83,11 +68,7 @@ export function Card({
   style?: StyleProp<ViewStyle>;
   subtle?: boolean;
 }>) {
-  return (
-    <View style={[styles.card, subtle && styles.cardSubtle, style]}>
-      {children}
-    </View>
-  );
+  return <View style={[styles.card, subtle && styles.cardSubtle, style]}>{children}</View>;
 }
 
 export function Button({
@@ -119,30 +100,22 @@ export function Button({
         pressed && !!onPress && styles.pressed,
       ]}
     >
-      <Text
-        style={[
-          styles.buttonText,
-          secondary && styles.secondaryText,
-        ]}
-      >
-        {label}
-      </Text>
+      <Text style={[styles.buttonText, secondary && styles.secondaryText]}>{label}</Text>
     </Pressable>
   );
 }
 
 export function StatusBadge({ label }: { label: string }) {
   const normalized = label.toLowerCase();
-  const palette =
-    normalized.includes("published")
-      ? { bg: "#E7F8F1", text: colors.success }
-      : normalized.includes("failed") || normalized.includes("cancel")
-        ? { bg: "#FDECEF", text: colors.danger }
-        : normalized.includes("approval") || normalized.includes("review")
-          ? { bg: "#FFF3DE", text: colors.warning }
-          : normalized.includes("publish")
-            ? { bg: "#E8F8FB", text: "#007C8C" }
-            : { bg: "#EAF2FF", text: colors.primaryDark };
+  const palette = normalized.includes("published")
+    ? { bg: "#E7F8F1", text: colors.success }
+    : normalized.includes("failed") || normalized.includes("cancel")
+      ? { bg: "#FDECEF", text: colors.danger }
+      : normalized.includes("approval") || normalized.includes("review")
+        ? { bg: "#FFF3DE", text: colors.warning }
+        : normalized.includes("publish")
+          ? { bg: "#E8F8FB", text: "#007C8C" }
+          : { bg: "#EAF2FF", text: colors.primaryDark };
 
   return (
     <View
@@ -150,9 +123,7 @@ export function StatusBadge({ label }: { label: string }) {
       accessibilityLabel={`Status: ${label.replaceAll("_", " ")}`}
       style={[styles.badge, { backgroundColor: palette.bg }]}
     >
-      <Text style={[styles.badgeText, { color: palette.text }]}>
-        {label.replaceAll("_", " ")}
-      </Text>
+      <Text style={[styles.badgeText, { color: palette.text }]}>{label.replaceAll("_", " ")}</Text>
     </View>
   );
 }
@@ -174,7 +145,10 @@ export function PageHeader({
     <View style={[styles.pageHeader, !compact && styles.pageHeaderWide]}>
       <View style={styles.pageHeaderCopy}>
         {!!eyebrow && <Text style={styles.eyebrow}>{eyebrow}</Text>}
-        <Text accessibilityRole="header" style={[styles.pageTitle, compact && styles.pageTitleCompact]}>
+        <Text
+          accessibilityRole="header"
+          style={[styles.pageTitle, compact && styles.pageTitleCompact]}
+        >
           {title}
         </Text>
         {!!subtitle && <Text style={styles.pageSubtitle}>{subtitle}</Text>}
@@ -184,16 +158,12 @@ export function PageHeader({
   );
 }
 
-export function SectionTitle({
-  title,
-  subtitle,
-}: {
-  title: string;
-  subtitle?: string;
-}) {
+export function SectionTitle({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <View style={styles.sectionTitleWrap}>
-      <Text accessibilityRole="header" style={styles.sectionTitle}>{title}</Text>
+      <Text accessibilityRole="header" style={styles.sectionTitle}>
+        {title}
+      </Text>
       {!!subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}
     </View>
   );

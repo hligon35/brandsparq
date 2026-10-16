@@ -2,6 +2,7 @@ import { decryptSecret, encryptSecret, hashSecret } from "./security";
 
 export interface SocialEnv {
   DB: D1Database;
+  ENVIRONMENT?: string;
   MEDIA: R2Bucket;
   SOCIAL_TOKEN_KEY?: string;
   AUTH_PEPPER?: string;
@@ -43,7 +44,7 @@ type SocialAccountRow = {
 
 export class SocialProviderError extends Error {
   status?: number;
-  category: "rate_limit" | "authorization" | "temporary" | "permanent";
+  category: "rate_limit" | "authorization" | "temporary" | "permanent" | "uncertain";
   retryable: boolean;
   retryAfterSeconds?: number;
 
@@ -51,10 +52,10 @@ export class SocialProviderError extends Error {
     message: string,
     options: {
       status?: number;
-      category?: "rate_limit" | "authorization" | "temporary" | "permanent";
+      category?: "rate_limit" | "authorization" | "temporary" | "permanent" | "uncertain";
       retryable?: boolean;
       retryAfterSeconds?: number;
-    } = {}
+    } = {},
   ) {
     super(message);
     this.name = "SocialProviderError";
@@ -119,10 +120,7 @@ function base64Url(bytes: Uint8Array) {
 }
 
 async function pkceChallenge(verifier: string) {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(verifier)
-  );
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
   return base64Url(new Uint8Array(digest));
 }
 
@@ -156,13 +154,14 @@ function providerConfigured(platform: Platform, env: SocialEnv) {
   return !!env.X_CLIENT_ID;
 }
 
-function validReturnTo(value: string, requestOrigin: string) {
+function validReturnTo(value: string, requestOrigin: string, env: SocialEnv) {
   try {
     const target = new URL(value);
     return (
       target.protocol === "brandsparq:" ||
       target.origin === requestOrigin ||
-      (target.protocol === "http:" &&
+      (env.ENVIRONMENT !== "production" &&
+        target.protocol === "http:" &&
         ["localhost", "127.0.0.1"].includes(target.hostname))
     );
   } catch {
@@ -184,12 +183,12 @@ export async function socialOAuthStart(
   platform: Platform,
   clientId: string,
   userId: string,
-  returnTo: string
+  returnTo: string,
 ) {
   if (!providerConfigured(platform, env)) {
     throw new Error(`${platform} OAuth is not configured.`);
   }
-  if (!validReturnTo(returnTo, url.origin)) {
+  if (!validReturnTo(returnTo, url.origin, env)) {
     throw new Error("Invalid social OAuth return URL.");
   }
 
@@ -200,7 +199,7 @@ export async function socialOAuthStart(
   await env.DB.prepare(
     `INSERT INTO social_oauth_states
      (id, platform, client_id, user_id, state_hash, code_verifier, return_to, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       crypto.randomUUID(),
@@ -211,7 +210,7 @@ export async function socialOAuthStart(
       verifier,
       returnTo,
       expiresAt,
-      Date.now()
+      Date.now(),
     )
     .run();
 
@@ -224,7 +223,7 @@ export async function socialOAuthStart(
     auth.searchParams.set("state", state);
     auth.searchParams.set(
       "scope",
-      "pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,business_management"
+      "pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,business_management",
     );
     return auth.toString();
   }
@@ -242,10 +241,8 @@ export async function socialOAuthStart(
         "profile",
         "email",
         "w_member_social",
-        ...(env.LINKEDIN_ORGANIZATION_SCOPES || "")
-          .split(/\s+/)
-          .filter(Boolean),
-      ].join(" ")
+        ...(env.LINKEDIN_ORGANIZATION_SCOPES || "").split(/\s+/).filter(Boolean),
+      ].join(" "),
     );
     return auth.toString();
   }
@@ -275,14 +272,17 @@ async function loadOAuthState(env: SocialEnv, state: string) {
   const hash = await hashSecret(state, env.AUTH_PEPPER || "");
   const row = await env.DB.prepare(
     `SELECT * FROM social_oauth_states
-     WHERE state_hash = ? AND consumed_at IS NULL AND expires_at > ?`
+     WHERE state_hash = ? AND consumed_at IS NULL AND expires_at > ?`,
   )
     .bind(hash, Date.now())
     .first<any>();
   if (!row) throw new Error("Social OAuth state is invalid or expired.");
-  await env.DB.prepare("UPDATE social_oauth_states SET consumed_at = ? WHERE id = ?")
-    .bind(Date.now(), row.id)
+  const claimed = await env.DB.prepare(
+    "UPDATE social_oauth_states SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND expires_at > ?",
+  )
+    .bind(Date.now(), row.id, Date.now())
     .run();
+  if (!claimed.meta.changes) throw new Error("Social OAuth state is invalid or expired.");
   return row;
 }
 
@@ -300,10 +300,10 @@ async function upsertAccount(
     metadata?: unknown;
     accountType?: string | null;
     connectedBy?: string | null;
-  }
+  },
 ) {
   const existing = await env.DB.prepare(
-    "SELECT id FROM social_accounts WHERE client_id = ? AND platform = ? AND external_account_id = ?"
+    "SELECT id FROM social_accounts WHERE client_id = ? AND platform = ? AND external_account_id = ?",
   )
     .bind(input.clientId, input.platform, input.externalId)
     .first<{ id: string }>();
@@ -331,7 +331,7 @@ async function upsertAccount(
        account_type = excluded.account_type,
        last_verified_at = excluded.last_verified_at,
        connected_by = excluded.connected_by,
-       updated_at = CURRENT_TIMESTAMP`
+       updated_at = CURRENT_TIMESTAMP`,
   )
     .bind(
       id,
@@ -346,7 +346,7 @@ async function upsertAccount(
       input.metadata ? JSON.stringify(input.metadata) : null,
       input.accountType || null,
       new Date().toISOString(),
-      input.connectedBy || null
+      input.connectedBy || null,
     )
     .run();
 
@@ -356,19 +356,25 @@ async function upsertAccount(
      health_checked_at=COALESCE(health_checked_at,last_verified_at,CURRENT_TIMESTAMP),
      permission_status=COALESCE(permission_status,'verified'),
      last_error=NULL
-     WHERE id=?`
-  ).bind(id).run();
+     WHERE id=?`,
+  )
+    .bind(id)
+    .run();
 
   const defaultAccount = await env.DB.prepare(
     `SELECT id FROM social_accounts
      WHERE client_id = ? AND platform = ? AND is_default = 1 AND status = 'connected'
-     LIMIT 1`
-  ).bind(input.clientId, input.platform).first<{ id: string }>();
+     LIMIT 1`,
+  )
+    .bind(input.clientId, input.platform)
+    .first<{ id: string }>();
 
   if (!defaultAccount) {
     await env.DB.prepare(
-      "UPDATE social_accounts SET is_default = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-    ).bind(id).run();
+      "UPDATE social_accounts SET is_default = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    )
+      .bind(id)
+      .run();
   }
 
   return id;
@@ -381,7 +387,7 @@ async function discoverLinkedInOrganizations(
     accessToken: string;
     connectedBy?: string | null;
     scopes?: string | null;
-  }
+  },
 ) {
   const scopeSet = new Set((input.scopes || "").split(/\s+/).filter(Boolean));
   const hasOrgScope =
@@ -393,7 +399,7 @@ async function discoverLinkedInOrganizations(
 
   const aclResponse = await fetch(
     "https://api.linkedin.com/v2/organizationalEntityAcls?q=roleAssignee&state=APPROVED",
-    { headers: { authorization: `Bearer ${input.accessToken}` } }
+    { headers: { authorization: `Bearer ${input.accessToken}` } },
   );
   if (!aclResponse.ok) return [];
 
@@ -409,14 +415,11 @@ async function discoverLinkedInOrganizations(
     try {
       const orgResponse = await fetch(
         `https://api.linkedin.com/v2/organizations/${organizationId}`,
-        { headers: { authorization: `Bearer ${input.accessToken}` } }
+        { headers: { authorization: `Bearer ${input.accessToken}` } },
       );
       if (orgResponse.ok) {
         const org = await orgResponse.json<any>();
-        name =
-          org.localizedName ||
-          org.name?.localized?.en_US ||
-          name;
+        name = org.localizedName || org.name?.localized?.en_US || name;
       }
     } catch {}
 
@@ -443,23 +446,15 @@ async function hmacHex(secret: string, payload: string) {
     new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"]
+    ["sign"],
   );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(payload)
-  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
   return [...new Uint8Array(signature)]
     .map((value) => value.toString(16).padStart(2, "0"))
     .join("");
 }
 
-export async function handleMetaWebhook(
-  env: SocialEnv,
-  request: Request,
-  url: URL
-) {
+export async function handleMetaWebhook(env: SocialEnv, request: Request, url: URL) {
   if (request.method === "GET") {
     const mode = url.searchParams.get("hub.mode");
     const verifyToken = url.searchParams.get("hub.verify_token");
@@ -495,13 +490,10 @@ export async function handleMetaWebhook(
   await env.DB.prepare(
     `INSERT OR IGNORE INTO social_webhook_events
      (id,provider,event_type,external_event_id,payload_json,processed_at)
-     VALUES (?,'meta',?,?,?,CURRENT_TIMESTAMP)`
-  ).bind(
-    crypto.randomUUID(),
-    payload?.object || "unknown",
-    eventId,
-    raw
-  ).run();
+     VALUES (?,'meta',?,?,?,CURRENT_TIMESTAMP)`,
+  )
+    .bind(crypto.randomUUID(), payload?.object || "unknown", eventId, raw)
+    .run();
 
   return new Response("EVENT_RECEIVED", { status: 200 });
 }
@@ -509,7 +501,7 @@ export async function handleMetaWebhook(
 export async function socialOAuthCallback(
   env: SocialEnv,
   url: URL,
-  provider: "meta" | "linkedin" | "tiktok" | "x"
+  provider: "meta" | "linkedin" | "tiktok" | "x",
 ) {
   const state = url.searchParams.get("state") || "";
   const code = url.searchParams.get("code") || "";
@@ -534,7 +526,7 @@ export async function socialOAuthCallback(
     const token = await tokenResponse.json<any>();
 
     const accountsResponse = await fetch(
-      `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&access_token=${encodeURIComponent(token.access_token)}`
+      `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&access_token=${encodeURIComponent(token.access_token)}`,
     );
     if (!accountsResponse.ok) throw new Error("Meta account discovery failed.");
     const accounts = await accountsResponse.json<any>();
@@ -620,7 +612,7 @@ export async function socialOAuthCallback(
     const token = await tokenResponse.json<any>();
     const userResponse = await fetch(
       "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url",
-      { headers: { authorization: `Bearer ${token.access_token}` } }
+      { headers: { authorization: `Bearer ${token.access_token}` } },
     );
     const userPayload = userResponse.ok ? await userResponse.json<any>() : {};
     const user = userPayload.data?.user || {};
@@ -645,9 +637,7 @@ export async function socialOAuthCallback(
       redirect_uri: env.X_REDIRECT_URI || `${url.origin}/v1/social/x/callback`,
       code_verifier: saved.code_verifier,
     });
-    const basic = env.X_CLIENT_SECRET
-      ? btoa(`${env.X_CLIENT_ID}:${env.X_CLIENT_SECRET}`)
-      : null;
+    const basic = env.X_CLIENT_SECRET ? btoa(`${env.X_CLIENT_ID}:${env.X_CLIENT_SECRET}`) : null;
     const tokenResponse = await fetch("https://api.x.com/2/oauth2/token", {
       method: "POST",
       headers: {
@@ -691,7 +681,7 @@ async function createPublicMediaUrl(env: SocialEnv, post: any) {
   await env.DB.prepare(
     `INSERT INTO publish_media_tokens
      (id, post_id, token_hash, r2_key, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       crypto.randomUUID(),
@@ -699,7 +689,7 @@ async function createPublicMediaUrl(env: SocialEnv, post: any) {
       await hashSecret(token, env.AUTH_PEPPER || ""),
       post.graphic_key,
       Date.now() + 30 * 60 * 1000,
-      Date.now()
+      Date.now(),
     )
     .run();
 
@@ -717,12 +707,14 @@ async function accountToken(env: SocialEnv, account: SocialAccountRow) {
   const refreshToken = await decryptSecret(account.refresh_token_ciphertext, env);
   if (!refreshToken) {
     await env.DB.prepare(
-      "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-    ).bind("Access token expired and no refresh token is available.", account.id).run();
-    throw new SocialProviderError(
-      "Social authorization expired. Reconnect this account.",
-      { category: "authorization", retryable: false }
-    );
+      "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    )
+      .bind("Access token expired and no refresh token is available.", account.id)
+      .run();
+    throw new SocialProviderError("Social authorization expired. Reconnect this account.", {
+      category: "authorization",
+      retryable: false,
+    });
   }
 
   let tokenResponse: Response;
@@ -768,23 +760,27 @@ async function accountToken(env: SocialEnv, account: SocialAccountRow) {
     });
   } else {
     await env.DB.prepare(
-      "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-    ).bind("Meta authorization expired. Reconnect this account.", account.id).run();
-    throw new SocialProviderError(
-      "Meta authorization expired. Reconnect this account.",
-      { category: "authorization", retryable: false }
-    );
+      "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    )
+      .bind("Meta authorization expired. Reconnect this account.", account.id)
+      .run();
+    throw new SocialProviderError("Meta authorization expired. Reconnect this account.", {
+      category: "authorization",
+      retryable: false,
+    });
   }
 
   if (!tokenResponse.ok) {
     const detail = (await tokenResponse.text()).slice(0, 500);
     await env.DB.prepare(
-      "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-    ).bind(`Token refresh failed: ${detail}`, account.id).run();
-    throw new SocialProviderError(
-      "Social authorization refresh failed. Reconnect this account.",
-      { category: "authorization", retryable: false }
-    );
+      "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    )
+      .bind(`Token refresh failed: ${detail}`, account.id)
+      .run();
+    throw new SocialProviderError("Social authorization refresh failed. Reconnect this account.", {
+      category: "authorization",
+      retryable: false,
+    });
   }
 
   const refreshed = await tokenResponse.json<any>();
@@ -806,18 +802,48 @@ async function accountToken(env: SocialEnv, account: SocialAccountRow) {
        last_error = NULL,
        last_verified_at = ?,
        updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`
-  ).bind(
-    await encryptSecret(nextAccess, env),
-    await encryptSecret(nextRefresh, env),
-    nextExpiresAt,
-    refreshed.scope || null,
-    new Date().toISOString(),
-    new Date().toISOString(),
-    account.id
-  ).run();
+     WHERE id = ?`,
+  )
+    .bind(
+      await encryptSecret(nextAccess, env),
+      await encryptSecret(nextRefresh, env),
+      nextExpiresAt,
+      refreshed.scope || null,
+      new Date().toISOString(),
+      new Date().toISOString(),
+      account.id,
+    )
+    .run();
 
   return nextAccess;
+}
+
+function uncertainPublication(message: string) {
+  return new SocialProviderError(`${message} Check the provider before retrying.`, {
+    category: "uncertain",
+    retryable: false,
+  });
+}
+
+// A lost final-submit response is ambiguous: automatic reposting is unsafe.
+async function submitPost(url: string, init: RequestInit) {
+  let response: Response;
+  try {
+    response = await fetch(url, { ...init, signal: AbortSignal.timeout(60000) });
+  } catch {
+    throw uncertainPublication("Provider submission response was lost.");
+  }
+  if (response.status >= 500 || response.status === 408)
+    throw uncertainPublication(`Provider submission returned ${response.status}.`);
+  await requireProviderOk(response, "Provider submission failed");
+  return response;
+}
+async function publicationPayload(response: Response) {
+  try {
+    return await response.json<any>();
+  } catch {
+    throw uncertainPublication("Provider returned an unreadable publication receipt.");
+  }
 }
 
 export async function publishPostToSocial(env: SocialEnv, postId: string) {
@@ -827,11 +853,13 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
             sa.token_expires_at, sa.metadata, sa.account_type
      FROM posts p
      JOIN social_accounts sa ON sa.id = p.social_account_id
-     WHERE p.id = ?`
-  ).bind(postId).first<any>();
+     WHERE p.id = ?`,
+  )
+    .bind(postId)
+    .first<any>();
 
   if (!post) throw new Error("Post or social account not found.");
-  const account = post as SocialAccountRow;
+  const account = { ...post, id: post.social_account_id } as SocialAccountRow;
   const token = await accountToken(env, account);
   const mediaUrl = await createPublicMediaUrl(env, post);
 
@@ -850,11 +878,11 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
           caption: post.caption || "",
           access_token: token,
         }),
-      }
+      },
     );
     await requireProviderOk(create, "Instagram media creation failed");
     const container = await create.json<any>();
-    const publish = await fetch(
+    const publish = await submitPost(
       `https://graph.facebook.com/v23.0/${post.external_account_id}/media_publish`,
       {
         method: "POST",
@@ -863,13 +891,13 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
           creation_id: container.id,
           access_token: token,
         }),
-      }
+      },
     );
     await requireProviderOk(publish, "Instagram publishing failed");
-    raw = await publish.json<any>();
+    raw = await publicationPayload(publish);
     providerPostId = (raw as any).id || null;
   } else if (post.platform === "facebook") {
-    const publish = await fetch(
+    const publish = await submitPost(
       `https://graph.facebook.com/v23.0/${post.external_account_id}/photos`,
       {
         method: "POST",
@@ -879,10 +907,10 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
           caption: post.caption || "",
           access_token: token,
         }),
-      }
+      },
     );
     await requireProviderOk(publish, "Facebook publishing failed");
-    raw = await publish.json<any>();
+    raw = await publicationPayload(publish);
     providerPostId = (raw as any).post_id || (raw as any).id || null;
   } else if (post.platform === "linkedin") {
     const owner =
@@ -912,7 +940,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
     });
     await requireProviderOk(upload, "LinkedIn image upload failed");
 
-    const publish = await fetch("https://api.linkedin.com/rest/posts", {
+    const publish = await submitPost("https://api.linkedin.com/rest/posts", {
       method: "POST",
       headers: {
         authorization: `Bearer ${token}`,
@@ -938,33 +966,30 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
     raw = { id: publish.headers.get("x-restli-id") };
     providerPostId = (raw as any).id || null;
   } else if (post.platform === "tiktok") {
-    const publish = await fetch(
-      "https://open.tiktokapis.com/v2/post/publish/content/init/",
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${token}`,
-          "content-type": "application/json; charset=UTF-8",
+    const publish = await submitPost("https://open.tiktokapis.com/v2/post/publish/content/init/", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json; charset=UTF-8",
+      },
+      body: JSON.stringify({
+        post_info: {
+          title: (post.caption || post.title || "").slice(0, 2200),
+          privacy_level: post.default_visibility || "PUBLIC_TO_EVERYONE",
+          disable_comment: false,
+          auto_add_music: false,
         },
-        body: JSON.stringify({
-          post_info: {
-            title: (post.caption || post.title || "").slice(0, 2200),
-            privacy_level: post.default_visibility || "PUBLIC_TO_EVERYONE",
-            disable_comment: false,
-            auto_add_music: false,
-          },
-          source_info: {
-            source: "PULL_FROM_URL",
-            photo_cover_index: 0,
-            photo_images: [mediaUrl],
-          },
-          post_mode: "DIRECT_POST",
-          media_type: "PHOTO",
-        }),
-      }
-    );
+        source_info: {
+          source: "PULL_FROM_URL",
+          photo_cover_index: 0,
+          photo_images: [mediaUrl],
+        },
+        post_mode: "DIRECT_POST",
+        media_type: "PHOTO",
+      }),
+    });
     await requireProviderOk(publish, "TikTok publishing failed");
-    raw = await publish.json<any>();
+    raw = await publicationPayload(publish);
     providerPostId = (raw as any).data?.publish_id || null;
   } else {
     const imageResponse = await fetch(mediaUrl);
@@ -980,7 +1005,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
     await requireProviderOk(media, "X media upload failed");
     const mediaPayload = await media.json<any>();
     const mediaId = mediaPayload.data?.id || mediaPayload.media_id_string;
-    const publish = await fetch("https://api.x.com/2/tweets", {
+    const publish = await submitPost("https://api.x.com/2/tweets", {
       method: "POST",
       headers: {
         authorization: `Bearer ${token}`,
@@ -992,9 +1017,19 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       }),
     });
     await requireProviderOk(publish, "X publishing failed");
-    raw = await publish.json<any>();
+    raw = await publicationPayload(publish);
     providerPostId = (raw as any).data?.id || null;
     if (providerPostId) providerPostUrl = `https://x.com/i/web/status/${providerPostId}`;
+  }
+
+  if (!providerPostId) {
+    const rejection = (raw as any)?.error;
+    if (rejection?.code && rejection.code !== "ok")
+      throw new SocialProviderError(
+        `Provider rejected publication: ${rejection.message || rejection.code}`,
+        { category: "permanent", retryable: false },
+      );
+    throw uncertainPublication("Provider accepted the request without a publication ID.");
   }
 
   const receiptId = crypto.randomUUID();
@@ -1003,41 +1038,47 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
   const providerStatus = asynchronous ? "submitted" : "confirmed";
   const now = new Date().toISOString();
 
-  await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO social_publish_receipts
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO social_publish_receipts
        (id, post_id, social_account_id, provider_post_id, provider_post_url,
         status, provider_status, last_checked_at, confirmed_at, raw_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(
-      receiptId,
-      post.id,
-      post.social_account_id,
-      providerPostId,
-      providerPostUrl,
-      receiptStatus,
-      providerStatus,
-      now,
-      asynchronous ? null : now,
-      JSON.stringify(raw || {})
-    ),
-    env.DB.prepare(
-      `UPDATE posts SET
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        receiptId,
+        post.id,
+        post.social_account_id,
+        providerPostId,
+        providerPostUrl,
+        receiptStatus,
+        providerStatus,
+        now,
+        asynchronous ? null : now,
+        JSON.stringify(raw || {}),
+      ),
+      env.DB.prepare(
+        `UPDATE posts SET
        status = ?,
        platform_post_id = ?,
        platform_url = ?,
        published_at = ?,
        updated_at = ?
-       WHERE id = ?`
-    ).bind(
-      asynchronous ? "provider_processing" : "published",
-      providerPostId,
-      providerPostUrl,
-      asynchronous ? null : now,
-      now,
-      post.id
-    ),
-  ]);
+       WHERE id = ?`,
+      ).bind(
+        asynchronous ? "provider_processing" : "published",
+        providerPostId,
+        providerPostUrl,
+        asynchronous ? null : now,
+        now,
+        post.id,
+      ),
+    ]);
+  } catch {
+    throw uncertainPublication(
+      `Provider accepted publication ${providerPostId}, but saving its receipt failed.`,
+    );
+  }
 
   return {
     receiptId,
@@ -1050,22 +1091,26 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
 }
 
 export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
-  const account = await env.DB.prepare(
-    "SELECT * FROM social_accounts WHERE id = ?"
-  ).bind(accountId).first<SocialAccountRow>();
+  const account = await env.DB.prepare("SELECT * FROM social_accounts WHERE id = ?")
+    .bind(accountId)
+    .first<SocialAccountRow>();
   if (!account) throw new Error("Social account not found.");
 
   const runId = crypto.randomUUID();
   await env.DB.prepare(
-    "INSERT INTO analytics_sync_runs (id, social_account_id, status) VALUES (?, ?, 'running')"
-  ).bind(runId, accountId).run();
+    "INSERT INTO analytics_sync_runs (id, social_account_id, status) VALUES (?, ?, 'running')",
+  )
+    .bind(runId, accountId)
+    .run();
 
   try {
     const posts = await env.DB.prepare(
       `SELECT id, platform_post_id FROM posts
        WHERE social_account_id = ? AND status = 'published' AND platform_post_id IS NOT NULL
-       ORDER BY published_at DESC LIMIT 50`
-    ).bind(accountId).all<{ id: string; platform_post_id: string }>();
+       ORDER BY published_at DESC LIMIT 50`,
+    )
+      .bind(accountId)
+      .all<{ id: string; platform_post_id: string }>();
 
     const token = await accountToken(env, account);
 
@@ -1074,7 +1119,7 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
       if (account.platform === "x") {
         const result = await fetch(
           `https://api.x.com/2/tweets/${post.platform_post_id}?tweet.fields=public_metrics`,
-          { headers: { authorization: `Bearer ${token}` } }
+          { headers: { authorization: `Bearer ${token}` } },
         );
         if (result.ok) {
           const payload = await result.json<any>();
@@ -1089,11 +1134,16 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
         }
       } else if (account.platform === "instagram") {
         const result = await fetch(
-          `https://graph.facebook.com/v23.0/${post.platform_post_id}/insights?metric=views,reach,likes,comments,saved,shares&access_token=${encodeURIComponent(token)}`
+          `https://graph.facebook.com/v23.0/${post.platform_post_id}/insights?metric=views,reach,likes,comments,saved,shares&access_token=${encodeURIComponent(token)}`,
         );
         if (result.ok) {
           const payload = await result.json<any>();
-          const byName = Object.fromEntries((payload.data || []).map((m: any) => [m.name, m.values?.[0]?.value ?? m.total_value?.value]));
+          const byName = Object.fromEntries(
+            (payload.data || []).map((m: any) => [
+              m.name,
+              m.values?.[0]?.value ?? m.total_value?.value,
+            ]),
+          );
           metrics = {
             impressions: byName.views ?? byName.impressions,
             reach: byName.reach,
@@ -1106,10 +1156,10 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
         }
       } else if (account.platform === "facebook") {
         const insights = await fetch(
-          `https://graph.facebook.com/v23.0/${post.platform_post_id}/insights?metric=post_media_view,post_total_media_view_unique,post_clicks,post_reactions_by_type_total&access_token=${encodeURIComponent(token)}`
+          `https://graph.facebook.com/v23.0/${post.platform_post_id}/insights?metric=post_media_view,post_total_media_view_unique,post_clicks,post_reactions_by_type_total&access_token=${encodeURIComponent(token)}`,
         );
         const engagement = await fetch(
-          `https://graph.facebook.com/v23.0/${post.platform_post_id}?fields=comments.limit(0).summary(true),shares&access_token=${encodeURIComponent(token)}`
+          `https://graph.facebook.com/v23.0/${post.platform_post_id}?fields=comments.limit(0).summary(true),shares&access_token=${encodeURIComponent(token)}`,
         );
         if (insights.ok || engagement.ok) {
           const insightPayload = insights.ok ? await insights.json<any>() : {};
@@ -1118,12 +1168,16 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
             (insightPayload.data || []).map((m: any) => [
               m.name,
               m.values?.[0]?.value ?? m.total_value?.value,
-            ])
+            ]),
           );
           const reactions = byName.post_reactions_by_type_total || {};
-          const likes = typeof reactions === "number"
-            ? reactions
-            : Object.values(reactions).reduce((sum: number, value: any) => sum + Number(value || 0), 0);
+          const likes =
+            typeof reactions === "number"
+              ? reactions
+              : Object.values(reactions).reduce(
+                  (sum: number, value: any) => sum + Number(value || 0),
+                  0,
+                );
           metrics = {
             impressions: byName.post_media_view,
             reach: byName.post_total_media_view_unique,
@@ -1146,7 +1200,7 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
             body: JSON.stringify({
               filters: { video_ids: [String(post.platform_post_id)] },
             }),
-          }
+          },
         );
         if (result.ok) {
           const payload = await result.json<any>();
@@ -1193,26 +1247,30 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
       await env.DB.prepare(
         `INSERT INTO post_metrics
          (id, post_id, platform, impressions, reach, likes, comments, shares, clicks, saves, raw_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(
-        crypto.randomUUID(),
-        post.id,
-        account.platform,
-        metrics.impressions ?? null,
-        metrics.reach ?? null,
-        metrics.likes ?? null,
-        metrics.comments ?? null,
-        metrics.shares ?? null,
-        metrics.clicks ?? null,
-        metrics.saves ?? null,
-        JSON.stringify(metrics.raw || { status: "not_available_for_provider" })
-      ).run();
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          crypto.randomUUID(),
+          post.id,
+          account.platform,
+          metrics.impressions ?? null,
+          metrics.reach ?? null,
+          metrics.likes ?? null,
+          metrics.comments ?? null,
+          metrics.shares ?? null,
+          metrics.clicks ?? null,
+          metrics.saves ?? null,
+          JSON.stringify(metrics.raw || { status: "not_available_for_provider" }),
+        )
+        .run();
     }
 
     const completedAt = new Date().toISOString();
     await env.DB.prepare(
-      "UPDATE analytics_sync_runs SET status = 'completed', completed_at = ? WHERE id = ?"
-    ).bind(completedAt, runId).run();
+      "UPDATE analytics_sync_runs SET status = 'completed', completed_at = ? WHERE id = ?",
+    )
+      .bind(completedAt, runId)
+      .run();
 
     const platformTotals = await env.DB.prepare(
       `SELECT
@@ -1232,10 +1290,12 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
            FROM post_metrics GROUP BY post_id
          ) latest ON latest.post_id=m1.post_id AND latest.measured_at=m1.measured_at
        ) pm ON pm.post_id=p.id
-       WHERE p.client_id=? AND p.platform=? AND p.status='published'`
-    ).bind(account.client_id, account.platform).first<any>();
+       WHERE p.client_id=? AND p.platform=? AND p.status='published'`,
+    )
+      .bind(account.client_id, account.platform)
+      .first<any>();
 
-    const day = completedAt.slice(0,10);
+    const day = completedAt.slice(0, 10);
     await env.DB.prepare(
       `INSERT INTO analytics_daily
        (id,client_id,platform,day,posts,impressions,reach,likes,comments,shares,clicks,saves)
@@ -1249,21 +1309,23 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
          shares=excluded.shares,
          clicks=excluded.clicks,
          saves=excluded.saves,
-         updated_at=CURRENT_TIMESTAMP`
-    ).bind(
-      crypto.randomUUID(),
-      account.client_id,
-      account.platform,
-      day,
-      Number(platformTotals?.posts||0),
-      Number(platformTotals?.impressions||0),
-      Number(platformTotals?.reach||0),
-      Number(platformTotals?.likes||0),
-      Number(platformTotals?.comments||0),
-      Number(platformTotals?.shares||0),
-      Number(platformTotals?.clicks||0),
-      Number(platformTotals?.saves||0)
-    ).run();
+         updated_at=CURRENT_TIMESTAMP`,
+    )
+      .bind(
+        crypto.randomUUID(),
+        account.client_id,
+        account.platform,
+        day,
+        Number(platformTotals?.posts || 0),
+        Number(platformTotals?.impressions || 0),
+        Number(platformTotals?.reach || 0),
+        Number(platformTotals?.likes || 0),
+        Number(platformTotals?.comments || 0),
+        Number(platformTotals?.shares || 0),
+        Number(platformTotals?.clicks || 0),
+        Number(platformTotals?.saves || 0),
+      )
+      .run();
 
     const clientTotals = await env.DB.prepare(
       `SELECT
@@ -1283,34 +1345,40 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
            FROM post_metrics GROUP BY post_id
          ) latest ON latest.post_id=m1.post_id AND latest.measured_at=m1.measured_at
        ) pm ON pm.post_id=p.id
-       WHERE p.client_id=?`
-    ).bind(account.client_id).first<any>();
+       WHERE p.client_id=?`,
+    )
+      .bind(account.client_id)
+      .first<any>();
 
     await env.DB.prepare(
       `INSERT INTO analytics_snapshots
        (id,client_id,posts,impressions,reach,likes,comments,shares,clicks,saves,captured_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-    ).bind(
-      crypto.randomUUID(),
-      account.client_id,
-      Number(clientTotals?.posts||0),
-      Number(clientTotals?.impressions||0),
-      Number(clientTotals?.reach||0),
-      Number(clientTotals?.likes||0),
-      Number(clientTotals?.comments||0),
-      Number(clientTotals?.shares||0),
-      Number(clientTotals?.clicks||0),
-      Number(clientTotals?.saves||0),
-      completedAt
-    ).run();
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    )
+      .bind(
+        crypto.randomUUID(),
+        account.client_id,
+        Number(clientTotals?.posts || 0),
+        Number(clientTotals?.impressions || 0),
+        Number(clientTotals?.reach || 0),
+        Number(clientTotals?.likes || 0),
+        Number(clientTotals?.comments || 0),
+        Number(clientTotals?.shares || 0),
+        Number(clientTotals?.clicks || 0),
+        Number(clientTotals?.saves || 0),
+        completedAt,
+      )
+      .run();
   } catch (error) {
     await env.DB.prepare(
-      "UPDATE analytics_sync_runs SET status = 'failed', completed_at = ?, error_message = ? WHERE id = ?"
-    ).bind(
-      new Date().toISOString(),
-      error instanceof Error ? error.message.slice(0, 1000) : "Analytics sync failed",
-      runId
-    ).run();
+      "UPDATE analytics_sync_runs SET status = 'failed', completed_at = ?, error_message = ? WHERE id = ?",
+    )
+      .bind(
+        new Date().toISOString(),
+        error instanceof Error ? error.message.slice(0, 1000) : "Analytics sync failed",
+        runId,
+      )
+      .run();
     throw error;
   }
 
@@ -1320,15 +1388,17 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
 export async function resolveDefaultSocialAccount(
   env: SocialEnv,
   clientId: string,
-  platform: Platform
+  platform: Platform,
 ) {
   const preferred = await env.DB.prepare(
     `SELECT id, account_name
      FROM social_accounts
      WHERE client_id = ? AND platform = ? AND status = 'connected'
      ORDER BY is_default DESC, created_at ASC
-     LIMIT 2`
-  ).bind(clientId, platform).all<{ id: string; account_name: string | null }>();
+     LIMIT 2`,
+  )
+    .bind(clientId, platform)
+    .all<{ id: string; account_name: string | null }>();
 
   if (!preferred.results.length) return null;
 
@@ -1336,8 +1406,10 @@ export async function resolveDefaultSocialAccount(
     `SELECT id, account_name
      FROM social_accounts
      WHERE client_id = ? AND platform = ? AND status = 'connected' AND is_default = 1
-     LIMIT 1`
-  ).bind(clientId, platform).first<{ id: string; account_name: string | null }>();
+     LIMIT 1`,
+  )
+    .bind(clientId, platform)
+    .first<{ id: string; account_name: string | null }>();
 
   if (explicitDefault) return explicitDefault;
   if (preferred.results.length === 1) return preferred.results[0];
@@ -1351,41 +1423,36 @@ export async function ensurePostSocialDestination(
     client_id: string;
     platform: Platform;
     social_account_id?: string | null;
-  }
+  },
 ) {
   if (post.social_account_id) {
     const assigned = await env.DB.prepare(
       `SELECT id, account_name
        FROM social_accounts
-       WHERE id = ? AND client_id = ? AND platform = ? AND status = 'connected'`
-    ).bind(
-      post.social_account_id,
-      post.client_id,
-      post.platform
-    ).first<{ id: string; account_name: string | null }>();
+       WHERE id = ? AND client_id = ? AND platform = ? AND status = 'connected'`,
+    )
+      .bind(post.social_account_id, post.client_id, post.platform)
+      .first<{ id: string; account_name: string | null }>();
 
     if (assigned) return assigned;
   }
 
-  const fallback = await resolveDefaultSocialAccount(
-    env,
-    post.client_id,
-    post.platform
-  );
+  const fallback = await resolveDefaultSocialAccount(env, post.client_id, post.platform);
   if (!fallback) return null;
 
   await env.DB.prepare(
-    "UPDATE posts SET social_account_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-  ).bind(fallback.id, post.id).run();
+    "UPDATE posts SET social_account_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+  )
+    .bind(fallback.id, post.id)
+    .run();
 
   return fallback;
 }
 
-
 export async function verifySocialAccount(env: SocialEnv, accountId: string) {
-  const account = await env.DB.prepare(
-    "SELECT * FROM social_accounts WHERE id = ?"
-  ).bind(accountId).first<SocialAccountRow>();
+  const account = await env.DB.prepare("SELECT * FROM social_accounts WHERE id = ?")
+    .bind(accountId)
+    .first<SocialAccountRow>();
   if (!account) throw new Error("Social account not found.");
 
   try {
@@ -1394,7 +1461,7 @@ export async function verifySocialAccount(env: SocialEnv, accountId: string) {
 
     if (account.platform === "facebook" || account.platform === "instagram") {
       response = await fetch(
-        `https://graph.facebook.com/v23.0/${account.external_account_id}?fields=id,name&access_token=${encodeURIComponent(token)}`
+        `https://graph.facebook.com/v23.0/${account.external_account_id}?fields=id,name&access_token=${encodeURIComponent(token)}`,
       );
     } else if (account.platform === "linkedin") {
       response = await fetch("https://api.linkedin.com/v2/userinfo", {
@@ -1403,7 +1470,7 @@ export async function verifySocialAccount(env: SocialEnv, accountId: string) {
     } else if (account.platform === "tiktok") {
       response = await fetch(
         "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name",
-        { headers: { authorization: `Bearer ${token}` } }
+        { headers: { authorization: `Bearer ${token}` } },
       );
     } else {
       response = await fetch("https://api.x.com/2/users/me", {
@@ -1423,8 +1490,10 @@ export async function verifySocialAccount(env: SocialEnv, accountId: string) {
        last_verified_at=?,
        last_error=NULL,
        updated_at=CURRENT_TIMESTAMP
-       WHERE id=?`
-    ).bind(now, now, accountId).run();
+       WHERE id=?`,
+    )
+      .bind(now, now, accountId)
+      .run();
 
     return { ok: true, health: "healthy", checkedAt: now };
   } catch (error) {
@@ -1442,18 +1511,20 @@ export async function verifySocialAccount(env: SocialEnv, accountId: string) {
        last_error=?,
        rate_limit_reset_at=?,
        updated_at=CURRENT_TIMESTAMP
-       WHERE id=?`
-    ).bind(
-      reauth ? 1 : 0,
-      health,
-      new Date().toISOString(),
-      reauth ? "reauth_required" : "unknown",
-      message,
-      providerError?.retryAfterSeconds
-        ? new Date(Date.now() + providerError.retryAfterSeconds * 1000).toISOString()
-        : null,
-      accountId
-    ).run();
+       WHERE id=?`,
+    )
+      .bind(
+        reauth ? 1 : 0,
+        health,
+        new Date().toISOString(),
+        reauth ? "reauth_required" : "unknown",
+        message,
+        providerError?.retryAfterSeconds
+          ? new Date(Date.now() + providerError.retryAfterSeconds * 1000).toISOString()
+          : null,
+        accountId,
+      )
+      .run();
 
     throw error;
   }
@@ -1466,8 +1537,10 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
             sa.external_account_id, sa.metadata, sa.account_type
      FROM social_publish_receipts r
      JOIN social_accounts sa ON sa.id = r.social_account_id
-     WHERE r.id = ?`
-  ).bind(receiptId).first<any>();
+     WHERE r.id = ?`,
+  )
+    .bind(receiptId)
+    .first<any>();
 
   if (!receipt) throw new Error("Publish receipt not found.");
   if (receipt.status === "published" || receipt.status === "failed") {
@@ -1479,7 +1552,7 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
     };
   }
 
-  const account = receipt as SocialAccountRow;
+  const account = { ...receipt, id: receipt.social_account_id } as SocialAccountRow;
   const token = await accountToken(env, account);
 
   if (receipt.platform !== "tiktok") {
@@ -1489,14 +1562,14 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
         `UPDATE social_publish_receipts SET
          status='published',provider_status='confirmed',
          last_checked_at=?,confirmed_at=COALESCE(confirmed_at,?)
-         WHERE id=?`
+         WHERE id=?`,
       ).bind(now, now, receiptId),
       env.DB.prepare(
         `UPDATE posts SET
          status='published',
          published_at=COALESCE(published_at,?),
          updated_at=?
-         WHERE id=?`
+         WHERE id=?`,
       ).bind(now, now, receipt.post_id),
     ]);
     return {
@@ -1507,21 +1580,18 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
     };
   }
 
-  const response = await fetch(
-    "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
-    {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json; charset=UTF-8",
-      },
-      body: JSON.stringify({ publish_id: receipt.provider_post_id }),
-    }
-  );
+  const response = await fetch("https://open.tiktokapis.com/v2/post/publish/status/fetch/", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json; charset=UTF-8",
+    },
+    body: JSON.stringify({ publish_id: receipt.provider_post_id }),
+  });
   await requireProviderOk(response, "TikTok publish status check failed");
   const payload = await response.json<any>();
   const providerStatus = String(
-    payload?.data?.status || payload?.data?.publish_status || "PROCESSING"
+    payload?.data?.status || payload?.data?.publish_status || "PROCESSING",
   ).toUpperCase();
   const now = new Date().toISOString();
 
@@ -1537,16 +1607,18 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
   await env.DB.prepare(
     `INSERT INTO social_status_checks
      (id,receipt_id,social_account_id,platform,status,provider_status,error_message)
-     VALUES (?,?,?,?,?,?,?)`
-  ).bind(
-    crypto.randomUUID(),
-    receiptId,
-    receipt.social_account_id,
-    receipt.platform,
-    complete ? "published" : failed ? "failed" : "provider_processing",
-    providerStatus,
-    failed ? JSON.stringify(payload).slice(0, 1000) : null
-  ).run();
+     VALUES (?,?,?,?,?,?,?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      receiptId,
+      receipt.social_account_id,
+      receipt.platform,
+      complete ? "published" : failed ? "failed" : "provider_processing",
+      providerStatus,
+      failed ? JSON.stringify(payload).slice(0, 1000) : null,
+    )
+    .run();
 
   if (complete) {
     const publicPostId = Array.isArray(payload?.data?.publicaly_available_post_id)
@@ -1557,7 +1629,7 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
         `UPDATE social_publish_receipts SET
          status='published',provider_status=?,last_checked_at=?,confirmed_at=?,
          provider_post_id=COALESCE(?,provider_post_id)
-         WHERE id=?`
+         WHERE id=?`,
       ).bind(providerStatus, now, now, publicPostId ? String(publicPostId) : null, receiptId),
       env.DB.prepare(
         `UPDATE posts SET
@@ -1565,7 +1637,7 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
          platform_post_id=COALESCE(?,platform_post_id),
          published_at=COALESCE(published_at,?),
          updated_at=?
-         WHERE id=?`
+         WHERE id=?`,
       ).bind(publicPostId ? String(publicPostId) : null, now, now, receipt.post_id),
     ]);
     return {
@@ -1583,7 +1655,7 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
         `UPDATE social_publish_receipts SET
          status='failed',provider_status=?,last_checked_at=?,
          error_category='permanent',error_code='PROVIDER_REJECTED'
-         WHERE id=?`
+         WHERE id=?`,
       ).bind(providerStatus, now, receiptId),
       env.DB.prepare(
         `UPDATE posts SET
@@ -1591,7 +1663,7 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
          failure_code='PROVIDER_REJECTED',
          failure_message=?,
          updated_at=?
-         WHERE id=?`
+         WHERE id=?`,
       ).bind(detail, now, receipt.post_id),
     ]);
     return {
@@ -1605,8 +1677,10 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
   await env.DB.prepare(
     `UPDATE social_publish_receipts SET
      status='provider_processing',provider_status=?,last_checked_at=?
-     WHERE id=?`
-  ).bind(providerStatus, now, receiptId).run();
+     WHERE id=?`,
+  )
+    .bind(providerStatus, now, receiptId)
+    .run();
 
   return {
     status: "provider_processing",
@@ -1621,8 +1695,10 @@ export async function checkPendingPublishReceipts(env: SocialEnv, limit = 25) {
     `SELECT id FROM social_publish_receipts
      WHERE status='provider_processing'
      ORDER BY COALESCE(last_checked_at, created_at) ASC
-     LIMIT ?`
-  ).bind(limit).all<{ id: string }>();
+     LIMIT ?`,
+  )
+    .bind(limit)
+    .all<{ id: string }>();
 
   const results = [];
   for (const row of rows.results) {

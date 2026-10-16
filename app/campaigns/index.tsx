@@ -20,15 +20,23 @@ export default function CampaignsScreen() {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+  }, []);
   return (
     <PageScroll>
-      <PageHeader eyebrow="Campaign management" title="Campaigns" subtitle="Track generated campaigns, review progress, and see what has been published." />
+      <PageHeader
+        eyebrow="Campaign management"
+        title="Campaigns"
+        subtitle="Track generated campaigns, review progress, and see what has been published."
+      />
       {error && (
         <Card subtle>
           <Text style={styles.title}>Campaigns unavailable</Text>
           <Text style={styles.meta}>{error}</Text>
-          <Pressable onPress={load}><Text style={styles.retry}>Try again</Text></Pressable>
+          <Pressable onPress={load}>
+            <Text style={styles.retry}>Try again</Text>
+          </Pressable>
         </Card>
       )}
       <View style={styles.grid}>
@@ -51,20 +59,29 @@ export default function CampaignsScreen() {
             </Pressable>
           </Link>
         ))}
-        {!campaigns.length && <Card subtle><Text style={styles.meta}>No campaigns yet.</Text></Card>}
+        {!campaigns.length && (
+          <Card subtle>
+            <Text style={styles.meta}>No campaigns yet.</Text>
+          </Card>
+        )}
       </View>
     </PageScroll>
   );
 }
 const styles = StyleSheet.create({
-  grid:{flexDirection:"row",flexWrap:"wrap",gap:spacing.md},
-  item:{flexGrow:1,flexBasis:300,maxWidth:"100%"},
-  card:{minHeight:190},
-  row:{flexDirection:"row",alignItems:"center",justifyContent:"space-between",gap:spacing.sm},
-  client:{color:colors.muted,fontSize:12,fontWeight:"800"},
-  title:{color:colors.text,fontSize:20,fontWeight:"900"},
-  meta:{color:colors.muted,lineHeight:21},
-  stats:{marginTop:"auto",flexDirection:"row",flexWrap:"wrap",gap:12},
-  stat:{color:colors.primary,fontWeight:"800",fontSize:12},
-  retry:{color:colors.primary,fontWeight:"800"}
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
+  item: { flexGrow: 1, flexBasis: 300, maxWidth: "100%" },
+  card: { minHeight: 190 },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  client: { color: colors.muted, fontSize: 12, fontWeight: "800" },
+  title: { color: colors.text, fontSize: 20, fontWeight: "900" },
+  meta: { color: colors.muted, lineHeight: 21 },
+  stats: { marginTop: "auto", flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  stat: { color: colors.primary, fontWeight: "800", fontSize: 12 },
+  retry: { color: colors.primary, fontWeight: "800" },
 });

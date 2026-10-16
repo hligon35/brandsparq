@@ -40,8 +40,18 @@ Images → AI analysis → campaign plan → generated creative/captions → rev
 
 Production data comes from the Cloudflare API; demo fallbacks are not used.
 
+<<<<<<< HEAD
 Demo fixtures are development-only. Production UI must show real loading, empty, authentication, and failure states rather than falling back to sample customer data.
 
 ## Production safety
 
 Apply D1 migrations before deploying Worker code that depends on them. The production-readiness work introduces durable publish jobs, generation retry slots, client lifecycle fields, expanded Brand Brain fields, upload hashes and social account uniqueness.
+=======
+## Quality gate
+
+With Node 22.15+, install root and Worker dependencies, then run `npx playwright install --with-deps chromium webkit` and `npm run validate`. The gate includes lint/format, unit/integration tests, both TypeScript checks, web export and browser acceptance tests.
+
+See [Sprint 9](docs/SPRINT9.md) for native Maestro setup, staging smoke, CI and remaining release acceptance.
+
+The [Phase 1 workflow safety update](docs/WORKFLOW_SAFETY.md) documents correctness/privacy fixes and migration 0017.
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27

@@ -2,12 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Link, type Href } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useAuth } from "@/auth/context";
-import {
-  Button,
-  Card,
-  PageHeader,
-  PageScroll,
-} from "@/components/ui";
+import { Button, Card, PageHeader, PageScroll } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";
 
 const items: {
@@ -56,46 +51,38 @@ const items: {
 
 export default function MoreScreen() {
   const { user, signOut } = useAuth();
-  const visibleItems = user?.role === "owner"
-    ? [
-        ...items,
-        {
-          label: "Access management",
-          description: "Roles and client-level permissions.",
-          icon: "people-outline" as keyof typeof Ionicons.glyphMap,
-          href: "/access" as Href,
-        },
-        {
-          label: "System health",
-          description: "Production readiness, incidents, queues, and recovery.",
-          icon: "pulse-outline" as keyof typeof Ionicons.glyphMap,
-          href: "/system" as Href,
-        },
-      ]
-    : items;
+  const visibleItems =
+    user?.role === "owner"
+      ? [
+          ...items,
+          {
+            label: "Access management",
+            description: "Roles and client-level permissions.",
+            icon: "people-outline" as keyof typeof Ionicons.glyphMap,
+            href: "/access" as Href,
+          },
+          {
+            label: "System health",
+            description: "Production readiness, incidents, queues, and recovery.",
+            icon: "pulse-outline" as keyof typeof Ionicons.glyphMap,
+            href: "/system" as Href,
+          },
+        ]
+      : items;
 
   return (
     <PageScroll>
-      <PageHeader
-        eyebrow="Workspace"
-        title="More"
-        subtitle={user?.email || "Manage BrandSparQ"}
-      />
+      <PageHeader eyebrow="Workspace" title="More" subtitle={user?.email || "Manage BrandSparQ"} />
 
       <View style={styles.grid}>
         {visibleItems.map((item) => {
           const content = (
             <Card style={styles.itemCard}>
               <View style={styles.iconWrap}>
-                <Ionicons
-                  name={item.icon}
-                  size={23}
-                  color={colors.primary}
-                />
+                <Ionicons name={item.icon} size={23} color={colors.primary} />
               </View>
               <Text style={styles.item}>{item.label}</Text>
               <Text style={styles.description}>{item.description}</Text>
-
             </Card>
           );
 

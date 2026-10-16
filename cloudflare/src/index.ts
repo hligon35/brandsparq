@@ -17,10 +17,19 @@ import {
   recordSystemEvent,
   recoverStaleWork,
 } from "./operations";
+<<<<<<< HEAD
 import { checkExpoPushReceipts, notifyPostOwners } from "./notifications";
 import {
   hashSecret,
 } from "./security";
+=======
+import {
+  checkExpoPushReceipts,
+  retryNotificationDeliveries,
+  notifyPostOwners,
+} from "./notifications";
+import { hashSecret } from "./security";
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
 import {
   checkPendingPublishReceipts,
   ensurePostSocialDestination,
@@ -127,18 +136,28 @@ function cors(request: Request, env: Env) {
     (env.ALLOWED_ORIGINS || "")
       .split(",")
       .map((value) => value.trim())
-      .filter(Boolean)
+      .filter(Boolean),
   );
   const isLocal = !!origin && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
   const requestOrigin = new URL(request.url).origin;
   const sameOrigin = !!origin && origin === requestOrigin;
-  const allowed = !origin || sameOrigin || configured.has(origin) || (isLocal && env.ENVIRONMENT !== "production");
+  const allowed =
+    !origin ||
+    sameOrigin ||
+    configured.has(origin) ||
+    (isLocal && env.ENVIRONMENT !== "production");
   return {
     allowed,
     headers: {
       "access-control-allow-origin": origin && allowed ? origin : "",
+<<<<<<< HEAD
       "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
       "access-control-allow-headers": "authorization,content-type,x-client-id,x-file-name,x-image-width,x-image-height,x-derivative-kind",
+=======
+      "access-control-allow-methods": "GET,POST,OPTIONS",
+      "access-control-allow-headers":
+        "authorization,content-type,x-client-id,x-file-name,x-image-width,x-image-height,x-derivative-kind",
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
       "access-control-max-age": "86400",
       vary: "Origin",
     },
@@ -147,9 +166,7 @@ function cors(request: Request, env: Env) {
 
 async function sha256HexBytes(bytes: ArrayBuffer) {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)]
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
 function response(request: Request, env: Env, body: unknown, init: ResponseInit = {}) {
@@ -159,6 +176,7 @@ function response(request: Request, env: Env, body: unknown, init: ResponseInit 
     ...init,
     headers: {
       "content-type": "application/json",
+      "cache-control": "no-store",
       "x-content-type-options": "nosniff",
       "referrer-policy": "strict-origin-when-cross-origin",
       "permissions-policy": "camera=(), microphone=(), geolocation=()",
@@ -173,7 +191,9 @@ function response(request: Request, env: Env, body: unknown, init: ResponseInit 
 
 function bulkPostIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((id): id is string => typeof id === "string" && id.trim().length > 0))].slice(0, 100);
+  return [
+    ...new Set(value.filter((id): id is string => typeof id === "string" && id.trim().length > 0)),
+  ].slice(0, 100);
 }
 
 function postSelect(where = "") {
@@ -194,48 +214,36 @@ async function getPost(env: Env, postId: string) {
   return env.DB.prepare(postSelect("WHERE p.id = ?")).bind(postId).first<any>();
 }
 
-async function signPostMedia(
-  env: Env,
-  requestUrl: string,
-  userId: string,
-  row: any
-) {
+async function signPostMedia(env: Env, requestUrl: string, userId: string, row: any) {
   if (row?.graphic_key) {
-    row.image_url = await issuePostMediaUrl(
-      env,
-      requestUrl,
-      userId,
-      row.id,
-      row.graphic_key
-    );
+    row.image_url = await issuePostMediaUrl(env, requestUrl, userId, row.id, row.graphic_key);
   } else {
     row.image_url = null;
   }
   return row;
 }
 
-async function signPostRows(
-  env: Env,
-  requestUrl: string,
-  userId: string,
-  rows: any[]
-) {
-  return Promise.all(
-    rows.map((row) => signPostMedia(env, requestUrl, userId, row))
-  );
+async function signPostRows(env: Env, requestUrl: string, userId: string, rows: any[]) {
+  return Promise.all(rows.map((row) => signPostMedia(env, requestUrl, userId, row)));
 }
 
 async function authorize(
   env: Env,
   user: SessionUser,
   permission: Permission,
-  clientId?: string | null
+  clientId?: string | null,
 ) {
   if (!hasPermission(user, permission)) {
     return "You do not have permission to perform this action.";
   }
   if (clientId && !(await hasClientAccess(env.DB, user, clientId))) {
     return "You do not have access to this client.";
+  }
+  if (clientId && permission !== "read") {
+    const client = await env.DB.prepare("SELECT status FROM clients WHERE id=?")
+      .bind(clientId)
+      .first<{ status: string }>();
+    if (!client || client.status !== "active") return "This client is archived or unavailable.";
   }
   return null;
 }
@@ -246,8 +254,9 @@ function roleAllowed(role: string | undefined, allowed: string[]) {
 
 async function audit(env: Env, postId: string, action: string, metadata?: unknown, actorId = "system") {
   await env.DB.prepare(
-    "INSERT INTO audit_logs (id, post_id, actor_id, action, metadata) VALUES (?, ?, ?, ?, ?)"
+    "INSERT INTO audit_logs (id, post_id, actor_id, action, metadata) VALUES (?, ?, ?, ?, ?)",
   )
+<<<<<<< HEAD
     .bind(
       crypto.randomUUID(),
       postId,
@@ -255,6 +264,9 @@ async function audit(env: Env, postId: string, action: string, metadata?: unknow
       action,
       metadata ? JSON.stringify(metadata) : null
     )
+=======
+    .bind(crypto.randomUUID(), postId, "system", action, metadata ? JSON.stringify(metadata) : null)
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
     .run();
 }
 
@@ -302,7 +314,8 @@ export default {
         headers: policy.headers,
       });
     }
-    if (!policy.allowed) return response(request, env, { error: "Origin not allowed" }, { status: 403 });
+    if (!policy.allowed)
+      return response(request, env, { error: "Origin not allowed" }, { status: 403 });
 
     if (url.pathname === "/health") {
       const health = await readiness(env);
@@ -316,7 +329,7 @@ export default {
           checks: health.checks.map((check) => ({ name: check.name, ok: check.ok })),
           timestamp: health.timestamp,
         },
-        { status: health.ok ? 200 : 503, headers: { "cache-control": "no-store" } }
+        { status: health.ok ? 200 : 503, headers: { "cache-control": "no-store" } },
       );
     }
 
@@ -328,13 +341,21 @@ export default {
     if (publicPublishMediaMatch && request.method === "GET") {
       const tokenHash = await hashSecret(publicPublishMediaMatch[1], env.AUTH_PEPPER || "");
       const row = await env.DB.prepare(
-        "SELECT r2_key, expires_at FROM publish_media_tokens WHERE token_hash = ?"
-      ).bind(tokenHash).first<{ r2_key: string; expires_at: number }>();
+        "SELECT r2_key, expires_at FROM publish_media_tokens WHERE token_hash = ?",
+      )
+        .bind(tokenHash)
+        .first<{ r2_key: string; expires_at: number }>();
       if (!row || row.expires_at <= Date.now()) {
-        return response(request, env, { error: "Publish media link is invalid or expired." }, { status: 404 });
+        return response(
+          request,
+          env,
+          { error: "Publish media link is invalid or expired." },
+          { status: 404 },
+        );
       }
       const object = await env.MEDIA.get(row.r2_key);
-      if (!object) return response(request, env, { error: "Publish media not found." }, { status: 404 });
+      if (!object)
+        return response(request, env, { error: "Publish media not found." }, { status: 404 });
       return new Response(object.body, {
         headers: {
           "content-type": object.httpMetadata?.contentType || "image/jpeg",
@@ -348,7 +369,12 @@ export default {
     if (signedMediaMatch && request.method === "GET") {
       const row = await resolveMediaToken(env, signedMediaMatch[1]);
       if (!row || row.expires_at <= Date.now()) {
-        return response(request, env, { error: "Media link is invalid or expired." }, { status: 404 });
+        return response(
+          request,
+          env,
+          { error: "Media link is invalid or expired." },
+          { status: 404 },
+        );
       }
       const object = await env.MEDIA.get(row.r2_key);
       if (!object) {
@@ -376,11 +402,18 @@ export default {
          JOIN posts p ON p.id = rt.post_id
          JOIN clients c ON c.id = p.client_id
          LEFT JOIN brand_profiles bp ON bp.client_id = p.client_id
-         WHERE rt.token_hash = ?`
-      ).bind(tokenHash).first<any>();
+         WHERE rt.token_hash = ?`,
+      )
+        .bind(tokenHash)
+        .first<any>();
 
       if (!row || row.expires_at <= Date.now()) {
-        return response(request, env, { error: "This review link is invalid or expired." }, { status: 404 });
+        return response(
+          request,
+          env,
+          { error: "This review link is invalid or expired." },
+          { status: 404 },
+        );
       }
       row.image_url = row.graphic_key
         ? "/v1/public/review/" + encodeURIComponent(publicReviewMatch[1]) + "/media"
@@ -392,13 +425,16 @@ export default {
     if (publicMediaMatch && request.method === "GET") {
       const tokenHash = await hashReviewToken(publicMediaMatch[1], env);
       const row = await env.DB.prepare(
-        "SELECT p.graphic_key, rt.expires_at FROM review_tokens rt JOIN posts p ON p.id = rt.post_id WHERE rt.token_hash = ?"
-      ).bind(tokenHash).first<{ graphic_key?: string | null; expires_at: number }>();
+        "SELECT p.graphic_key, rt.expires_at FROM review_tokens rt JOIN posts p ON p.id = rt.post_id WHERE rt.token_hash = ?",
+      )
+        .bind(tokenHash)
+        .first<{ graphic_key?: string | null; expires_at: number }>();
       if (!row || row.expires_at <= Date.now() || !row.graphic_key) {
         return response(request, env, { error: "Review image unavailable." }, { status: 404 });
       }
       const object = await env.MEDIA.get(row.graphic_key);
-      if (!object) return response(request, env, { error: "Review image unavailable." }, { status: 404 });
+      if (!object)
+        return response(request, env, { error: "Review image unavailable." }, { status: 404 });
       return new Response(object.body, {
         headers: {
           "content-type": object.httpMetadata?.contentType || "image/jpeg",
@@ -422,7 +458,7 @@ export default {
           request,
           env,
           { error: "Too many review actions. Please wait and try again." },
-          { status: 429, headers: { "retry-after": String(limit.retryAfter) } }
+          { status: 429, headers: { "retry-after": String(limit.retryAfter) } },
         );
       }
     }
@@ -434,27 +470,41 @@ export default {
         `SELECT rt.post_id, rt.expires_at, p.status
          FROM review_tokens rt
          JOIN posts p ON p.id = rt.post_id
-         WHERE rt.token_hash = ?`
-      ).bind(tokenHash).first<any>();
+         WHERE rt.token_hash = ?`,
+      )
+        .bind(tokenHash)
+        .first<any>();
 
       if (!row || row.expires_at <= Date.now()) {
-        return response(request, env, { error: "This review link is invalid or expired." }, { status: 404 });
+        return response(
+          request,
+          env,
+          { error: "This review link is invalid or expired." },
+          { status: 404 },
+        );
       }
-      if (!["awaiting_approval","edit_requested"].includes(row.status)) {
-        return response(request, env, { error: "This post is no longer editable from review." }, { status: 409 });
+      if (!["awaiting_approval", "edit_requested"].includes(row.status)) {
+        return response(
+          request,
+          env,
+          { error: "This post is no longer editable from review." },
+          { status: 409 },
+        );
       }
 
-      const payload = await request.json<{
-        headline?: string;
-        caption?: string;
-        comment?: string;
-      }>().catch(() => ({} as any));
+      const payload = await request
+        .json<{
+          headline?: string;
+          caption?: string;
+          comment?: string;
+        }>()
+        .catch(() => ({}) as any);
 
       const headline = payload.headline?.trim().slice(0, 300);
       const caption = payload.caption?.trim().slice(0, 5000);
       const comment = payload.comment?.trim().slice(0, 2000);
 
-      await env.DB.batch([
+      const changed = await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
            headline = COALESCE(NULLIF(?, ''), headline),
@@ -463,16 +513,25 @@ export default {
            reviewer_comment = COALESCE(NULLIF(?, ''), reviewer_comment),
            status = 'awaiting_approval',
            updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`
+           WHERE id = ? AND status IN ('awaiting_approval','edit_requested')`,
         ).bind(headline || null, headline || null, caption || null, comment || null, row.post_id),
-        ...(comment ? [
-          env.DB.prepare(
-            `INSERT INTO review_comments
+        ...(comment
+          ? [
+              env.DB.prepare(
+                `INSERT INTO review_comments
              (id,post_id,public_reviewer,comment)
-             VALUES (?, ?, 1, ?)`
-          ).bind(crypto.randomUUID(), row.post_id, comment)
-        ] : []),
+             VALUES (?, ?, 1, ?)`,
+              ).bind(crypto.randomUUID(), row.post_id, comment),
+            ]
+          : []),
       ]);
+      if (!changed[0].meta.changes)
+        return response(
+          request,
+          env,
+          { error: "This post changed during review. Reload it before editing." },
+          { status: 409 },
+        );
 
       return response(request, env, { ok: true, postId: row.post_id });
     }
@@ -484,21 +543,33 @@ export default {
         `SELECT rt.post_id, rt.expires_at, p.status
          FROM review_tokens rt
          JOIN posts p ON p.id = rt.post_id
-         WHERE rt.token_hash = ?`
-      ).bind(tokenHash).first<any>();
+         WHERE rt.token_hash = ?`,
+      )
+        .bind(tokenHash)
+        .first<any>();
 
       if (!row || row.expires_at <= Date.now()) {
-        return response(request, env, { error: "This review link is invalid or expired." }, { status: 404 });
+        return response(
+          request,
+          env,
+          { error: "This review link is invalid or expired." },
+          { status: 404 },
+        );
       }
-      if (!["awaiting_approval","edit_requested"].includes(row.status)) {
-        return response(request, env, { error: "This post is no longer awaiting review." }, { status: 409 });
+      if (!["awaiting_approval", "edit_requested"].includes(row.status)) {
+        return response(
+          request,
+          env,
+          { error: "This post is no longer awaiting review." },
+          { status: 409 },
+        );
       }
 
-      const payload = await request.json<{ reason?: string }>().catch(() => ({} as any));
+      const payload = await request.json<{ reason?: string }>().catch(() => ({}) as any);
       const reason = payload.reason?.trim().slice(0, 2000) || "Changes requested.";
       const now = new Date().toISOString();
 
-      await env.DB.batch([
+      const changed = await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
            status='edit_requested',
@@ -506,19 +577,26 @@ export default {
            rejection_reason=?,
            reviewer_comment=?,
            updated_at=?
-           WHERE id=?`
+           WHERE id=? AND status IN ('awaiting_approval','edit_requested')`,
         ).bind(now, reason, reason, now, row.post_id),
         env.DB.prepare(
           `INSERT INTO review_comments
            (id,post_id,public_reviewer,comment)
-           VALUES (?, ?, 1, ?)`
+           VALUES (?, ?, 1, ?)`,
         ).bind(crypto.randomUUID(), row.post_id, reason),
         env.DB.prepare(
           `INSERT INTO approvals
            (id,post_id,decision,previous_status)
-           VALUES (?, ?, 'rejected_via_review_link', ?)`
+           VALUES (?, ?, 'rejected_via_review_link', ?)`,
         ).bind(crypto.randomUUID(), row.post_id, row.status),
       ]);
+      if (!changed[0].meta.changes)
+        return response(
+          request,
+          env,
+          { error: "This post changed during review. Reload it before editing." },
+          { status: 409 },
+        );
 
       return response(request, env, {
         ok: true,
@@ -534,45 +612,41 @@ export default {
         `SELECT rt.post_id, rt.expires_at, p.status
          FROM review_tokens rt
          JOIN posts p ON p.id = rt.post_id
-         WHERE rt.token_hash = ?`
-      ).bind(tokenHash).first<any>();
+         WHERE rt.token_hash = ?`,
+      )
+        .bind(tokenHash)
+        .first<any>();
 
       if (!row || row.expires_at <= Date.now()) {
-        return response(request, env, { error: "This review link is invalid or expired." }, { status: 404 });
+        return response(
+          request,
+          env,
+          { error: "This review link is invalid or expired." },
+          { status: 404 },
+        );
       }
-      if (!["awaiting_approval","edit_requested"].includes(row.status)) {
-        return response(request, env, { error: "This post cannot be regenerated from review." }, { status: 409 });
+      if (!["awaiting_approval", "edit_requested"].includes(row.status)) {
+        return response(
+          request,
+          env,
+          { error: "This post cannot be regenerated from review." },
+          { status: 409 },
+        );
       }
 
-      const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
+      const payload = await request.json<{ instruction?: string }>().catch(() => ({}) as any);
       const instruction = payload.instruction?.trim().slice(0, 2000);
 
       try {
-        await env.DB.prepare(
-          "UPDATE posts SET status='regenerating',updated_at=CURRENT_TIMESTAMP WHERE id=?"
-        ).bind(row.post_id).run();
-
         const data = await regeneratePostWithAI(env, row.post_id, instruction);
-        await env.DB.prepare(
-          `UPDATE posts SET
-           status='awaiting_approval',
-           rejected_at=NULL,
-           rejection_reason=NULL,
-           updated_at=CURRENT_TIMESTAMP
-           WHERE id=?`
-        ).bind(row.post_id).run();
 
         return response(request, env, { ok: true, data });
       } catch (error) {
-        await env.DB.prepare(
-          "UPDATE posts SET status='edit_requested',updated_at=CURRENT_TIMESTAMP WHERE id=?"
-        ).bind(row.post_id).run();
-
         return response(
           request,
           env,
           { error: error instanceof Error ? error.message : "Unable to regenerate this post." },
-          { status: 502 }
+          { status: (error as { status?: number }).status === 409 ? 409 : 502 },
         );
       }
     }
@@ -585,22 +659,34 @@ export default {
                 p.status, p.client_id, p.platform, p.social_account_id, p.suggested_publish_at
          FROM review_tokens rt
          JOIN posts p ON p.id = rt.post_id
-         WHERE rt.token_hash = ?`
-      ).bind(tokenHash).first<any>();
+         WHERE rt.token_hash = ?`,
+      )
+        .bind(tokenHash)
+        .first<any>();
 
       if (!row || row.expires_at <= Date.now() || row.used_at) {
-        return response(request, env, { error: "This review link is invalid, expired, or already used." }, { status: 409 });
+        return response(
+          request,
+          env,
+          { error: "This review link is invalid, expired, or already used." },
+          { status: 409 },
+        );
       }
       if (row.status !== "awaiting_approval") {
         return response(
           request,
           env,
           { error: "This post is no longer awaiting approval." },
-          { status: 409 }
+          { status: 409 },
         );
       }
       if (!row.suggested_publish_at) {
-        return response(request, env, { error: "This post does not have a proposed publishing slot." }, { status: 409 });
+        return response(
+          request,
+          env,
+          { error: "This post does not have a proposed publishing slot." },
+          { status: 409 },
+        );
       }
       const destination = await ensurePostSocialDestination(env, {
         id: row.post_id,
@@ -613,7 +699,7 @@ export default {
           request,
           env,
           { error: `Connect or choose a ${row.platform} publishing account before approval.` },
-          { status: 409 }
+          { status: 409 },
         );
       }
 
@@ -622,9 +708,9 @@ export default {
         env,
         row.client_id,
         row.suggested_publish_at,
-        row.post_id
+        row.post_id,
       );
-      await env.DB.batch([
+      const approved = await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
              status = 'calendar_scheduled',
@@ -632,22 +718,35 @@ export default {
              calendar_added_at = ?,
              scheduled_publish_at = ?,
              updated_at = ?
-           WHERE id = ?`
+           WHERE id = ? AND status='awaiting_approval'`,
         ).bind(now, now, scheduledAt, now, row.post_id),
         env.DB.prepare(
-          "UPDATE review_tokens SET used_at = ? WHERE id = ?"
-        ).bind(Date.now(), row.review_token_id),
+          "UPDATE review_tokens SET used_at = ? WHERE id = ? AND EXISTS (SELECT 1 FROM posts WHERE id=? AND approved_at=? AND status='calendar_scheduled')",
+        ).bind(Date.now(), row.review_token_id, row.post_id, now),
         env.DB.prepare(
           `INSERT INTO approvals
              (id, post_id, decision, previous_status)
-           VALUES (?, ?, 'approved_via_review_link', ?)`
-        ).bind(crypto.randomUUID(), row.post_id, row.status),
+           SELECT ?, ?, 'approved_via_review_link', ? WHERE EXISTS (SELECT 1 FROM posts WHERE id=? AND approved_at=? AND status='calendar_scheduled')`,
+        ).bind(crypto.randomUUID(), row.post_id, row.status, row.post_id, now),
       ]);
+      if (!approved[0].meta.changes)
+        return response(
+          request,
+          env,
+          { error: "This post changed during approval. Reload and review it again." },
+          { status: 409 },
+        );
       await audit(env, row.post_id, "post.approved_via_review_link");
-      return response(request, env, { ok: true, postId: row.post_id, status: "calendar_scheduled" });
+      return response(request, env, {
+        ok: true,
+        postId: row.post_id,
+        status: "calendar_scheduled",
+      });
     }
 
-    const socialCallbackMatch = url.pathname.match(/^\/v1\/social\/(meta|linkedin|tiktok|x)\/callback$/);
+    const socialCallbackMatch = url.pathname.match(
+      /^\/v1\/social\/(meta|linkedin|tiktok|x)\/callback$/,
+    );
     if (request.method === "GET" && socialCallbackMatch) {
       try {
         const destination = await socialOAuthCallback(env, url, socialCallbackMatch[1] as any);
@@ -657,7 +756,7 @@ export default {
           request,
           env,
           { error: error instanceof Error ? error.message : "Social connection failed." },
-          { status: 400 }
+          { status: 400 },
         );
       }
     }
@@ -670,7 +769,7 @@ export default {
           request,
           env,
           { error: "Too many sign-in attempts. Please wait and try again." },
-          { status: 429, headers: { "retry-after": String(limit.retryAfter) } }
+          { status: 429, headers: { "retry-after": String(limit.retryAfter) } },
         );
       }
     }
@@ -684,20 +783,13 @@ export default {
         request,
         env,
         authRoute.body,
-        authRoute.status ? { status: authRoute.status } : {}
+        authRoute.status ? { status: authRoute.status } : {},
       );
     }
 
-    const sessionUser = url.pathname.startsWith("/v1/")
-      ? await getSessionUser(request, env)
-      : null;
+    const sessionUser = url.pathname.startsWith("/v1/") ? await getSessionUser(request, env) : null;
     if (url.pathname.startsWith("/v1/") && !sessionUser) {
-      return response(
-        request,
-        env,
-        { error: "Authentication required." },
-        { status: 401 }
-      );
+      return response(request, env, { error: "Authentication required." }, { status: 401 });
     }
 
     if (sessionUser) {
@@ -707,10 +799,23 @@ export default {
           request,
           env,
           operations.body,
-          operations.status ? { status: operations.status } : {}
+          operations.status ? { status: operations.status } : {},
         );
       }
 
+<<<<<<< HEAD
+=======
+      const managed = await handleManagementRoute(request, url, env, sessionUser);
+      if (managed) {
+        if ("response" in managed) return managed.response;
+        return response(
+          request,
+          env,
+          managed.body,
+          managed.status ? { status: managed.status } : {},
+        );
+      }
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/v1/media/")) {
@@ -720,8 +825,10 @@ export default {
         `SELECT client_id FROM assets WHERE r2_key = ?
          UNION SELECT a.client_id FROM asset_derivatives d JOIN assets a ON a.id = d.asset_id WHERE d.r2_key = ?
          UNION SELECT client_id FROM posts WHERE graphic_key = ?
-         UNION SELECT p.client_id FROM creative_variants v JOIN posts p ON p.id = v.post_id WHERE v.r2_key = ?`
-      ).bind(key, key, key, key).all<{ client_id: string }>();
+         UNION SELECT p.client_id FROM creative_variants v JOIN posts p ON p.id = v.post_id WHERE v.r2_key = ?`,
+      )
+        .bind(key, key, key, key)
+        .all<{ client_id: string }>();
       let allowed = false;
       for (const row of resource.results) {
         if (await hasClientAccess(env.DB, sessionUser!, row.client_id)) {
@@ -753,8 +860,10 @@ export default {
          FROM brand_assets ba
          JOIN assets a ON a.id = ba.asset_id
          WHERE ba.client_id = ?
-         ORDER BY ba.created_at DESC`
-      ).bind(brandAssetsMatch[1]).all<any>();
+         ORDER BY ba.created_at DESC`,
+      )
+        .bind(brandAssetsMatch[1])
+        .all<any>();
 
       return response(request, env, { data: rows.results });
     }
@@ -763,19 +872,21 @@ export default {
       const denied = await authorize(env, sessionUser!, "brand_manage", brandAssetsMatch[1]);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
-      const payload = await request.json<{ assetId?: string; role?: string; label?: string }>()
-        .catch(() => ({} as any));
+      const payload = await request
+        .json<{ assetId?: string; role?: string; label?: string }>()
+        .catch(() => ({}) as any);
       if (!payload.assetId) {
         return response(request, env, { error: "assetId is required." }, { status: 400 });
       }
 
-      const asset = await env.DB.prepare(
-        "SELECT id FROM assets WHERE id = ? AND client_id = ?"
-      ).bind(payload.assetId, brandAssetsMatch[1]).first();
-      if (!asset) return response(request, env, { error: "Brand asset not found." }, { status: 404 });
+      const asset = await env.DB.prepare("SELECT id FROM assets WHERE id = ? AND client_id = ?")
+        .bind(payload.assetId, brandAssetsMatch[1])
+        .first();
+      if (!asset)
+        return response(request, env, { error: "Brand asset not found." }, { status: 404 });
 
       const role = (payload.role || "reference").trim().toLowerCase();
-      if (!["logo","alternate_logo","reference","approved_image"].includes(role)) {
+      if (!["logo", "alternate_logo", "reference", "approved_image"].includes(role)) {
         return response(request, env, { error: "Invalid brand asset role." }, { status: 400 });
       }
 
@@ -783,14 +894,18 @@ export default {
       await env.DB.prepare(
         `INSERT OR IGNORE INTO brand_assets
          (id, client_id, asset_id, role, label)
-         VALUES (?, ?, ?, ?, ?)`
-      ).bind(id, brandAssetsMatch[1], payload.assetId, role, payload.label?.trim() || null).run();
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+        .bind(id, brandAssetsMatch[1], payload.assetId, role, payload.label?.trim() || null)
+        .run();
 
       if (role === "logo" || role === "alternate_logo") {
         const column = role === "logo" ? "logo_asset_id" : "alternate_logo_asset_id";
         await env.DB.prepare(
-          `UPDATE brand_profiles SET ${column} = ?, updated_at = CURRENT_TIMESTAMP WHERE client_id = ?`
-        ).bind(payload.assetId, brandAssetsMatch[1]).run();
+          `UPDATE brand_profiles SET ${column} = ?, updated_at = CURRENT_TIMESTAMP WHERE client_id = ?`,
+        )
+          .bind(payload.assetId, brandAssetsMatch[1])
+          .run();
       }
 
       return response(request, env, { ok: true, id });
@@ -812,8 +927,10 @@ export default {
                 bp.alternate_logo_asset_id, bp.cta_library, bp.campaign_goals
          FROM clients c
          LEFT JOIN brand_profiles bp ON bp.client_id = c.id
-         WHERE c.id = ?`
-      ).bind(brandMatch[1]).first();
+         WHERE c.id = ?`,
+      )
+        .bind(brandMatch[1])
+        .first();
       if (!row) return response(request, env, { error: "Client not found" }, { status: 404 });
       return response(request, env, { data: row });
     }
@@ -822,13 +939,15 @@ export default {
       const denied = await authorize(env, sessionUser!, "brand_manage", brandMatch[1]);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
-      const payload = await request.json<any>().catch(() => ({} as any));
+      const payload = await request.json<any>().catch(() => ({}) as any);
       const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ?")
-        .bind(brandMatch[1]).first();
+        .bind(brandMatch[1])
+        .first();
       if (!client) return response(request, env, { error: "Client not found" }, { status: 404 });
 
       const current = await env.DB.prepare("SELECT id FROM brand_profiles WHERE client_id = ?")
-        .bind(brandMatch[1]).first<{ id: string }>();
+        .bind(brandMatch[1])
+        .first<{ id: string }>();
       const id = current?.id || crypto.randomUUID();
 
       await env.DB.prepare(
@@ -864,6 +983,7 @@ export default {
            campaign_goals = excluded.campaign_goals,
            target_locations = excluded.target_locations,
            platform_rules = excluded.platform_rules,
+<<<<<<< HEAD
            updated_at = CURRENT_TIMESTAMP`
       ).bind(
         id,
@@ -892,11 +1012,44 @@ export default {
         payload.targetLocations ? JSON.stringify(payload.targetLocations) : null,
         payload.platformRules ? JSON.stringify(payload.platformRules) : null
       ).run();
+=======
+           logo_asset_id = excluded.logo_asset_id,
+           alternate_logo_asset_id = excluded.alternate_logo_asset_id,
+           updated_at = CURRENT_TIMESTAMP`,
+      )
+        .bind(
+          id,
+          brandMatch[1],
+          payload.voice || null,
+          payload.audience || null,
+          payload.primaryColor || null,
+          payload.secondaryColor || null,
+          payload.website || null,
+          payload.socialHandles ? JSON.stringify(payload.socialHandles) : null,
+          payload.restrictedWords || null,
+          payload.tagline || null,
+          payload.preferredCtas || null,
+          payload.imageryPreferences || null,
+          payload.postingRules || null,
+          payload.fonts || null,
+          payload.brandExamples || null,
+          payload.prohibitedVisualStyles || null,
+          payload.competitorReferences || null,
+          payload.brandVocabulary || null,
+          payload.hashtagPolicy || null,
+          payload.targetLocations || null,
+          payload.platformRules || null,
+          payload.logoAssetId || null,
+          payload.alternateLogoAssetId || null,
+        )
+        .run();
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
 
       return response(request, env, { ok: true, id });
     }
 
     if (request.method === "POST" && url.pathname === "/v1/generation-jobs") {
+<<<<<<< HEAD
       if (!roleAllowed(sessionUser?.role, ["owner","admin","reviewer"])) {
         return response(request, env, { error: "You do not have permission to create campaigns." }, { status: 403 });
       }
@@ -905,9 +1058,23 @@ export default {
         objective?: string;
         assetIds?: string[];
       }>().catch(() => ({} as any));
+=======
+      const payload = await request
+        .json<{
+          clientId?: string;
+          objective?: string;
+          assetIds?: string[];
+        }>()
+        .catch(() => ({}) as any);
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
 
       if (!payload.clientId || !payload.assetIds?.length) {
-        return response(request, env, { error: "clientId and assetIds are required." }, { status: 400 });
+        return response(
+          request,
+          env,
+          { error: "clientId and assetIds are required." },
+          { status: 400 },
+        );
       }
 
       const denied = await authorize(env, sessionUser!, "generate", payload.clientId);
@@ -916,25 +1083,34 @@ export default {
       const placeholders = payload.assetIds.map(() => "?").join(",");
       const owned = await env.DB.prepare(
         `SELECT COUNT(*) AS count FROM assets
-         WHERE client_id = ? AND id IN (${placeholders})`
-      ).bind(payload.clientId, ...payload.assetIds).first<{ count: number }>();
+         WHERE client_id = ? AND id IN (${placeholders})`,
+      )
+        .bind(payload.clientId, ...payload.assetIds)
+        .first<{ count: number }>();
 
       if (Number(owned?.count || 0) !== payload.assetIds.length) {
-        return response(request, env, { error: "One or more assets do not belong to this client." }, { status: 400 });
+        return response(
+          request,
+          env,
+          { error: "One or more assets do not belong to this client." },
+          { status: 400 },
+        );
       }
 
       const jobId = crypto.randomUUID();
       await env.DB.prepare(
         `INSERT INTO generation_jobs
          (id, client_id, requested_by, objective, asset_ids, status)
-         VALUES (?, ?, ?, ?, ?, 'queued')`
-      ).bind(
-        jobId,
-        payload.clientId,
-        sessionUser?.id || null,
-        payload.objective || "Auto",
-        JSON.stringify(payload.assetIds)
-      ).run();
+         VALUES (?, ?, ?, ?, ?, 'queued')`,
+      )
+        .bind(
+          jobId,
+          payload.clientId,
+          sessionUser?.id || null,
+          payload.objective || "Auto",
+          JSON.stringify(payload.assetIds),
+        )
+        .run();
 
       await env.GENERATION_QUEUE.send({ kind: "generate", jobId });
       return response(request, env, { ok: true, jobId, status: "queued" }, { status: 202 });
@@ -945,11 +1121,12 @@ export default {
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
       const allowedClients = await accessibleClientIds(env.DB, sessionUser!);
-      const whereClients = allowedClients === null
-        ? ""
-        : allowedClients.length
-          ? ` AND p.client_id IN (${allowedClients.map(() => "?").join(",")})`
-          : " AND 1 = 0";
+      const whereClients =
+        allowedClients === null
+          ? ""
+          : allowedClients.length
+            ? ` AND p.client_id IN (${allowedClients.map(() => "?").join(",")})`
+            : " AND 1 = 0";
 
       const bindings = allowedClients === null ? [] : allowedClients;
       const now = new Date();
@@ -964,8 +1141,10 @@ export default {
           SUM(CASE WHEN p.scheduled_publish_at >= ? AND p.scheduled_publish_at < ? AND p.status NOT IN ('canceled','failed','published') THEN 1 ELSE 0 END) AS publishing_today,
           SUM(CASE WHEN p.status = 'failed' THEN 1 ELSE 0 END) AS failed
          FROM posts p
-         WHERE 1 = 1 ${whereClients}`
-      ).bind(todayStart.toISOString(), tomorrow.toISOString(), ...bindings).first<any>();
+         WHERE 1 = 1 ${whereClients}`,
+      )
+        .bind(todayStart.toISOString(), tomorrow.toISOString(), ...bindings)
+        .first<any>();
 
       const nextStatement = env.DB.prepare(
         `SELECT p.*, c.name AS client_name, sa.account_name AS social_account_name
@@ -977,7 +1156,7 @@ export default {
            AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued')
            ${whereClients}
          ORDER BY p.scheduled_publish_at ASC
-         LIMIT 1`
+         LIMIT 1`,
       );
       const next = bindings.length
         ? await nextStatement.bind(now.toISOString(), ...bindings).first<any>()
@@ -1006,13 +1185,16 @@ export default {
          FROM clients c
          LEFT JOIN brand_profiles bp ON bp.client_id = c.id
          WHERE (? = 1 OR c.status = 'active')
-         ORDER BY c.name`
-      ).bind(includeArchived ? 1 : 0).all<any>();
+         ORDER BY c.name`,
+      )
+        .bind(includeArchived ? 1 : 0)
+        .all<any>();
 
       return response(request, env, {
-        data: allowedClients === null
-          ? result.results
-          : result.results.filter((row) => allowedClients.includes(row.id)),
+        data:
+          allowedClients === null
+            ? result.results
+            : result.results.filter((row) => allowedClients.includes(row.id)),
       });
     }
 
@@ -1020,26 +1202,29 @@ export default {
       const denied = await authorize(env, sessionUser!, "client_manage");
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
-      const payload = await request.json<{ name?: string; timezone?: string }>().catch(() => ({} as any));
+      const payload = await request
+        .json<{ name?: string; timezone?: string }>()
+        .catch(() => ({}) as any);
       const name = payload.name?.trim();
-      if (!name) return response(request, env, { error: "Client name is required." }, { status: 400 });
+      if (!name)
+        return response(request, env, { error: "Client name is required." }, { status: 400 });
 
       const id = crypto.randomUUID();
       const timezone = payload.timezone?.trim() || "America/Indiana/Indianapolis";
       const statements = [
         env.DB.prepare(
-          "INSERT INTO clients (id, name, timezone, status, created_at, updated_at) VALUES (?, ?, ?, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+          "INSERT INTO clients (id, name, timezone, status, created_at, updated_at) VALUES (?, ?, ?, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
         ).bind(id, name, timezone),
         env.DB.prepare(
-          "INSERT INTO brand_profiles (id, client_id, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+          "INSERT INTO brand_profiles (id, client_id, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
         ).bind(crypto.randomUUID(), id),
       ];
       if (sessionUser!.role !== "owner") {
         statements.push(
           env.DB.prepare(
             `INSERT INTO user_client_access (user_id,client_id,access_role)
-             VALUES (?,?,?)`
-          ).bind(sessionUser!.id,id,sessionUser!.role)
+             VALUES (?,?,?)`,
+          ).bind(sessionUser!.id, id, sessionUser!.role),
         );
       }
       await env.DB.batch(statements);
@@ -1052,9 +1237,12 @@ export default {
       const denied = await authorize(env, sessionUser!, "client_manage", clientMatch[1]);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
-      const payload = await request.json<{ name?: string; timezone?: string }>().catch(() => ({} as any));
+      const payload = await request
+        .json<{ name?: string; timezone?: string }>()
+        .catch(() => ({}) as any);
       const current = await env.DB.prepare("SELECT id FROM clients WHERE id = ?")
-        .bind(clientMatch[1]).first();
+        .bind(clientMatch[1])
+        .first();
       if (!current) return response(request, env, { error: "Client not found." }, { status: 404 });
 
       await env.DB.prepare(
@@ -1062,8 +1250,10 @@ export default {
          name = COALESCE(NULLIF(?, ''), name),
          timezone = COALESCE(NULLIF(?, ''), timezone),
          updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`
-      ).bind(payload.name || null, payload.timezone || null, clientMatch[1]).run();
+         WHERE id = ?`,
+      )
+        .bind(payload.name || null, payload.timezone || null, clientMatch[1])
+        .run();
 
       return response(request, env, { ok: true });
     }
@@ -1074,10 +1264,52 @@ export default {
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
       const now = new Date().toISOString();
-      await env.DB.prepare(
-        `UPDATE clients SET status = 'archived', archived_at = ?, updated_at = ?
-         WHERE id = ?`
-      ).bind(now, now, archiveClientMatch[1]).run();
+      const result = await env.DB.batch([
+        env.DB.prepare(`UPDATE clients SET status='archived',archived_at=?,updated_at=? WHERE id=?
+          AND NOT EXISTS (SELECT 1 FROM posts WHERE client_id=clients.id AND status IN ('publishing','provider_processing','regenerating'))
+          AND NOT EXISTS (SELECT 1 FROM generation_jobs WHERE client_id=clients.id AND status='processing')
+          AND NOT EXISTS (SELECT 1 FROM graphic_jobs g JOIN posts p ON p.id=g.post_id WHERE p.client_id=clients.id AND g.status='processing')`).bind(
+          now,
+          now,
+          archiveClientMatch[1],
+        ),
+        env.DB.prepare(`UPDATE publish_jobs SET status='canceled',completed_at=?,updated_at=?
+          WHERE status IN ('queued','retrying') AND post_id IN (SELECT p.id FROM posts p JOIN clients c ON c.id=p.client_id WHERE c.id=? AND c.status='archived')`).bind(
+          now,
+          now,
+          archiveClientMatch[1],
+        ),
+        env.DB.prepare(`UPDATE posts SET status='paused',publish_version=publish_version+1,updated_at=?
+          WHERE client_id=? AND status NOT IN ('published','failed','canceled') AND EXISTS(SELECT 1 FROM clients WHERE id=posts.client_id AND status='archived')`).bind(
+          now,
+          archiveClientMatch[1],
+        ),
+        env.DB.prepare(`UPDATE generation_jobs SET status='canceled',claim_token=NULL,stage_updated_at=?
+          WHERE client_id=? AND status NOT IN ('completed','failed') AND EXISTS(SELECT 1 FROM clients WHERE id=generation_jobs.client_id AND status='archived')`).bind(
+          now,
+          archiveClientMatch[1],
+        ),
+        env.DB.prepare(`UPDATE graphic_jobs SET status='canceled',updated_at=? WHERE status IN ('queued','retrying') AND post_id IN
+          (SELECT p.id FROM posts p JOIN clients c ON c.id=p.client_id WHERE c.id=? AND c.status='archived')`).bind(
+          now,
+          archiveClientMatch[1],
+        ),
+        env.DB.prepare(`UPDATE review_tokens SET expires_at=? WHERE post_id IN
+          (SELECT p.id FROM posts p JOIN clients c ON c.id=p.client_id WHERE c.id=? AND c.status='archived')`).bind(
+          Date.now(),
+          archiveClientMatch[1],
+        ),
+      ]);
+      if (!result[0].meta.changes)
+        return response(
+          request,
+          env,
+          {
+            error:
+              "Wait for active publishing or generation to finish before archiving this client.",
+          },
+          { status: 409 },
+        );
 
       return response(request, env, { ok: true });
     }
@@ -1093,18 +1325,35 @@ export default {
       const width = Number(request.headers.get("x-image-width") || 0) || null;
       const height = Number(request.headers.get("x-image-height") || 0) || null;
 
-      if (!clientId) return response(request, env, { error: "x-client-id is required" }, { status: 400 });
+      if (!clientId)
+        return response(request, env, { error: "x-client-id is required" }, { status: 400 });
 
       const denied = await authorize(env, sessionUser!, "upload", clientId);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
+<<<<<<< HEAD
       if (!declaredContentType.startsWith("image/")) {
         return response(request, env, { error: "Only image uploads are accepted" }, { status: 415 });
+=======
+      if (!contentType.startsWith("image/")) {
+        return response(
+          request,
+          env,
+          { error: "Only image uploads are supported." },
+          { status: 415 },
+        );
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
       }
       if (declaredSize > MAX_IMAGE_BYTES) {
-        return response(request, env, { error: "Image exceeds the 20 MB upload limit." }, { status: 413 });
+        return response(
+          request,
+          env,
+          { error: "Image exceeds the 20 MB upload limit." },
+          { status: 413 },
+        );
       }
 
+<<<<<<< HEAD
       const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ? AND status != 'archived'")
         .bind(clientId).first();
       if (!client) return response(request, env, { error: "Client not found or archived" }, { status: 404 });
@@ -1141,6 +1390,16 @@ export default {
             deduplicated: true,
           },
         }, { status: 200 });
+=======
+      const bytes = await request.arrayBuffer();
+      if (bytes.byteLength > MAX_IMAGE_BYTES) {
+        return response(
+          request,
+          env,
+          { error: "Image exceeds the 20 MB upload limit." },
+          { status: 413 },
+        );
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
       }
 
       const assetId = crypto.randomUUID();
@@ -1160,6 +1419,7 @@ export default {
       await env.DB.prepare(
         `INSERT INTO assets
          (id, client_id, r2_key, filename, content_type, size_bytes, width, height, source, status, sha256)
+<<<<<<< HEAD
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'upload', 'uploaded', ?)`
       ).bind(
         assetId,
@@ -1183,8 +1443,29 @@ export default {
           url: `/v1/assets/${assetId}`,
           createdAt: new Date().toISOString(),
           deduplicated: false,
+=======
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'upload', 'uploaded', ?)`,
+      )
+        .bind(assetId, clientId, key, filename, contentType, bytes.byteLength, width, height, hash)
+        .run();
+
+      return response(
+        request,
+        env,
+        {
+          data: {
+            id: assetId,
+            clientId,
+            filename,
+            contentType,
+            status: "uploaded",
+            url: `/v1/assets/${assetId}`,
+            createdAt: new Date().toISOString(),
+          },
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
         },
-      }, { status: 201 });
+        { status: 201 },
+      );
     }
 
     const derivativeMatch = url.pathname.match(/^\/v1\/assets\/([^/]+)\/derivative$/);
@@ -1196,22 +1477,28 @@ export default {
       const width = Number(request.headers.get("x-image-width") || 0) || null;
       const height = Number(request.headers.get("x-image-height") || 0) || null;
 
-      if (!clientId) return response(request, env, { error: "x-client-id is required" }, { status: 400 });
-      if (!["analysis","thumbnail"].includes(kind)) {
+      if (!clientId)
+        return response(request, env, { error: "x-client-id is required" }, { status: 400 });
+      if (!["analysis", "thumbnail"].includes(kind)) {
         return response(request, env, { error: "Invalid derivative kind." }, { status: 400 });
       }
 
       const denied = await authorize(env, sessionUser!, "upload", clientId);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
-      const asset = await env.DB.prepare(
-        "SELECT id FROM assets WHERE id = ? AND client_id = ?"
-      ).bind(derivativeMatch[1], clientId).first();
+      const asset = await env.DB.prepare("SELECT id FROM assets WHERE id = ? AND client_id = ?")
+        .bind(derivativeMatch[1], clientId)
+        .first();
       if (!asset) return response(request, env, { error: "Asset not found." }, { status: 404 });
 
       const bytes = await request.arrayBuffer();
       if (bytes.byteLength > 8 * 1024 * 1024) {
-        return response(request, env, { error: "Derivative exceeds the 8 MB limit." }, { status: 413 });
+        return response(
+          request,
+          env,
+          { error: "Derivative exceeds the 8 MB limit." },
+          { status: 413 },
+        );
       }
 
       const hash = await sha256HexBytes(bytes);
@@ -1234,18 +1521,10 @@ export default {
            width = excluded.width,
            height = excluded.height,
            sha256 = excluded.sha256,
-           created_at = CURRENT_TIMESTAMP`
-      ).bind(
-        id,
-        derivativeMatch[1],
-        kind,
-        key,
-        contentType,
-        bytes.byteLength,
-        width,
-        height,
-        hash
-      ).run();
+           created_at = CURRENT_TIMESTAMP`,
+      )
+        .bind(id, derivativeMatch[1], kind, key, contentType, bytes.byteLength, width, height, hash)
+        .run();
 
       return response(request, env, { ok: true, id });
     }
@@ -1253,15 +1532,18 @@ export default {
     const assetMatch = url.pathname.match(/^\/v1\/assets\/([^/]+)$/);
     if (request.method === "GET" && assetMatch) {
       const row = await env.DB.prepare(
-        "SELECT client_id, r2_key, content_type FROM assets WHERE id = ?"
-      ).bind(assetMatch[1]).first<{ client_id: string; r2_key: string; content_type: string }>();
+        "SELECT client_id, r2_key, content_type FROM assets WHERE id = ?",
+      )
+        .bind(assetMatch[1])
+        .first<{ client_id: string; r2_key: string; content_type: string }>();
       if (!row) return response(request, env, { error: "Asset not found" }, { status: 404 });
 
       const denied = await authorize(env, sessionUser!, "read", row.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
       const object = await env.MEDIA.get(row.r2_key);
-      if (!object) return response(request, env, { error: "Asset object not found" }, { status: 404 });
+      if (!object)
+        return response(request, env, { error: "Asset object not found" }, { status: 404 });
 
       return new Response(object.body, {
         headers: {
@@ -1279,12 +1561,15 @@ export default {
 
       const allowedClients = await accessibleClientIds(env.DB, sessionUser!);
       const result = await env.DB.prepare(
-        postSelect("WHERE p.status = ? ORDER BY p.suggested_publish_at ASC")
-      ).bind("awaiting_approval").all<any>();
+        postSelect("WHERE p.status = ? ORDER BY p.suggested_publish_at ASC"),
+      )
+        .bind("awaiting_approval")
+        .all<any>();
 
-      const visible = allowedClients === null
-        ? result.results
-        : result.results.filter((row) => allowedClients.includes(row.client_id));
+      const visible =
+        allowedClients === null
+          ? result.results
+          : result.results.filter((row) => allowedClients.includes(row.client_id));
 
       return response(request, env, {
         data: await signPostRows(env, request.url, sessionUser!.id, visible),
@@ -1308,13 +1593,16 @@ export default {
            AND p.scheduled_publish_at >= ?
            AND p.scheduled_publish_at < ?
            AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued','publishing','provider_processing','published','failed')
-           ORDER BY p.scheduled_publish_at ASC`
-        )
-      ).bind(from, to).all<any>();
+           ORDER BY p.scheduled_publish_at ASC`,
+        ),
+      )
+        .bind(from, to)
+        .all<any>();
 
-      const visible = allowedClients === null
-        ? result.results
-        : result.results.filter((row) => allowedClients.includes(row.client_id));
+      const visible =
+        allowedClients === null
+          ? result.results
+          : result.results.filter((row) => allowedClients.includes(row.client_id));
 
       return response(request, env, {
         data: await signPostRows(env, request.url, sessionUser!.id, visible),
@@ -1323,9 +1611,9 @@ export default {
 
     const creativeMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/creative$/);
     if (creativeMatch && request.method === "GET") {
-      const post = await env.DB.prepare(
-        "SELECT id, client_id FROM posts WHERE id = ?"
-      ).bind(creativeMatch[1]).first<{ id: string; client_id: string }>();
+      const post = await env.DB.prepare("SELECT id, client_id FROM posts WHERE id = ?")
+        .bind(creativeMatch[1])
+        .first<{ id: string; client_id: string }>();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
       const denied = await authorize(env, sessionUser!, "read", post.client_id);
@@ -1336,30 +1624,26 @@ export default {
                 content_type,is_primary,composition_json,model,response_id,created_at
          FROM creative_variants
          WHERE post_id = ?
-         ORDER BY is_primary DESC, created_at DESC`
-      ).bind(post.id).all<any>();
+         ORDER BY is_primary DESC, created_at DESC`,
+      )
+        .bind(post.id)
+        .all<any>();
 
       const signedVariants = await Promise.all(
         variants.results.map(async (variant) => ({
           ...variant,
-          url: await issuePostMediaUrl(
-            env,
-            request.url,
-            sessionUser!.id,
-            post.id,
-            variant.r2_key
-          ),
-          composition: variant.composition_json
-            ? JSON.parse(variant.composition_json)
-            : null,
-        }))
+          url: await issuePostMediaUrl(env, request.url, sessionUser!.id, post.id, variant.r2_key),
+          composition: variant.composition_json ? JSON.parse(variant.composition_json) : null,
+        })),
       );
 
       const score = await env.DB.prepare(
         `SELECT overall,brand_match,readability,platform_fit,cta_strength,
                 composition,caption_quality,compliance,rationale,model,response_id,updated_at
-         FROM sparq_scores WHERE post_id = ?`
-      ).bind(post.id).first<any>();
+         FROM sparq_scores WHERE post_id = ?`,
+      )
+        .bind(post.id)
+        .first<any>();
 
       return response(request, env, {
         data: { variants: signedVariants, score: score || null },
@@ -1367,7 +1651,7 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/v1/posts/bulk/approve") {
-      const payload = await request.json<{ postIds?: string[] }>().catch(() => ({} as any));
+      const payload = await request.json<{ postIds?: string[] }>().catch(() => ({}) as any);
       const postIds = bulkPostIds(payload.postIds);
       if (!postIds.length) {
         return response(request, env, { error: "postIds are required." }, { status: 400 });
@@ -1376,8 +1660,10 @@ export default {
       const results = [];
       for (const postId of postIds) {
         const post = await env.DB.prepare(
-          "SELECT id,status,client_id,platform,social_account_id,suggested_publish_at FROM posts WHERE id=?"
-        ).bind(postId).first<any>();
+          "SELECT id,status,client_id,platform,social_account_id,suggested_publish_at FROM posts WHERE id=?",
+        )
+          .bind(postId)
+          .first<any>();
 
         if (!post) {
           results.push({ postId, ok: false, error: "Post not found." });
@@ -1404,11 +1690,11 @@ export default {
           env,
           post.client_id,
           post.suggested_publish_at,
-          postId
+          postId,
         );
         const now = new Date().toISOString();
 
-        await env.DB.batch([
+        const approved = await env.DB.batch([
           env.DB.prepare(
             `UPDATE posts SET
              status='calendar_scheduled',
@@ -1416,15 +1702,19 @@ export default {
              calendar_added_at=?,
              scheduled_publish_at=?,
              updated_at=?
-             WHERE id=?`
+             WHERE id=? AND status='awaiting_approval'`,
           ).bind(now, now, scheduledAt, now, postId),
           env.DB.prepare(
             `INSERT INTO approvals
              (id,post_id,decision,previous_status)
-             VALUES (?,?,'approved_bulk',?)`
-          ).bind(crypto.randomUUID(), postId, post.status),
+             SELECT ?,?,'approved_bulk',? WHERE EXISTS (SELECT 1 FROM posts WHERE id=? AND approved_at=? AND status='calendar_scheduled')`,
+          ).bind(crypto.randomUUID(), postId, post.status, postId, now),
         ]);
 
+        if (!approved[0].meta.changes) {
+          results.push({ postId, ok: false, error: "Post changed during approval." });
+          continue;
+        }
         results.push({ postId, ok: true, scheduledPublishAt: scheduledAt });
       }
 
@@ -1432,7 +1722,9 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/v1/posts/bulk/reject") {
-      const payload = await request.json<{ postIds?: string[]; reason?: string }>().catch(() => ({} as any));
+      const payload = await request
+        .json<{ postIds?: string[]; reason?: string }>()
+        .catch(() => ({}) as any);
       const postIds = bulkPostIds(payload.postIds);
       const reason = payload.reason?.trim().slice(0, 2000) || "Changes requested.";
       if (!postIds.length) {
@@ -1441,9 +1733,9 @@ export default {
 
       const results = [];
       for (const postId of postIds) {
-        const post = await env.DB.prepare(
-          "SELECT client_id,status FROM posts WHERE id=?"
-        ).bind(postId).first<any>();
+        const post = await env.DB.prepare("SELECT client_id,status FROM posts WHERE id=?")
+          .bind(postId)
+          .first<any>();
 
         if (!post) {
           results.push({ postId, ok: false, error: "Post not found." });
@@ -1455,13 +1747,13 @@ export default {
           results.push({ postId, ok: false, error: denied });
           continue;
         }
-        if (!["awaiting_approval","edit_requested"].includes(post.status)) {
+        if (!["awaiting_approval", "edit_requested"].includes(post.status)) {
           results.push({ postId, ok: false, error: "Post is not in review." });
           continue;
         }
 
         const now = new Date().toISOString();
-        await env.DB.batch([
+        const changed = await env.DB.batch([
           env.DB.prepare(
             `UPDATE posts SET
              status='edit_requested',
@@ -1469,35 +1761,48 @@ export default {
              rejection_reason=?,
              reviewer_comment=?,
              updated_at=?
-             WHERE id=?`
+             WHERE id=? AND status IN ('awaiting_approval','edit_requested')`,
           ).bind(now, reason, reason, now, postId),
           env.DB.prepare(
             `INSERT INTO review_comments
              (id,post_id,user_id,comment)
-             VALUES (?,?,?,?)`
+             VALUES (?,?,?,?)`,
           ).bind(crypto.randomUUID(), postId, sessionUser!.id, reason),
         ]);
 
-        results.push({ postId, ok: true });
+        results.push({
+          postId,
+          ok: !!changed[0].meta.changes,
+          ...(!changed[0].meta.changes ? { error: "Post changed during review." } : {}),
+        });
       }
 
       return response(request, env, { ok: true, results });
     }
 
     if (request.method === "POST" && url.pathname === "/v1/posts/bulk/shift") {
-      const payload = await request.json<{ postIds?: string[]; shiftMinutes?: number }>().catch(() => ({} as any));
+      const payload = await request
+        .json<{ postIds?: string[]; shiftMinutes?: number }>()
+        .catch(() => ({}) as any);
       const postIds = bulkPostIds(payload.postIds);
       const shiftMinutes = Number(payload.shiftMinutes || 0);
 
       if (!postIds.length || !Number.isFinite(shiftMinutes) || shiftMinutes === 0) {
-        return response(request, env, { error: "postIds and non-zero shiftMinutes are required." }, { status: 400 });
+        return response(
+          request,
+          env,
+          { error: "postIds and non-zero shiftMinutes are required." },
+          { status: 400 },
+        );
       }
 
       const results = [];
       for (const postId of postIds) {
         const post = await env.DB.prepare(
-          "SELECT client_id,status,scheduled_publish_at FROM posts WHERE id=?"
-        ).bind(postId).first<any>();
+          "SELECT client_id,status,scheduled_publish_at FROM posts WHERE id=?",
+        )
+          .bind(postId)
+          .first<any>();
 
         if (!post) {
           results.push({ postId, ok: false, error: "Post not found." });
@@ -1509,28 +1814,26 @@ export default {
           results.push({ postId, ok: false, error: denied });
           continue;
         }
-        if (!post.scheduled_publish_at || !["calendar_scheduled","pre_publish","rescheduled","paused"].includes(post.status)) {
+        if (
+          !post.scheduled_publish_at ||
+          !["calendar_scheduled", "pre_publish", "rescheduled", "paused"].includes(post.status)
+        ) {
           results.push({ postId, ok: false, error: "Post cannot be shifted." });
           continue;
         }
 
         const requested = new Date(
-          Date.parse(post.scheduled_publish_at) + shiftMinutes * 60 * 1000
+          Date.parse(post.scheduled_publish_at) + shiftMinutes * 60 * 1000,
         ).toISOString();
 
-        const scheduledAt = await findNextAvailableSlot(
-          env,
-          post.client_id,
-          requested,
-          postId
-        );
+        const scheduledAt = await findNextAvailableSlot(env, post.client_id, requested, postId);
         const now = new Date().toISOString();
 
         await env.DB.batch([
           env.DB.prepare(
             `UPDATE publish_jobs SET
              status='canceled',completed_at=?,updated_at=?
-             WHERE post_id=? AND status IN ('queued','retrying')`
+             WHERE post_id=? AND status IN ('queued','retrying')`,
           ).bind(now, now, postId),
           env.DB.prepare(
             `UPDATE posts SET
@@ -1540,7 +1843,7 @@ export default {
              publish_version=publish_version+1,
              status='rescheduled',
              updated_at=?
-             WHERE id=?`
+             WHERE id=?`,
           ).bind(scheduledAt, now, postId),
         ]);
 
@@ -1551,7 +1854,7 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/v1/posts/bulk/pause") {
-      const payload = await request.json<{ postIds?: string[] }>().catch(() => ({} as any));
+      const payload = await request.json<{ postIds?: string[] }>().catch(() => ({}) as any);
       const postIds = bulkPostIds(payload.postIds);
       if (!postIds.length) {
         return response(request, env, { error: "postIds are required." }, { status: 400 });
@@ -1559,9 +1862,9 @@ export default {
 
       const results = [];
       for (const postId of postIds) {
-        const post = await env.DB.prepare(
-          "SELECT client_id,status FROM posts WHERE id=?"
-        ).bind(postId).first<any>();
+        const post = await env.DB.prepare("SELECT client_id,status FROM posts WHERE id=?")
+          .bind(postId)
+          .first<any>();
 
         if (!post) {
           results.push({ postId, ok: false, error: "Post not found." });
@@ -1574,7 +1877,11 @@ export default {
           continue;
         }
 
-        if (!["calendar_scheduled","pre_publish","rescheduled","publish_queued"].includes(post.status)) {
+        if (
+          !["calendar_scheduled", "pre_publish", "rescheduled", "publish_queued"].includes(
+            post.status,
+          )
+        ) {
           results.push({ postId, ok: false, error: "Post cannot be paused." });
           continue;
         }
@@ -1584,14 +1891,14 @@ export default {
           env.DB.prepare(
             `UPDATE publish_jobs SET
              status='canceled',completed_at=?,updated_at=?
-             WHERE post_id=? AND status IN ('queued','retrying')`
+             WHERE post_id=? AND status IN ('queued','retrying')`,
           ).bind(now, now, postId),
           env.DB.prepare(
             `UPDATE posts SET
              status='paused',
              publish_version=publish_version+1,
              updated_at=?
-             WHERE id=?`
+             WHERE id=?`,
           ).bind(now, postId),
         ]);
 
@@ -1616,24 +1923,30 @@ export default {
 
     const editPostMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/edit$/);
     if (editPostMatch && request.method === "POST") {
-      const post = await env.DB.prepare(
-        "SELECT client_id,status FROM posts WHERE id=?"
-      ).bind(editPostMatch[1]).first<any>();
+      const post = await env.DB.prepare("SELECT client_id,status FROM posts WHERE id=?")
+        .bind(editPostMatch[1])
+        .first<any>();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
       const denied = await authorize(env, sessionUser!, "review", post.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
-      if (!["awaiting_approval","edit_requested"].includes(post.status)) {
-        return response(request, env, { error: "This post is not editable from review." }, { status: 409 });
+      if (!["awaiting_approval", "edit_requested"].includes(post.status)) {
+        return response(
+          request,
+          env,
+          { error: "This post is not editable from review." },
+          { status: 409 },
+        );
       }
 
-      const payload = await request.json<{ headline?: string; caption?: string; comment?: string }>()
-        .catch(() => ({} as any));
+      const payload = await request
+        .json<{ headline?: string; caption?: string; comment?: string }>()
+        .catch(() => ({}) as any);
       const headline = payload.headline?.trim().slice(0, 300);
       const caption = payload.caption?.trim().slice(0, 5000);
       const comment = payload.comment?.trim().slice(0, 2000);
 
-      await env.DB.batch([
+      const changed = await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
            headline=COALESCE(NULLIF(?,''),headline),
@@ -1642,14 +1955,29 @@ export default {
            reviewer_comment=COALESCE(NULLIF(?,''),reviewer_comment),
            status='awaiting_approval',
            updated_at=CURRENT_TIMESTAMP
-           WHERE id=?`
-        ).bind(headline||null,headline||null,caption||null,comment||null,editPostMatch[1]),
-        ...(comment ? [
-          env.DB.prepare(
-            "INSERT INTO review_comments (id,post_id,user_id,comment) VALUES (?,?,?,?)"
-          ).bind(crypto.randomUUID(),editPostMatch[1],sessionUser!.id,comment)
-        ] : []),
+           WHERE id=? AND status IN ('awaiting_approval','edit_requested')`,
+        ).bind(
+          headline || null,
+          headline || null,
+          caption || null,
+          comment || null,
+          editPostMatch[1],
+        ),
+        ...(comment
+          ? [
+              env.DB.prepare(
+                "INSERT INTO review_comments (id,post_id,user_id,comment) VALUES (?,?,?,?)",
+              ).bind(crypto.randomUUID(), editPostMatch[1], sessionUser!.id, comment),
+            ]
+          : []),
       ]);
+      if (!changed[0].meta.changes)
+        return response(
+          request,
+          env,
+          { error: "This post changed during review. Reload it before editing." },
+          { status: 409 },
+        );
 
       await audit(env, editPostMatch[1], "post.edited_in_review");
       return response(request, env, { ok: true });
@@ -1657,22 +1985,22 @@ export default {
 
     const rejectPostMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/reject$/);
     if (rejectPostMatch && request.method === "POST") {
-      const post = await env.DB.prepare(
-        "SELECT client_id,status FROM posts WHERE id=?"
-      ).bind(rejectPostMatch[1]).first<any>();
+      const post = await env.DB.prepare("SELECT client_id,status FROM posts WHERE id=?")
+        .bind(rejectPostMatch[1])
+        .first<any>();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
       const denied = await authorize(env, sessionUser!, "review", post.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
-      if (!["awaiting_approval","edit_requested"].includes(post.status)) {
+      if (!["awaiting_approval", "edit_requested"].includes(post.status)) {
         return response(request, env, { error: "This post is not in review." }, { status: 409 });
       }
 
-      const payload = await request.json<{ reason?: string }>().catch(() => ({} as any));
-      const reason = payload.reason?.trim().slice(0,2000) || "Changes requested.";
+      const payload = await request.json<{ reason?: string }>().catch(() => ({}) as any);
+      const reason = payload.reason?.trim().slice(0, 2000) || "Changes requested.";
       const now = new Date().toISOString();
 
-      await env.DB.batch([
+      const changed = await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
            status='edit_requested',
@@ -1680,12 +2008,19 @@ export default {
            rejection_reason=?,
            reviewer_comment=?,
            updated_at=?
-           WHERE id=?`
-        ).bind(now,reason,reason,now,rejectPostMatch[1]),
+           WHERE id=? AND status IN ('awaiting_approval','edit_requested')`,
+        ).bind(now, reason, reason, now, rejectPostMatch[1]),
         env.DB.prepare(
-          "INSERT INTO review_comments (id,post_id,user_id,comment) VALUES (?,?,?,?)"
-        ).bind(crypto.randomUUID(),rejectPostMatch[1],sessionUser!.id,reason),
+          "INSERT INTO review_comments (id,post_id,user_id,comment) VALUES (?,?,?,?)",
+        ).bind(crypto.randomUUID(), rejectPostMatch[1], sessionUser!.id, reason),
       ]);
+      if (!changed[0].meta.changes)
+        return response(
+          request,
+          env,
+          { error: "This post changed during review. Reload it before editing." },
+          { status: 409 },
+        );
 
       await audit(env, rejectPostMatch[1], "post.rejected", { reason });
       return response(request, env, { ok: true, status: "edit_requested" });
@@ -1699,8 +2034,10 @@ export default {
       const postId = approvalMatch[1];
       const now = new Date().toISOString();
       const post = await env.DB.prepare(
-        "SELECT id, status, client_id, platform, social_account_id, suggested_publish_at FROM posts WHERE id = ?"
-      ).bind(postId).first<any>();
+        "SELECT id, status, client_id, platform, social_account_id, suggested_publish_at FROM posts WHERE id = ?",
+      )
+        .bind(postId)
+        .first<any>();
 
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
@@ -1712,12 +2049,17 @@ export default {
           request,
           env,
           { error: "This post is no longer awaiting approval." },
-          { status: 409 }
+          { status: 409 },
         );
       }
 
       if (!post.suggested_publish_at) {
-        return response(request, env, { error: "Post does not have a proposed publishing slot" }, { status: 409 });
+        return response(
+          request,
+          env,
+          { error: "Post does not have a proposed publishing slot" },
+          { status: 409 },
+        );
       }
       if (!post.social_account_id) {
         return response(request, env, { error: "Assign a connected social account before approving this post." }, { status: 409 });
@@ -1729,7 +2071,7 @@ export default {
           request,
           env,
           { error: `Connect or choose a ${post.platform} publishing account before approval.` },
-          { status: 409 }
+          { status: 409 },
         );
       }
 
@@ -1737,9 +2079,9 @@ export default {
         env,
         post.client_id,
         post.suggested_publish_at,
-        postId
+        postId,
       );
-      await env.DB.batch([
+      const approved = await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
            status = 'calendar_scheduled',
@@ -1747,14 +2089,25 @@ export default {
            calendar_added_at = ?,
            scheduled_publish_at = ?,
            updated_at = ?
-           WHERE id = ?`
+           WHERE id = ? AND status='awaiting_approval'`,
         ).bind(now, now, scheduledAt, now, postId),
         env.DB.prepare(
           `INSERT INTO approvals (id, post_id, decision, previous_status)
-           VALUES (?, ?, 'approved', ?)`
-        ).bind(crypto.randomUUID(), postId, post.status),
+           SELECT ?, ?, 'approved', ? WHERE EXISTS (SELECT 1 FROM posts WHERE id=? AND approved_at=? AND status='calendar_scheduled')`,
+        ).bind(crypto.randomUUID(), postId, post.status, postId, now),
       ]);
+<<<<<<< HEAD
       await audit(env, postId, "post.approved", undefined, sessionUser?.id || "system");
+=======
+      if (!approved[0].meta.changes)
+        return response(
+          request,
+          env,
+          { error: "This post changed during approval. Reload and review it again." },
+          { status: 409 },
+        );
+      await audit(env, postId, "post.approved");
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
 
       return response(request, env, { ok: true, postId, status: "calendar_scheduled" });
     }
@@ -1765,28 +2118,36 @@ export default {
         return response(request, env, { error: "You do not have permission to control publishing." }, { status: 403 });
       }
       const postId = keepMatch[1];
-      const post = await env.DB.prepare(
-        "SELECT client_id, status FROM posts WHERE id = ?"
-      ).bind(postId).first<{ client_id: string; status: string }>();
+      const post = await env.DB.prepare("SELECT client_id, status FROM posts WHERE id = ?")
+        .bind(postId)
+        .first<{ client_id: string; status: string }>();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
       const denied = await authorize(env, sessionUser!, "calendar_manage", post.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
-      if (!["calendar_scheduled","pre_publish","rescheduled","paused"].includes(post.status)) {
+      if (!["calendar_scheduled", "pre_publish", "rescheduled", "paused"].includes(post.status)) {
         return response(
           request,
           env,
           { error: "This post cannot keep a schedule from its current state." },
-          { status: 409 }
+          { status: 409 },
         );
       }
 
       const now = new Date().toISOString();
       await env.DB.prepare(
+<<<<<<< HEAD
         `UPDATE posts SET prepublish_response = 'keep', status = 'calendar_scheduled', updated_at = ? WHERE id = ?`
       ).bind(now, postId).run();
       await audit(env, postId, "post.keep_schedule", undefined, sessionUser?.id || "system");
+=======
+        `UPDATE posts SET prepublish_response = 'keep', status = 'calendar_scheduled', updated_at = ? WHERE id = ?`,
+      )
+        .bind(now, postId)
+        .run();
+      await audit(env, postId, "post.keep_schedule");
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
       return response(request, env, { ok: true, postId, status: "calendar_scheduled" });
     }
 
@@ -1796,25 +2157,32 @@ export default {
         return response(request, env, { error: "You do not have permission to reschedule posts." }, { status: 403 });
       }
       const postId = rescheduleMatch[1];
-      const payload = await request.json<{ scheduledPublishAt?: string }>().catch(() => ({} as any));
+      const payload = await request
+        .json<{ scheduledPublishAt?: string }>()
+        .catch(() => ({}) as any);
       if (!payload.scheduledPublishAt || Number.isNaN(Date.parse(payload.scheduledPublishAt))) {
-        return response(request, env, { error: "A valid scheduledPublishAt value is required" }, { status: 400 });
+        return response(
+          request,
+          env,
+          { error: "A valid scheduledPublishAt value is required" },
+          { status: 400 },
+        );
       }
 
-      const post = await env.DB.prepare(
-        "SELECT client_id, status FROM posts WHERE id = ?"
-      ).bind(postId).first<{ client_id: string; status: string }>();
+      const post = await env.DB.prepare("SELECT client_id, status FROM posts WHERE id = ?")
+        .bind(postId)
+        .first<{ client_id: string; status: string }>();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
       const denied = await authorize(env, sessionUser!, "calendar_manage", post.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
-      if (!["calendar_scheduled","pre_publish","rescheduled","paused"].includes(post.status)) {
+      if (!["calendar_scheduled", "pre_publish", "rescheduled", "paused"].includes(post.status)) {
         return response(
           request,
           env,
           { error: "This post cannot be rescheduled from its current state." },
-          { status: 409 }
+          { status: 409 },
         );
       }
 
@@ -1822,7 +2190,7 @@ export default {
         env,
         post.client_id,
         payload.scheduledPublishAt,
-        postId
+        postId,
       );
 
       const now = new Date().toISOString();
@@ -1832,7 +2200,7 @@ export default {
            status = 'canceled',
            completed_at = ?,
            updated_at = ?
-           WHERE post_id = ? AND status IN ('queued','retrying')`
+           WHERE post_id = ? AND status IN ('queued','retrying')`,
         ).bind(now, now, postId),
         env.DB.prepare(
           `UPDATE posts SET
@@ -1842,7 +2210,7 @@ export default {
            publish_version = publish_version + 1,
            status = 'rescheduled',
            updated_at = ?
-           WHERE id = ?`
+           WHERE id = ?`,
         ).bind(scheduledAt, now, postId),
       ]);
 
@@ -1866,19 +2234,25 @@ export default {
       }
       const postId = publishNowMatch[1];
       const post = await env.DB.prepare(
-        "SELECT id, client_id, social_account_id, scheduled_publish_at, status FROM posts WHERE id = ?"
-      ).bind(postId).first<any>();
+        "SELECT id, client_id, social_account_id, scheduled_publish_at, status FROM posts WHERE id = ?",
+      )
+        .bind(postId)
+        .first<any>();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
       const denied = await authorize(env, sessionUser!, "publish", post.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
-      if (!["calendar_scheduled","pre_publish","rescheduled","paused","publish_queued"].includes(post.status)) {
+      if (
+        !["calendar_scheduled", "pre_publish", "rescheduled", "paused", "publish_queued"].includes(
+          post.status,
+        )
+      ) {
         return response(
           request,
           env,
           { error: "This post cannot be published from its current state." },
-          { status: 409 }
+          { status: 409 },
         );
       }
 
@@ -1887,14 +2261,14 @@ export default {
           request,
           env,
           { error: "Assign a connected social account before publishing." },
-          { status: 409 }
+          { status: 409 },
         );
       }
 
       const job = await ensurePublishJob(
         env,
         postId,
-        post.scheduled_publish_at || new Date().toISOString()
+        post.scheduled_publish_at || new Date().toISOString(),
       );
 
       await env.DB.prepare(
@@ -1902,8 +2276,10 @@ export default {
          prepublish_response = 'publish_now',
          status = CASE WHEN status = 'published' THEN status ELSE 'publish_queued' END,
          updated_at = ?
-         WHERE id = ?`
-      ).bind(new Date().toISOString(), postId).run();
+         WHERE id = ?`,
+      )
+        .bind(new Date().toISOString(), postId)
+        .run();
 
       if (job.shouldEnqueue) {
         await env.PUBLISH_QUEUE.send({
@@ -1923,62 +2299,89 @@ export default {
       });
     }
 
-
     const rewriteCaptionMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-rewrite-caption$/);
     if (rewriteCaptionMatch && request.method === "POST") {
-      const accessPost = await env.DB.prepare(
-        "SELECT client_id FROM posts WHERE id = ?"
-      ).bind(rewriteCaptionMatch[1]).first<{ client_id: string }>();
+      const accessPost = await env.DB.prepare("SELECT client_id FROM posts WHERE id = ?")
+        .bind(rewriteCaptionMatch[1])
+        .first<{ client_id: string }>();
       if (!accessPost) return response(request, env, { error: "Post not found" }, { status: 404 });
       const denied = await authorize(env, sessionUser!, "ai_edit", accessPost.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
-      const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
+      const payload = await request.json<{ instruction?: string }>().catch(() => ({}) as any);
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
         const data = await rewritePostCaptionWithAI(env, rewriteCaptionMatch[1], instruction);
+<<<<<<< HEAD
         await audit(env, rewriteCaptionMatch[1], "post.ai_caption_rewritten", { instruction: instruction || null }, sessionUser?.id || "system");
+=======
+        await audit(env, rewriteCaptionMatch[1], "post.ai_caption_rewritten", {
+          instruction: instruction || null,
+        });
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
         return response(request, env, { ok: true, data });
       } catch (error) {
-        return response(request, env, { error: error instanceof Error ? error.message : "Unable to rewrite caption." }, { status: 502 });
+        return response(
+          request,
+          env,
+          { error: error instanceof Error ? error.message : "Unable to rewrite caption." },
+          { status: (error as { status?: number }).status === 409 ? 409 : 502 },
+        );
       }
     }
 
     const editImageMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-edit-image$/);
     if (editImageMatch && request.method === "POST") {
-      const accessPost = await env.DB.prepare(
-        "SELECT client_id FROM posts WHERE id = ?"
-      ).bind(editImageMatch[1]).first<{ client_id: string }>();
+      const accessPost = await env.DB.prepare("SELECT client_id FROM posts WHERE id = ?")
+        .bind(editImageMatch[1])
+        .first<{ client_id: string }>();
       if (!accessPost) return response(request, env, { error: "Post not found" }, { status: 404 });
       const denied = await authorize(env, sessionUser!, "ai_edit", accessPost.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
-      const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
+      const payload = await request.json<{ instruction?: string }>().catch(() => ({}) as any);
       const instruction = payload.instruction?.trim().slice(0, 2000) || "";
-      if (!instruction) return response(request, env, { error: "instruction is required." }, { status: 400 });
+      if (!instruction)
+        return response(request, env, { error: "instruction is required." }, { status: 400 });
       try {
         const data = await editPostGraphicWithAI(env, editImageMatch[1], instruction);
         await audit(env, editImageMatch[1], "post.ai_graphic_edited", { instruction }, sessionUser?.id || "system");
         return response(request, env, { ok: true, data });
       } catch (error) {
-        return response(request, env, { error: error instanceof Error ? error.message : "Unable to edit graphic." }, { status: 502 });
+        return response(
+          request,
+          env,
+          { error: error instanceof Error ? error.message : "Unable to edit graphic." },
+          { status: (error as { status?: number }).status === 409 ? 409 : 502 },
+        );
       }
     }
 
     const regenerateMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/ai-regenerate$/);
     if (regenerateMatch && request.method === "POST") {
-      const accessPost = await env.DB.prepare(
-        "SELECT client_id FROM posts WHERE id = ?"
-      ).bind(regenerateMatch[1]).first<{ client_id: string }>();
+      const accessPost = await env.DB.prepare("SELECT client_id FROM posts WHERE id = ?")
+        .bind(regenerateMatch[1])
+        .first<{ client_id: string }>();
       if (!accessPost) return response(request, env, { error: "Post not found" }, { status: 404 });
       const denied = await authorize(env, sessionUser!, "ai_edit", accessPost.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
-      const payload = await request.json<{ instruction?: string }>().catch(() => ({} as any));
+      const payload = await request.json<{ instruction?: string }>().catch(() => ({}) as any);
       const instruction = payload.instruction?.trim().slice(0, 2000);
       try {
         const data = await regeneratePostWithAI(env, regenerateMatch[1], instruction);
+<<<<<<< HEAD
         await audit(env, regenerateMatch[1], "post.ai_regenerated", { instruction: instruction || null }, sessionUser?.id || "system");
+=======
+        await audit(env, regenerateMatch[1], "post.ai_regenerated", {
+          instruction: instruction || null,
+        });
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
         return response(request, env, { ok: true, data });
       } catch (error) {
-        return response(request, env, { error: error instanceof Error ? error.message : "Unable to regenerate post." }, { status: 502 });
+        return response(
+          request,
+          env,
+          { error: error instanceof Error ? error.message : "Unable to regenerate post." },
+          { status: (error as { status?: number }).status === 409 ? 409 : 502 },
+        );
       }
     }
 
@@ -2000,13 +2403,15 @@ export default {
 
   async scheduled(event: ScheduledController, env: Env): Promise<void> {
     try {
+      await retryNotificationDeliveries(env);
       await checkExpoPushReceipts(env);
     } catch (error) {
       await recordSystemEvent(env, {
         severity: "warning",
         category: "notifications",
         eventType: "push_receipt_check_failed",
-        message: error instanceof Error ? error.message.slice(0, 1000) : "Push receipt check failed.",
+        message:
+          error instanceof Error ? error.message.slice(0, 1000) : "Push receipt check failed.",
       }).catch(() => undefined);
     }
 
@@ -2017,7 +2422,8 @@ export default {
         severity: "error",
         category: "recovery",
         eventType: "scheduled_recovery_failed",
-        message: error instanceof Error ? error.message.slice(0, 1000) : "Scheduled recovery failed.",
+        message:
+          error instanceof Error ? error.message.slice(0, 1000) : "Scheduled recovery failed.",
       }).catch(() => undefined);
     }
 
@@ -2036,16 +2442,19 @@ export default {
        WHERE p.status IN ('calendar_scheduled','rescheduled')
          AND p.scheduled_publish_at IS NOT NULL
          AND p.prepublish_alert_at IS NULL
-       LIMIT 100`
+       LIMIT 100`,
     ).all<any>();
 
     for (const row of upcoming.results) {
-      const alertAt = new Date(row.scheduled_publish_at).getTime() -
+      const alertAt =
+        new Date(row.scheduled_publish_at).getTime() -
         Number(row.prepublish_minutes || 30) * 60 * 1000;
       if (alertAt <= Date.now()) {
         await env.DB.prepare(
-          "UPDATE posts SET status = 'pre_publish', prepublish_alert_at = ?, updated_at = ? WHERE id = ?"
-        ).bind(nowIso, nowIso, row.id).run();
+          "UPDATE posts SET status = 'pre_publish', prepublish_alert_at = ?, updated_at = ? WHERE id = ?",
+        )
+          .bind(nowIso, nowIso, row.id)
+          .run();
 
         const deepLink = env.PUBLIC_BASE_URL
           ? `${env.PUBLIC_BASE_URL.replace(/\/$/, "")}/posts/${row.id}/publish`
@@ -2056,7 +2465,7 @@ export default {
           "pre_publish",
           "Post ready for final publish decision",
           `Your ${row.platform} post is scheduled for ${new Date(row.scheduled_publish_at).toLocaleString()}. Keep the schedule, reschedule it, or publish now.`,
-          deepLink
+          deepLink,
         );
       }
     }
@@ -2074,8 +2483,10 @@ export default {
          AND p.scheduled_publish_at IS NOT NULL
          AND p.scheduled_publish_at <= ?
        ORDER BY p.scheduled_publish_at ASC
-       LIMIT 100`
-    ).bind(nowIso).all<any>();
+       LIMIT 100`,
+    )
+      .bind(nowIso)
+      .all<any>();
 
     for (const row of due.results) {
       const policy = row.prepublish_response
@@ -2083,47 +2494,45 @@ export default {
         : row.no_response_policy || "auto_publish";
 
       if (policy === "hold") {
-        await env.DB.prepare(
-          "UPDATE posts SET status = 'paused', updated_at = ? WHERE id = ?"
-        ).bind(nowIso, row.id).run();
+        await env.DB.prepare("UPDATE posts SET status = 'paused', updated_at = ? WHERE id = ?")
+          .bind(nowIso, row.id)
+          .run();
         await notifyPostOwners(
           env,
           row.id,
           "publish_held",
           "Post held for confirmation",
-          "This post reached its scheduled time without a response, so BrandSparQ held it."
+          "This post reached its scheduled time without a response, so BrandSparQ held it.",
         );
         continue;
       }
 
       if (policy === "skip") {
-        await env.DB.prepare(
-          "UPDATE posts SET status = 'canceled', updated_at = ? WHERE id = ?"
-        ).bind(nowIso, row.id).run();
+        await env.DB.prepare("UPDATE posts SET status = 'canceled', updated_at = ? WHERE id = ?")
+          .bind(nowIso, row.id)
+          .run();
         await notifyPostOwners(
           env,
           row.id,
           "publish_skipped",
           "Scheduled post skipped",
-          "This post reached its scheduled time without a response and was skipped by your workspace policy."
+          "This post reached its scheduled time without a response and was skipped by your workspace policy.",
         );
         continue;
       }
 
-      const scheduled = await env.DB.prepare(
-        "SELECT scheduled_publish_at FROM posts WHERE id = ?"
-      ).bind(row.id).first<{ scheduled_publish_at: string | null }>();
+      const scheduled = await env.DB.prepare("SELECT scheduled_publish_at FROM posts WHERE id = ?")
+        .bind(row.id)
+        .first<{ scheduled_publish_at: string | null }>();
 
-      const job = await ensurePublishJob(
-        env,
-        row.id,
-        scheduled?.scheduled_publish_at || nowIso
-      );
+      const job = await ensurePublishJob(env, row.id, scheduled?.scheduled_publish_at || nowIso);
 
       if (job.shouldEnqueue) {
         await env.DB.prepare(
-          "UPDATE posts SET status = 'publish_queued', updated_at = ? WHERE id = ? AND status != 'published'"
-        ).bind(nowIso, row.id).run();
+          "UPDATE posts SET status = 'publish_queued', updated_at = ? WHERE id = ? AND status != 'published'",
+        )
+          .bind(nowIso, row.id)
+          .run();
 
         await env.PUBLISH_QUEUE.send({
           kind: "publish",
@@ -2143,7 +2552,7 @@ export default {
             confirmation.postId,
             "published",
             "Post published",
-            "BrandSparQ confirmed your post is live."
+            "BrandSparQ confirmed your post is live.",
           );
         } else if (confirmation.status === "failed" && confirmation.postId) {
           await recordSystemEvent(env, {
@@ -2159,7 +2568,7 @@ export default {
             confirmation.postId,
             "publish_failed",
             "Post failed at the provider",
-            `Provider status: ${confirmation.providerStatus || "failed"}`
+            `Provider status: ${confirmation.providerStatus || "failed"}`,
           );
         }
       }
@@ -2168,7 +2577,8 @@ export default {
         severity: "warning",
         category: "publishing",
         eventType: "publish_receipt_check_failed",
-        message: error instanceof Error ? error.message.slice(0, 1000) : "Provider receipt check failed.",
+        message:
+          error instanceof Error ? error.message.slice(0, 1000) : "Provider receipt check failed.",
       }).catch(() => undefined);
     }
 
@@ -2178,8 +2588,10 @@ export default {
        WHERE status='connected'
          AND (health_checked_at IS NULL OR health_checked_at < ?)
        ORDER BY COALESCE(health_checked_at, created_at) ASC
-       LIMIT 10`
-    ).bind(healthCutoff).all<{ id: string }>();
+       LIMIT 10`,
+    )
+      .bind(healthCutoff)
+      .all<{ id: string }>();
 
     for (const account of healthAccounts.results) {
       try {
@@ -2191,13 +2603,47 @@ export default {
           eventType: "social_health_check_failed",
           entityType: "social_account",
           entityId: account.id,
-          message: error instanceof Error ? error.message.slice(0, 1000) : "Social health check failed.",
+          message:
+            error instanceof Error ? error.message.slice(0, 1000) : "Social health check failed.",
         }).catch(() => undefined);
       }
     }
 
+<<<<<<< HEAD
     if (event.cron === "7 */6 * * *") {
       await syncDueAnalytics(env);
+=======
+    const settings = await env.DB.prepare(
+      "SELECT analytics_refresh_hours FROM workspace_settings WHERE id = 'default'",
+    ).first<{ analytics_refresh_hours: number }>();
+    const refreshMs = Number(settings?.analytics_refresh_hours || 6) * 60 * 60 * 1000;
+    const accounts = await env.DB.prepare(
+      `SELECT sa.id,
+          MAX(CASE WHEN ar.status = 'completed' THEN ar.completed_at END) AS last_sync
+       FROM social_accounts sa
+       LEFT JOIN analytics_sync_runs ar ON ar.social_account_id = sa.id
+       WHERE sa.status = 'connected'
+       GROUP BY sa.id`,
+    ).all<{ id: string; last_sync: string | null }>();
+
+    for (const account of accounts.results) {
+      const last = account.last_sync ? Date.parse(account.last_sync) : 0;
+      if (!last || Date.now() - last >= refreshMs) {
+        try {
+          await syncAccountAnalytics(env, account.id);
+        } catch (error) {
+          await recordSystemEvent(env, {
+            severity: "warning",
+            category: "analytics",
+            eventType: "analytics_sync_failed",
+            entityType: "social_account",
+            entityId: account.id,
+            message:
+              error instanceof Error ? error.message.slice(0, 1000) : "Analytics sync failed.",
+          }).catch(() => undefined);
+        }
+      }
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
     }
 
   },
@@ -2213,12 +2659,7 @@ export default {
             error instanceof Error ? error.message.slice(0, 1500) : "Graphic generation failed";
           const terminal = message.attempts >= 3;
 
-          await markGraphicJobFailure(
-            env,
-            message.body.graphicJobId,
-            errorMessage,
-            terminal
-          );
+          await markGraphicJobFailure(env, message.body.graphicJobId, errorMessage, terminal);
 
           if (terminal) {
             await recordSystemEvent(env, {
@@ -2232,10 +2673,7 @@ export default {
             message.ack();
           } else {
             message.retry({
-              delaySeconds: Math.min(
-                900,
-                60 * 2 ** Math.max(0, message.attempts - 1)
-              ),
+              delaySeconds: Math.min(900, 60 * 2 ** Math.max(0, message.attempts - 1)),
             });
           }
         }
@@ -2258,15 +2696,17 @@ export default {
              error_message = ?,
              stage_updated_at = ?,
              completed_at = CASE WHEN ? THEN ? ELSE completed_at END
-             WHERE id = ?`
-          ).bind(
-            terminal ? "failed" : "retrying",
-            errorMessage,
-            now,
-            terminal ? 1 : 0,
-            terminal ? now : null,
-            message.body.jobId
-          ).run();
+             WHERE id = ?`,
+          )
+            .bind(
+              terminal ? "failed" : "retrying",
+              errorMessage,
+              now,
+              terminal ? 1 : 0,
+              terminal ? now : null,
+              message.body.jobId,
+            )
+            .run();
 
           if (terminal) {
             await recordSystemEvent(env, {
@@ -2293,28 +2733,41 @@ export default {
         continue;
       }
 
-      const post = await env.DB.prepare(
-        "SELECT id, social_account_id FROM posts WHERE id = ?"
-      ).bind(message.body.postId).first<any>();
+      if (
+        claim.postId !== message.body.postId ||
+        claim.executionKey !== message.body.executionKey
+      ) {
+        await markPublishJobFailed(
+          env,
+          message.body.publishJobId,
+          "Queue execution identity mismatch.",
+        );
+        message.ack();
+        continue;
+      }
+
+      const post = await env.DB.prepare("SELECT id, social_account_id FROM posts WHERE id = ?")
+        .bind(message.body.postId)
+        .first<any>();
 
       if (!post?.social_account_id) {
         const errorMessage = "Connect and assign a social account before publishing.";
         await env.DB.batch([
           env.DB.prepare(
             `UPDATE posts SET status = 'failed', failure_code = 'SOCIAL_ACCOUNT_REQUIRED',
-               failure_message = ?, updated_at = ? WHERE id = ?`
+               failure_message = ?, updated_at = ? WHERE id = ?`,
           ).bind(errorMessage, new Date().toISOString(), message.body.postId),
           env.DB.prepare(
             `INSERT INTO publish_attempts
              (id, post_id, publish_job_id, idempotency_key, attempt, status, error_message)
-             VALUES (?, ?, ?, ?, ?, 'failed', ?)`
+             VALUES (?, ?, ?, ?, ?, 'failed', ?)`,
           ).bind(
             crypto.randomUUID(),
             message.body.postId,
             message.body.publishJobId,
             `${message.body.executionKey}:attempt:${claim.attempt}`,
             claim.attempt,
-            errorMessage
+            errorMessage,
           ),
         ]);
         await markPublishJobFailed(env, message.body.publishJobId, errorMessage);
@@ -2332,7 +2785,7 @@ export default {
           message.body.postId,
           "publish_failed",
           "BrandSparQ could not publish this post",
-          errorMessage
+          errorMessage,
         );
         message.ack();
         continue;
@@ -2347,35 +2800,26 @@ export default {
         env.DB.prepare(
           `INSERT INTO publish_attempts
            (id, post_id, publish_job_id, idempotency_key, attempt, status)
-           VALUES (?, ?, ?, ?, ?, 'publishing')`
+           VALUES (?, ?, ?, ?, ?, 'publishing')`,
         ).bind(
           attemptId,
           message.body.postId,
           message.body.publishJobId,
           attemptKey,
-          claim.attempt
+          claim.attempt,
         ),
         env.DB.prepare(
           `UPDATE posts SET status = 'publishing', publish_started_at = COALESCE(publish_started_at, ?),
              publish_retry_count = ?, last_publish_attempt_at = ?, failure_code = NULL,
-             failure_message = NULL, updated_at = ? WHERE id = ?`
-        ).bind(
-          now,
-          Math.max(0, claim.attempt - 1),
-          now,
-          now,
-          message.body.postId
-        ),
+             failure_message = NULL, updated_at = ? WHERE id = ?`,
+        ).bind(now, Math.max(0, claim.attempt - 1), now, now, message.body.postId),
       ]);
 
       try {
         const publishResult = await publishPostToSocial(env, message.body.postId);
-        await env.DB.prepare(
-          "UPDATE publish_attempts SET status = ? WHERE id = ?"
-        ).bind(
-          publishResult.confirmed ? "published" : "provider_processing",
-          attemptId
-        ).run();
+        await env.DB.prepare("UPDATE publish_attempts SET status = ? WHERE id = ?")
+          .bind(publishResult.confirmed ? "published" : "provider_processing", attemptId)
+          .run();
         await markPublishJobCompleted(env, message.body.publishJobId);
 
         if (publishResult.confirmed) {
@@ -2384,39 +2828,61 @@ export default {
             message.body.postId,
             "published",
             "Post published",
-            "BrandSparQ confirmed your post is live."
+            "BrandSparQ confirmed your post is live.",
           );
         }
 
         message.ack();
       } catch (error) {
+        const persisted = await env.DB.prepare("SELECT status FROM posts WHERE id=?")
+          .bind(message.body.postId)
+          .first<{ status: string }>();
+        if (persisted && ["published", "provider_processing"].includes(persisted.status)) {
+          await markPublishJobCompleted(env, message.body.publishJobId);
+          await recordSystemEvent(env, {
+            severity: "warning",
+            category: "notifications",
+            eventType: "post_publish_followup_failed",
+            entityType: "post",
+            entityId: message.body.postId,
+            message:
+              error instanceof Error ? error.message.slice(0, 1000) : "Publish follow-up failed.",
+          }).catch(() => undefined);
+          message.ack();
+          continue;
+        }
         const errorMessage =
           error instanceof Error ? error.message.slice(0, 1500) : "Publishing failed";
         const providerError = error as any;
         const retryable =
-          typeof providerError?.retryable === "boolean"
-            ? providerError.retryable
-            : true;
+          typeof providerError?.retryable === "boolean" ? providerError.retryable : true;
         const exhausted = !retryable || claim.attempt >= claim.maxAttempts;
         const failedAt = new Date().toISOString();
         await env.DB.batch([
           env.DB.prepare(
-            "UPDATE publish_attempts SET status = 'failed', error_message = ? WHERE id = ?"
+            "UPDATE publish_attempts SET status = 'failed', error_message = ? WHERE id = ?",
           ).bind(errorMessage, attemptId),
           env.DB.prepare(
             `UPDATE posts SET status = ?, publish_retry_count = ?, failure_code = ?,
-               failure_message = ?, updated_at = ? WHERE id = ?`
+               failure_message = ?, updated_at = ? WHERE id = ?`,
           ).bind(
             exhausted ? "failed" : "publish_queued",
             claim.attempt,
-            providerError?.category === "authorization"
-              ? "SOCIAL_AUTH_REQUIRED"
-              : providerError?.category === "rate_limit"
-                ? "SOCIAL_RATE_LIMIT"
-                : "PROVIDER_ERROR",
+            providerError?.category === "uncertain"
+              ? "PUBLISH_OUTCOME_UNKNOWN"
+              : providerError?.category === "authorization"
+                ? "SOCIAL_AUTH_REQUIRED"
+                : providerError?.category === "rate_limit"
+                  ? "SOCIAL_RATE_LIMIT"
+                  : "PROVIDER_ERROR",
             errorMessage,
+<<<<<<< HEAD
             failedAt,
             message.body.postId
+=======
+            new Date().toISOString(),
+            message.body.postId,
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
           ),
         ]);
 
@@ -2440,7 +2906,7 @@ export default {
             message.body.postId,
             "publish_failed",
             "Post failed to publish",
-            errorMessage
+            errorMessage,
           );
           message.ack();
         } else {

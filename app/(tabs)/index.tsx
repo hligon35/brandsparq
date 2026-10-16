@@ -40,7 +40,9 @@ export default function HomeScreen() {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+  }, []);
 
   const stats = [
     { value: dashboard?.needsReview ?? 0, label: "Needs review", tone: colors.orange },
@@ -53,7 +55,11 @@ export default function HomeScreen() {
 
   return (
     <PageScroll contentStyle={styles.page}>
-      {compact && <View style={styles.mobileLogo}><BrandLogo compact /></View>}
+      {compact && (
+        <View style={styles.mobileLogo}>
+          <BrandLogo compact />
+        </View>
+      )}
 
       <View style={[styles.hero, wide && styles.heroWide]}>
         <View style={styles.heroCopy}>
@@ -64,10 +70,14 @@ export default function HomeScreen() {
           />
           <View style={styles.quickActions}>
             <Link href="/create" asChild>
-              <Pressable style={styles.primaryAction}><Text style={styles.primaryActionText}>Create campaign</Text></Pressable>
+              <Pressable style={styles.primaryAction}>
+                <Text style={styles.primaryActionText}>Create campaign</Text>
+              </Pressable>
             </Link>
             <Link href="/review" asChild>
-              <Pressable style={styles.secondaryAction}><Text style={styles.secondaryActionText}>Review content</Text></Pressable>
+              <Pressable style={styles.secondaryAction}>
+                <Text style={styles.secondaryActionText}>Review content</Text>
+              </Pressable>
             </Link>
           </View>
         </View>
@@ -83,7 +93,11 @@ export default function HomeScreen() {
               <Text style={styles.upcomingTitle}>Couldn’t load live workspace data</Text>
               <Text style={styles.upcomingBody}>{error}</Text>
               <Pressable onPress={load}>
+<<<<<<< HEAD
                 <Text style={styles.retry}>Retry</Text>
+=======
+                <Text style={styles.retry}>Try again</Text>
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
               </Pressable>
             </>
           ) : next ? (
@@ -104,7 +118,9 @@ export default function HomeScreen() {
             <>
               <Text style={styles.upcomingLabel}>Next up</Text>
               <Text style={styles.upcomingTitle}>Calendar is clear</Text>
-              <Text style={styles.upcomingBody}>Approve content to place your next post on the calendar.</Text>
+              <Text style={styles.upcomingBody}>
+                Approve content to place your next post on the calendar.
+              </Text>
             </>
           )}
         </Card>
@@ -127,7 +143,9 @@ export default function HomeScreen() {
           ["03", "Post", "Approve, schedule, and publish with final control."],
         ].map(([step, title, body]) => (
           <Card key={step} subtle style={styles.workflowCard}>
-            <View style={styles.stepBadge}><Text style={styles.stepText}>{step}</Text></View>
+            <View style={styles.stepBadge}>
+              <Text style={styles.stepText}>{step}</Text>
+            </View>
             <Text style={styles.workflowTitle}>{title}</Text>
             <Text style={styles.workflowBody}>{body}</Text>
           </Card>
@@ -138,6 +156,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+<<<<<<< HEAD
   page: {
     gap: spacing.lg,
   },
@@ -161,16 +180,28 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: spacing.sm,
   },
+=======
+  page: { gap: spacing.lg },
+  mobileLogo: { marginBottom: 4 },
+  hero: { gap: spacing.lg },
+  heroWide: { flexDirection: "row", alignItems: "stretch" },
+  heroCopy: { flex: 1.35, gap: spacing.lg, justifyContent: "center" },
+  quickActions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
   primaryAction: {
     backgroundColor: colors.primary,
     borderRadius: radius.md,
     paddingHorizontal: 20,
     paddingVertical: 13,
   },
+<<<<<<< HEAD
   primaryActionText: {
     color: colors.white,
     fontWeight: "800",
   },
+=======
+  primaryActionText: { color: colors.white, fontWeight: "800" },
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
   secondaryAction: {
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -179,6 +210,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 13,
   },
+<<<<<<< HEAD
   secondaryActionText: {
     color: colors.text,
     fontWeight: "800",
@@ -189,6 +221,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     justifyContent: "center",
   },
+=======
+  secondaryActionText: { color: colors.text, fontWeight: "800" },
+  upcomingCard: { flex: 0.75, minHeight: 230, overflow: "hidden", justifyContent: "center" },
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
   upcomingAccent: {
     position: "absolute",
     width: 115,
@@ -205,6 +241,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 1,
   },
+<<<<<<< HEAD
   upcomingTitle: {
     color: colors.text,
     fontSize: 23,
@@ -260,6 +297,20 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 170,
   },
+=======
+  upcomingTitle: { color: colors.text, fontSize: 23, fontWeight: "900" },
+  upcomingTime: { color: colors.primary, fontSize: 16, fontWeight: "800" },
+  upcomingBody: { color: colors.muted, lineHeight: 21 },
+  retry: { color: colors.primary, fontWeight: "800" },
+  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
+  statCard: { flexGrow: 1, flexBasis: 180, minHeight: 140, justifyContent: "center" },
+  statDot: { width: 10, height: 10, borderRadius: 5 },
+  metric: { color: colors.text, fontSize: 34, lineHeight: 39, fontWeight: "900" },
+  statLabel: { color: colors.muted, fontWeight: "700" },
+  workflow: { gap: spacing.md },
+  workflowWide: { flexDirection: "row" },
+  workflowCard: { flex: 1, minHeight: 170 },
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
   stepBadge: {
     width: 38,
     height: 38,
@@ -268,6 +319,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+<<<<<<< HEAD
   stepText: {
     color: colors.primary,
     fontWeight: "900",
@@ -281,4 +333,9 @@ const styles = StyleSheet.create({
     color: colors.muted,
     lineHeight: 21,
   },
+=======
+  stepText: { color: colors.primary, fontWeight: "900" },
+  workflowTitle: { color: colors.text, fontSize: 20, fontWeight: "900" },
+  workflowBody: { color: colors.muted, lineHeight: 21 },
+>>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
 });
