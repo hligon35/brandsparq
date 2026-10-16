@@ -1,3 +1,4 @@
+import { hasClientPermission } from "./authz";
 import { decryptSecret, encryptSecret, hashSecret } from "./security";
 
 export interface SocialEnv {
@@ -508,6 +509,21 @@ export async function socialOAuthCallback(
   const oauthError = url.searchParams.get("error");
 
   const saved = await loadOAuthState(env, state);
+  const actor = await env.DB.prepare(
+    "SELECT id,email,role FROM users WHERE id=? AND status='active'",
+  )
+    .bind(saved.user_id)
+    .first<any>();
+  const client = await env.DB.prepare("SELECT id FROM clients WHERE id=? AND status='active'")
+    .bind(saved.client_id)
+    .first();
+  if (
+    !actor ||
+    !client ||
+    !(await hasClientPermission(env.DB, actor, "social_manage", saved.client_id))
+  )
+    throw new Error("Social connection access was revoked.");
+
   if (oauthError || !code) {
     return redirectWithParams(saved.return_to, {
       social_error: oauthError || "Connection canceled.",

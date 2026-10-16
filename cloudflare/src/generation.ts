@@ -154,14 +154,12 @@ function escapeHtml(value: string) {
 function clamp(value: number) {
   return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
 }
-<<<<<<< HEAD
-function brandContext(row:any){
-=======
 
 function brandContext(row: any) {
->>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
   return {
     clientName: row.client_name,
+    ctaLibrary: row.cta_library,
+    campaignGoals: row.campaign_goals,
     timezone: row.timezone || "America/Indiana/Indianapolis",
     voice: row.voice || "clear, useful, confident",
     audience: row.audience || "general audience",
@@ -273,6 +271,15 @@ async function toImageInputs(env: GenerationEnv, assets: AssetRow[], limit = 3) 
   return out;
 }
 
+async function referenceInputs(env: GenerationEnv, clientId: string) {
+  const rows =
+    await env.DB.prepare(`SELECT a.id,a.r2_key,a.filename,a.content_type,a.size_bytes FROM brand_assets b JOIN assets a ON a.id=b.asset_id
+   WHERE b.client_id=? AND b.role IN ('reference','approved_image') ORDER BY b.created_at DESC LIMIT 2`)
+      .bind(clientId)
+      .all<AssetRow>();
+  return toImageInputs(env, rows.results, 2);
+}
+
 async function brandLogoInput(
   env: GenerationEnv,
   logoAssetId?: string | null,
@@ -302,7 +309,8 @@ async function loadPost(env: GenerationEnv, postId: string) {
       bp.tagline,bp.preferred_ctas,bp.imagery_preferences,bp.posting_rules,bp.restricted_words,
       bp.fonts,bp.brand_examples,bp.prohibited_visual_styles,bp.competitor_references,
       bp.brand_vocabulary,bp.hashtag_policy,bp.target_locations,bp.platform_rules,
-      bp.logo_asset_id,bp.alternate_logo_asset_id
+      bp.cta_library,bp.campaign_goals,
+      CASE WHEN bp.logo_preference='alternate' THEN COALESCE(bp.alternate_logo_asset_id,bp.logo_asset_id) ELSE bp.logo_asset_id END AS logo_asset_id,bp.alternate_logo_asset_id
       FROM posts p JOIN clients c ON c.id=p.client_id
       LEFT JOIN brand_profiles bp ON bp.client_id=p.client_id WHERE p.id=?`,
   )
@@ -360,6 +368,7 @@ async function generateGraphic(
     .filter(Boolean)
     .join("\n");
 
+  images = [...images, ...(await referenceInputs(env, post.client_id))];
   const logoInput = await brandLogoInput(env, post.logo_asset_id);
   const visualInputs = logoInput ? [...images, logoInput] : images;
 
@@ -539,6 +548,7 @@ async function sendReviewEmail(
   clientName: string,
   campaignName: string,
   items: Array<{ title: string; platform: string; time: string; token: string }>,
+  deliveryId?: string,
 ) {
   if (
     !env.RESEND_API_KEY ||
@@ -562,7 +572,12 @@ async function sendReviewEmail(
 
   const result = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+    headers: {
+      authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "content-type": "application/json",
+      ...(deliveryId ? { "idempotency-key": `review:${deliveryId}` } : {}),
+    },
+    signal: AbortSignal.timeout(15000),
     body: JSON.stringify({
       from: `${env.RESEND_FROM_NAME || "BrandSparQ"} <${env.RESEND_FROM_EMAIL}>`,
       to: [env.REVIEW_NOTIFICATION_EMAIL],
@@ -594,6 +609,104 @@ async function sendReviewEmail(
   if (!result.ok)
     throw new Error(`Review email failed: ${result.status} ${(await result.text()).slice(0, 300)}`);
   return true;
+}
+
+export async function sendReviewLinks(
+  env: GenerationEnv,
+  clientId: string,
+  postIds?: string[],
+  campaignName = "Campaign",
+) {
+  const client = await env.DB.prepare("SELECT name,status FROM clients WHERE id=?")
+    .bind(clientId)
+    .first<any>();
+  if (!client || client.status !== "active") throw new Error("An active client is required.");
+  const posts = await env.DB.prepare(
+    "SELECT id,title,platform,suggested_publish_at FROM posts WHERE client_id=? AND status IN ('awaiting_approval','edit_requested','review_ready') ORDER BY created_at LIMIT 100",
+  )
+    .bind(clientId)
+    .all<any>();
+  const selected = postIds ? posts.results.filter((p) => postIds.includes(p.id)) : posts.results;
+  const configured = await env.DB.prepare(
+    "SELECT email,enabled FROM client_reviewers WHERE client_id=?",
+  )
+    .bind(clientId)
+    .all<{ email: string; enabled: number }>();
+  const recipients = configured.results.length
+    ? configured.results.filter((r) => r.enabled).map((r) => r.email)
+    : env.REVIEW_NOTIFICATION_EMAIL
+      ? [env.REVIEW_NOTIFICATION_EMAIL]
+      : [];
+  let sent = 0,
+    failed = 0;
+  if (!selected.length) return { sent, failed };
+  for (const email of recipients) {
+    const preference = await env.DB.prepare(
+      "SELECT u.status,np.review_email_enabled,np.email_enabled FROM users u LEFT JOIN notification_preferences np ON np.user_id=u.id WHERE u.email=?",
+    )
+      .bind(email)
+      .first<any>();
+    if (
+      (preference && preference.status !== "active") ||
+      Number(preference?.review_email_enabled ?? 1) === 0 ||
+      Number(preference?.email_enabled ?? 1) === 0
+    )
+      continue;
+
+    const id = crypto.randomUUID();
+    const items = [];
+    for (const post of selected) {
+      const token = randomToken();
+      await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE review_tokens SET revoked_at=? WHERE post_id=? AND recipient_email=? AND revoked_at IS NULL",
+        ).bind(Date.now(), post.id, email),
+        env.DB.prepare(
+          "INSERT INTO review_tokens(id,post_id,token_hash,recipient_email,expires_at,created_at) VALUES (?,?,?,?,?,?)",
+        ).bind(
+          crypto.randomUUID(),
+          post.id,
+          await reviewTokenHash(token, env),
+          email,
+          Date.now() + 7 * 86400000,
+          Date.now(),
+        ),
+      ]);
+      items.push({
+        title: post.title,
+        platform: post.platform,
+        time: post.suggested_publish_at || fallbackSlot(0),
+        token,
+      });
+    }
+    await env.DB.prepare(
+      "INSERT INTO review_email_deliveries(id,client_id,recipient_email,status) VALUES (?,?,?,'pending')",
+    )
+      .bind(id, clientId, email)
+      .run();
+    try {
+      const ok = await sendReviewEmail(
+        { ...env, REVIEW_NOTIFICATION_EMAIL: email },
+        client.name,
+        campaignName,
+        items,
+        id,
+      );
+      if (!ok) throw new Error("Review email delivery is not configured.");
+      await env.DB.prepare("UPDATE review_email_deliveries SET status='sent' WHERE id=?")
+        .bind(id)
+        .run();
+      sent++;
+    } catch (error) {
+      await env.DB.prepare(
+        "UPDATE review_email_deliveries SET status='failed',error_message=? WHERE id=?",
+      )
+        .bind(error instanceof Error ? error.message.slice(0, 1000) : "Email failed", id)
+        .run();
+      failed++;
+    }
+  }
+  return { sent, failed };
 }
 
 export async function runGenerationJob(env: GenerationEnv, jobId: string) {
@@ -630,7 +743,8 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
       bp.tagline,bp.preferred_ctas,bp.imagery_preferences,bp.posting_rules,bp.restricted_words,
       bp.fonts,bp.brand_examples,bp.prohibited_visual_styles,bp.competitor_references,
       bp.brand_vocabulary,bp.hashtag_policy,bp.target_locations,bp.platform_rules,
-      bp.logo_asset_id,bp.alternate_logo_asset_id
+      bp.cta_library,bp.campaign_goals,
+      CASE WHEN bp.logo_preference='alternate' THEN COALESCE(bp.alternate_logo_asset_id,bp.logo_asset_id) ELSE bp.logo_asset_id END AS logo_asset_id,bp.alternate_logo_asset_id
       FROM generation_jobs g JOIN clients c ON c.id=g.client_id
       LEFT JOIN brand_profiles bp ON bp.client_id=g.client_id WHERE g.id=?`,
   )
@@ -667,36 +781,24 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
 
   const assetIds: string[] = JSON.parse(job.asset_ids || "[]");
   const assets = await loadAssets(env, assetIds);
-  const imageInputs = await toImageInputs(env, assets);
+  const imageInputs = [
+    ...(await toImageInputs(env, assets)),
+    ...(await referenceInputs(env, job.client_id)),
+  ];
 
   let generated: GeneratedCampaign;
   let campaignModel: string = job.model || env.OPENAI_TEXT_MODEL || "gpt-6.1-sol";
   let campaignResponseId: string | null = null;
 
-<<<<<<< HEAD
-  if(job.plan_json){
-    generated=JSON.parse(job.plan_json) as GeneratedCampaign;
-  }else{
-    const connected=await env.DB.prepare(
-      "SELECT DISTINCT platform FROM social_accounts WHERE client_id=? AND status='connected'"
-    ).bind(job.client_id).all<{platform:string}>();
-    const connectedPlatforms=connected.results.map(row=>row.platform);
-    const content:InputContent[]=[
-      {type:"input_text",text:[
-        "Create a coherent campaign of 3 to 5 social posts.",
-        `Current time: ${new Date().toISOString()}`,
-        `Campaign objective: ${job.objective||"Auto"}`,
-        connectedPlatforms.length
-          ? `Connected publishing platforms: ${connectedPlatforms.join(", ")}. Prefer these destinations.`
-          : "No social publishing destination is currently connected; create the campaign but it must not be approved for publishing until an account is assigned.",
-        "Brand context JSON:",JSON.stringify(brandContext(job)),
-        "Use only facts supplied in the context or visibly supported by the images."
-      ].join("\n")},
-      ...imageInputs
-=======
   if (job.plan_json) {
     generated = JSON.parse(job.plan_json) as GeneratedCampaign;
   } else {
+    const connected = await env.DB.prepare(
+      "SELECT DISTINCT platform FROM social_accounts WHERE client_id=? AND status='connected'",
+    )
+      .bind(job.client_id)
+      .all<{ platform: string }>();
+    const platforms = connected.results.map((row) => row.platform);
     const content: InputContent[] = [
       {
         type: "input_text",
@@ -704,13 +806,15 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
           "Create a coherent campaign of 3 to 5 social posts.",
           `Current time: ${new Date().toISOString()}`,
           `Campaign objective: ${job.objective || "Auto"}`,
+          platforms.length
+            ? `Connected publishing platforms: ${platforms.join(", ")}. Prefer these destinations.`
+            : "No publishing destination is connected. An account must be assigned before approval.",
           "Brand context JSON:",
           JSON.stringify(brandContext(job)),
           "Use only facts supplied in the context or visibly supported by the images.",
         ].join("\n"),
       },
       ...imageInputs,
->>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
     ];
 
     const campaignCall = await createStructuredResponse<GeneratedCampaign>(env, {
@@ -729,16 +833,10 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
       });
       throw error;
     });
-<<<<<<< HEAD
-    generated=campaignCall.data;
-    campaignModel=campaignCall.model;
-    campaignResponseId=campaignCall.responseId||null;
-=======
 
     generated = campaignCall.data;
     campaignModel = campaignCall.model;
     campaignResponseId = campaignCall.responseId || null;
->>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
 
     if (!generated.posts?.length) throw new Error("Generated campaign contains no posts.");
 
@@ -785,36 +883,18 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
     ]);
   }
 
-<<<<<<< HEAD
-  const connectedAccounts=await env.DB.prepare(
-    `SELECT id,platform FROM social_accounts
-     WHERE client_id=? AND status='connected'
-     ORDER BY updated_at DESC, created_at DESC`
-  ).bind(job.client_id).all<{id:string;platform:string}>();
-  const accountByPlatform=new Map<string,string>();
-  for(const account of connectedAccounts.results){
-    if(!accountByPlatform.has(account.platform))accountByPlatform.set(account.platform,account.id);
-  }
-
-  const savedPostIds:string[]=job.post_ids
-    ? JSON.parse(job.post_ids)
-    : [];
-=======
   const savedPostIds: string[] = job.post_ids ? JSON.parse(job.post_ids) : [];
->>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
 
   const existingPosts = savedPostIds.length
     ? await env.DB.prepare(
-        `SELECT id,platform,title,headline,caption,suggested_publish_at,graphic_key,
-                generation_index,social_account_id
+        `SELECT id,platform,title,headline,caption,suggested_publish_at,graphic_key,generation_index,social_account_id
          FROM posts
          WHERE generation_job_id=?`,
       )
         .bind(jobId)
         .all<any>()
     : await env.DB.prepare(
-        `SELECT id,platform,title,headline,caption,suggested_publish_at,graphic_key,
-                generation_index,social_account_id
+        `SELECT id,platform,title,headline,caption,suggested_publish_at,graphic_key,generation_index,social_account_id
          FROM posts
          WHERE generation_job_id=?
          ORDER BY rowid ASC`,
@@ -828,42 +908,25 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
   const graphicJobIds: string[] = [];
   const now = new Date().toISOString();
 
-<<<<<<< HEAD
-  for(const [index,p] of generated.posts.entries()){
-    const savedId=savedPostIds[index];
-    let existing=savedId
-      ? existingById.get(savedId)
-      : existingPosts.results.find((row:any)=>row.generation_index===index)
-        || existingPosts.results[index];
-    let postId:string;
-
-    if(existing){
-      postId=existing.id;
-      const assignedAccount=accountByPlatform.get(p.platform);
-      if(!existing.social_account_id&&assignedAccount){
-        await env.DB.prepare("UPDATE posts SET social_account_id=?,updated_at=? WHERE id=?")
-          .bind(assignedAccount,new Date().toISOString(),postId).run();
-      }
-    }else{
-      postId=crypto.randomUUID();
-      const suggested=p.suggestedPublishAt&&Date.parse(p.suggestedPublishAt)>Date.now()
-        ?new Date(p.suggestedPublishAt).toISOString()
-        :fallbackSlot(index);
-
-      const defaultSocial=await resolveDefaultSocialAccount(
-        env,
-        job.client_id,
-        p.platform
-      );
-      const socialAccountId=defaultSocial?.id||accountByPlatform.get(p.platform)||null;
-=======
   for (const [index, p] of generated.posts.entries()) {
     const savedId = savedPostIds[index];
-    let existing = savedId ? existingById.get(savedId) : existingPosts.results[index];
+    let existing = savedId
+      ? existingById.get(savedId)
+      : existingPosts.results.find((row: any) => row.generation_index === index) ||
+        existingPosts.results[index];
     let postId: string;
 
     if (existing) {
       postId = existing.id;
+      if (!existing.social_account_id) {
+        const account = await resolveDefaultSocialAccount(env, job.client_id, p.platform);
+        if (account)
+          await env.DB.prepare(
+            "UPDATE posts SET social_account_id=? WHERE id=? AND social_account_id IS NULL",
+          )
+            .bind(account.id, postId)
+            .run();
+      }
     } else {
       postId = crypto.randomUUID();
       const suggested =
@@ -872,37 +935,13 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
           : fallbackSlot(index);
 
       const defaultSocial = await resolveDefaultSocialAccount(env, job.client_id, p.platform);
->>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
 
       await env.DB.prepare(
         `INSERT INTO posts
         (id,client_id,campaign_id,platform,status,title,headline,caption,hashtags,objective,
          suggested_publish_at,sparq_score,generation_job_id,generation_index,review_requested_at,
          ai_caption_response_id,social_account_id,created_at,updated_at)
-<<<<<<< HEAD
-         VALUES (?,?,?,?,'review_ready',?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-      ).bind(
-        postId,
-        job.client_id,
-        campaignId,
-        p.platform,
-        p.headline,
-        p.headline,
-        p.caption,
-        JSON.stringify(p.hashtags||[]),
-        p.objective,
-        suggested,
-        null,
-        jobId,
-        index,
-        now,
-        campaignResponseId,
-        socialAccountId,
-        now,
-        now
-      ).run();
-=======
-         VALUES (?,?,?,?,'review_ready',?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         VALUES (?,?,?,?,'review_ready',?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
         .bind(
           postId,
@@ -917,6 +956,7 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
           suggested,
           null,
           jobId,
+          index,
           now,
           campaignResponseId,
           defaultSocial?.id || null,
@@ -924,7 +964,6 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
           now,
         )
         .run();
->>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
 
       existing = {
         id: postId,
@@ -1219,49 +1258,14 @@ export async function finalizeGenerationReview(env: GenerationEnv, jobId: string
     .all<any>();
 
   let emailSent = !!job.review_email_sent_at;
-  const reviewEmailPreference = await env.DB.prepare(
-    `SELECT COALESCE(np.review_email_enabled,1) AS enabled
-     FROM users u
-     LEFT JOIN notification_preferences np ON np.user_id=u.id
-     WHERE u.role='owner'
-     ORDER BY u.created_at ASC LIMIT 1`,
-  ).first<{ enabled: number }>();
-  const reviewEmailEnabled = Number(reviewEmailPreference?.enabled ?? 1) === 1;
-  if (!emailSent && reviewEmailEnabled && posts.results.length) {
-    const reviewItems: Array<{ title: string; platform: string; time: string; token: string }> = [];
-    for (const [index, post] of posts.results.entries()) {
-      const token = randomToken();
-      await env.DB.prepare("UPDATE review_tokens SET used_at=? WHERE post_id=? AND used_at IS NULL")
-        .bind(Date.now(), post.id)
-        .run();
-      await env.DB.prepare(
-        `INSERT INTO review_tokens
-         (id,post_id,token_hash,recipient_email,expires_at,created_at)
-         VALUES (?,?,?,?,?,?)`,
-      )
-        .bind(
-          crypto.randomUUID(),
-          post.id,
-          await reviewTokenHash(token, env),
-          env.REVIEW_NOTIFICATION_EMAIL || "owner",
-          Date.now() + 7 * 86400000,
-          Date.now(),
-        )
-        .run();
-      reviewItems.push({
-        title: post.title,
-        platform: post.platform,
-        time: post.suggested_publish_at || fallbackSlot(index),
-        token,
-      });
-    }
-
-    emailSent = await sendReviewEmail(
+  if (!emailSent && posts.results.length) {
+    const delivered = await sendReviewLinks(
       env,
-      job.client_name,
+      job.client_id,
+      posts.results.map((p) => p.id),
       job.campaign_name || "Campaign",
-      reviewItems,
     );
+    emailSent = delivered.sent > 0;
   }
 
   const failed = await env.DB.prepare(

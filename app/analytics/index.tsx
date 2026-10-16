@@ -1,3 +1,4 @@
+import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -18,6 +19,7 @@ const metrics = [
 ] as const;
 
 export default function AnalyticsScreen() {
+  const can = useCapabilities();
   const [data, setData] = useState<any>();
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState("all");
@@ -78,7 +80,11 @@ export default function AnalyticsScreen() {
           <Button
             label={syncing ? "Syncing…" : "Sync now"}
             small
-            onPress={syncing ? undefined : sync}
+            onPress={
+              syncing || !can("analytics_manage", clientId === "all" ? undefined : clientId)
+                ? undefined
+                : sync
+            }
           />
         }
       />

@@ -77,10 +77,17 @@ export function workspace(t) {
       async head(key) {
         return objects.has(key) ? {} : null;
       },
+      async put(key, bytes) {
+        objects.set(key, bytes);
+      },
       async get(key) {
         return objects.has(key)
           ? {
               body: objects.get(key),
+              async arrayBuffer() {
+                const bytes = Buffer.from(objects.get(key));
+                return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+              },
               httpMetadata: { contentType: "image/jpeg" },
               httpEtag: '"test"',
             }

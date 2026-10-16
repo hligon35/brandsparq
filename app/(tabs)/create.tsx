@@ -1,6 +1,7 @@
+import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
-import { Link } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
@@ -13,6 +14,8 @@ import type { Client } from "@/types/domain";
 const objectives = ["Auto", "Promote", "Awareness", "Announce"];
 
 export default function CreateScreen() {
+  const router = useRouter();
+  const can = useCapabilities();
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState("");
   const [clientError, setClientError] = useState("");
@@ -26,8 +29,9 @@ export default function CreateScreen() {
     setClientError("");
     try {
       const data = await api.getClients();
-      setClients(data);
-      setClientId((current) => current || data[0]?.id || "");
+      const visible = data.filter((client) => can("generate", client.id));
+      setClients(visible);
+      setClientId((current) => current || visible[0]?.id || "");
     } catch (err) {
       setClients([]);
       setClientError(err instanceof Error ? err.message : "Unable to load clients.");
@@ -97,12 +101,9 @@ export default function CreateScreen() {
         objective,
         uploaded.map((item) => item.id),
       );
-      Alert.alert(
-        "Campaign generation started",
-        `${uploaded.length} image${uploaded.length === 1 ? "" : "s"} uploaded for ${selectedClient?.name ?? "this client"}. Job ${job.jobId.slice(0, 8)} is queued.`,
-      );
       setAssets([]);
       setUploadProgress({ done: 0, total: 0 });
+      router.push(`/generation?jobId=${job.jobId}`);
     } catch (error) {
       Alert.alert(
         "Campaign creation failed",

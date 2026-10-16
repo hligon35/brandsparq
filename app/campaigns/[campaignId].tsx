@@ -1,75 +1,123 @@
-import { useLocalSearchParams } from "expo-router";
+import { Link, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { api } from "@/api/client";
-import { Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
-import { colors, spacing } from "@/theme/tokens";
-
+import { useCapabilities } from "@/auth/capabilities";
+import { Alert } from "@/components/feedback";
+import { Field, Choices, formStyles as styles } from "@/components/forms";
+import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
 export default function CampaignDetailScreen() {
   const { campaignId } = useLocalSearchParams<{ campaignId: string }>();
+  const can = useCapabilities();
   const [data, setData] = useState<any>();
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function load() {
+    setError("");
+    try {
+      const { data } = await api.getCampaign(campaignId);
+      setData(data);
+      const c = data.campaign;
+      setForm({
+        name: c.name,
+        objective: c.objective || "",
+        startsAt: c.starts_at?.slice(0, 10) || "",
+        endsAt: c.ends_at?.slice(0, 10) || "",
+        priority: String(c.priority || 0),
+        notes: c.notes || "",
+        status: c.status,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to load campaign.");
+    }
+  }
   useEffect(() => {
-    if (campaignId)
-      api
-        .getCampaign(campaignId)
-        .then((r) => setData(r.data))
-        .catch(() => {});
+    void load();
   }, [campaignId]);
-  if (!data)
-    return (
-      <PageScroll>
-        <Text style={styles.meta}>Loading campaign…</Text>
-      </PageScroll>
-    );
+  async function save() {
+    setSaving(true);
+    try {
+      await api.updateCampaign(campaignId, { ...form, priority: Number(form.priority) });
+      await load();
+      Alert.alert("Campaign saved");
+    } catch (e) {
+      Alert.alert("Unable to save", e instanceof Error ? e.message : "Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  const editable = !!data && can("client_manage", data.campaign.client_id);
   return (
     <PageScroll>
       <PageHeader
-        eyebrow={data.campaign.client_name || "Campaign"}
-        title={data.campaign.name}
-        subtitle={data.campaign.objective || "Campaign"}
-        action={<StatusBadge label={data.campaign.status || "draft"} />}
+        title={data?.campaign.name || "Campaign"}
+        eyebrow={data?.campaign.client_name || "Campaigns"}
+        subtitle="Manage campaign details and open its posts."
       />
-      <Card subtle>
-        <Text style={styles.label}>Schedule</Text>
-        <Text style={styles.value}>
-          {data.campaign.starts_at || "No start"} → {data.campaign.ends_at || "No end"}
-        </Text>
-        {!!data.campaign.notes && <Text style={styles.meta}>{data.campaign.notes}</Text>}
-      </Card>
-      <View style={styles.list}>
-        {data.posts.map((post: any) => (
-          <Card key={post.id}>
-            <View style={styles.row}>
-              <StatusBadge label={post.status} />
-              <Text style={styles.platform}>{String(post.platform).toUpperCase()}</Text>
-            </View>
-            <Text style={styles.title}>{post.title}</Text>
-            <Text style={styles.meta}>{post.caption}</Text>
-            <Text style={styles.time}>
-              {post.scheduled_publish_at
-                ? new Date(post.scheduled_publish_at).toLocaleString()
-                : post.suggested_publish_at
-                  ? `Suggested ${new Date(post.suggested_publish_at).toLocaleString()}`
-                  : "Unscheduled"}
+      {error ? (
+        <Card>
+          <Text style={styles.error}>{error}</Text>
+          <Button label="Try again" onPress={load} />
+        </Card>
+      ) : !data ? (
+        <Text style={styles.text}>Loading campaign…</Text>
+      ) : (
+        <>
+          <Card>
+            <StatusBadge label={form.status || "draft"} />
+            {[
+              ["name", "Campaign name"],
+              ["objective", "Objective"],
+              ["startsAt", "Start date (YYYY-MM-DD)"],
+              ["endsAt", "End date (YYYY-MM-DD)"],
+              ["priority", "Priority (0–100)"],
+              ["notes", "Notes"],
+            ].map(([key, label]) => (
+              <Field
+                key={key}
+                label={label}
+                value={form[key] || ""}
+                editable={editable && !saving}
+                multiline={key === "notes"}
+                onChange={(value) => setForm((f) => ({ ...f, [key]: value }))}
+              />
+            ))}
+            <Text style={styles.text}>
+              Campaign status organizes your work. Pause scheduled posts from Calendar to stop
+              delivery.
             </Text>
+            {editable && (
+              <>
+                <Choices
+                  values={["draft", "active", "paused", "completed", "archived"]}
+                  value={form.status}
+                  disabled={saving}
+                  onChange={(status) => setForm((f) => ({ ...f, status }))}
+                />
+                <Button
+                  label={saving ? "Saving…" : "Save campaign"}
+                  onPress={saving ? undefined : save}
+                />
+              </>
+            )}
           </Card>
-        ))}
-      </View>
+          {data.posts.map((post: any) => (
+            <Card key={post.id}>
+              <View style={styles.row}>
+                <StatusBadge label={post.status} />
+                <Text style={styles.text}>{post.platform}</Text>
+              </View>
+              <Text style={styles.text}>{post.title}</Text>
+              <Text style={styles.text}>{post.caption}</Text>
+              <Link href={`/posts/${post.id}`} asChild>
+                <Button label="Open post" secondary />
+              </Link>
+            </Card>
+          ))}
+          {!data.posts.length && <Text style={styles.text}>No posts in this campaign yet.</Text>}
+        </>
+      )}
     </PageScroll>
   );
 }
-const styles = StyleSheet.create({
-  list: { gap: spacing.md },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.sm,
-  },
-  label: { color: colors.muted, fontSize: 12, fontWeight: "800", textTransform: "uppercase" },
-  value: { color: colors.text, fontSize: 17, fontWeight: "900" },
-  title: { color: colors.text, fontSize: 18, fontWeight: "900" },
-  meta: { color: colors.muted, lineHeight: 21 },
-  platform: { color: colors.primary, fontSize: 11, fontWeight: "900", letterSpacing: 1 },
-  time: { color: colors.primaryDark, fontWeight: "800", fontSize: 13 },
-});

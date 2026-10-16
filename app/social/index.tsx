@@ -1,3 +1,4 @@
+import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
@@ -19,6 +20,7 @@ function expiryLabel(value?: number | null) {
 }
 
 export default function SocialConnectionsScreen() {
+  const can = useCapabilities();
   const { social_error: callbackError } = useLocalSearchParams<{ social_error?: string }>();
   const [clients, setClients] = useState<any[]>([]);
   const [clientId, setClientId] = useState("");
@@ -202,36 +204,40 @@ export default function SocialConnectionsScreen() {
                     {!!account.last_error && (
                       <Text style={styles.warning}>{account.last_error}</Text>
                     )}
-                    <View style={styles.actions}>
-                      <Button
-                        label={workingId === account.id ? "Checking…" : "Verify"}
-                        secondary
-                        small
-                        onPress={workingId ? undefined : () => verify(account.id)}
-                      />
-                      {unhealthy && (
+                    {can("social_manage", clientId) && (
+                      <View style={styles.actions}>
                         <Button
-                          label="Reconnect"
+                          label={workingId === account.id ? "Checking…" : "Verify"}
+                          secondary
                           small
-                          onPress={workingId ? undefined : () => connect(platformName)}
+                          onPress={workingId ? undefined : () => verify(account.id)}
                         />
-                      )}
-                      <Button
-                        label="Disconnect"
-                        secondary
-                        small
-                        onPress={workingId ? undefined : () => disconnect(account.id)}
-                      />
-                    </View>
+                        {unhealthy && (
+                          <Button
+                            label="Reconnect"
+                            small
+                            onPress={workingId ? undefined : () => connect(platformName)}
+                          />
+                        )}
+                        <Button
+                          label="Disconnect"
+                          secondary
+                          small
+                          onPress={workingId ? undefined : () => disconnect(account.id)}
+                        />
+                      </View>
+                    )}
                   </View>
                 );
               })}
 
               {!existing.length && <Text style={styles.meta}>No account connected.</Text>}
-              <Button
-                label={existing.length ? "Connect another" : "Connect"}
-                onPress={workingId ? undefined : () => connect(platformName)}
-              />
+              {can("social_manage", clientId) && (
+                <Button
+                  label={existing.length ? "Connect another" : "Connect"}
+                  onPress={workingId ? undefined : () => connect(platformName)}
+                />
+              )}
             </Card>
           );
         })}

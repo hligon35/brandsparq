@@ -1,3 +1,4 @@
+import { NotificationRouter } from "@/notifications/router";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider, useAuth } from "@/auth/context";
@@ -9,6 +10,7 @@ export default function RootLayout() {
     <AuthProvider>
       <RootNavigator />
       <FeedbackHost />
+      <NotificationRouter />
     </AuthProvider>
   );
 }
@@ -33,6 +35,12 @@ function RootNavigator() {
         <Stack.Protected guard={!!user}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 
+          <Stack.Screen name="generation/index" options={{ title: "Generation progress" }} />
+          <Stack.Screen name="paused/index" options={{ title: "Paused content" }} />
+          <Stack.Screen
+            name="clients/[clientId]/reviewers"
+            options={{ title: "Client reviewers" }}
+          />
           <Stack.Screen name="clients/index" options={{ title: "Clients" }} />
           <Stack.Screen name="clients/[clientId]/brand" options={{ title: "Brand Brain" }} />
           <Stack.Screen name="campaigns/index" options={{ title: "Campaigns" }} />
@@ -56,6 +64,7 @@ function RootNavigator() {
             options={{ title: "Reschedule", presentation: "modal" }}
           />
         </Stack.Protected>
+        <Stack.Screen name="invite/[token]" options={{ headerShown: false }} />
         <Stack.Screen name="review/[token]" options={{ headerShown: false }} />
       </Stack>
     </>

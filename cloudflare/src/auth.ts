@@ -15,6 +15,7 @@ export type SessionUser = {
   email: string;
   name?: string;
   role: string;
+  clientRoles?: Record<string, string>;
 };
 
 export type RouteResult =
@@ -169,6 +170,7 @@ export async function getSessionUser(request: Request, env: AuthEnv): Promise<Se
      FROM sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = ?
+       AND u.status='active'
        AND s.revoked_at IS NULL
        AND s.expires_at > ?`,
   )
@@ -177,25 +179,25 @@ export async function getSessionUser(request: Request, env: AuthEnv): Promise<Se
 
   if (!row) return null;
 
-<<<<<<< HEAD
   if (!row.last_seen_at || row.last_seen_at < now - 10 * 60 * 1000) {
-    await env.DB.prepare(
-      "UPDATE sessions SET last_seen_at = ? WHERE id = ?"
-    )
+    await env.DB.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?")
       .bind(now, row.session_id)
       .run();
   }
-=======
-  await env.DB.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?")
-    .bind(now, row.session_id)
-    .run();
->>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
 
+  const access = await env.DB.prepare(
+    "SELECT client_id,permission_role FROM user_client_access WHERE user_id=?",
+  )
+    .bind(row.id)
+    .all<{ client_id: string; permission_role: string | null }>();
   return {
     id: row.id,
     email: row.email,
     name: row.name,
     role: row.role,
+    clientRoles: Object.fromEntries(
+      access.results.map((a) => [a.client_id, a.permission_role || row.role]),
+    ),
   };
 }
 
@@ -373,9 +375,67 @@ export async function handleAuthRoute(
       };
     }
 
-    let user = await env.DB.prepare("SELECT id, email, name, role FROM users WHERE email = ?")
+    let user = await env.DB.prepare(
+      "SELECT id, email, name, role, status FROM users WHERE email = ?",
+    )
       .bind(email)
-      .first<SessionUser>();
+      .first<SessionUser & { status: string }>();
+
+    if (user && !["active", "invited"].includes(user.status))
+      return {
+        response: Response.redirect(
+          withQuery(stateRow.return_to, "auth_error", "This account is suspended or removed."),
+          302,
+        ),
+      };
+    if (user?.status === "invited") {
+      const invitation = await env.DB.prepare(
+        "SELECT * FROM team_invitations WHERE email=? AND status='pending' AND expires_at>? ORDER BY created_at DESC LIMIT 1",
+      )
+        .bind(email, Date.now())
+        .first<any>();
+      if (!invitation)
+        return {
+          response: Response.redirect(
+            withQuery(
+              stateRow.return_to,
+              "auth_error",
+              "Your invitation is expired or revoked. Ask the owner for a new invitation.",
+            ),
+            302,
+          ),
+        };
+      const roles = JSON.parse(invitation.client_roles_json) as Record<string, string>;
+      const result = await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE users SET status='active',role=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='invited' AND EXISTS(SELECT 1 FROM team_invitations WHERE id=? AND status='pending' AND expires_at>?)",
+        ).bind(invitation.role, user.id, invitation.id, Date.now()),
+        ...Object.entries(roles).map(([clientId, role]) =>
+          env.DB.prepare(`INSERT INTO user_client_access(user_id,client_id,access_role,permission_role)
+          SELECT ?,?,?,? FROM team_invitations WHERE id=? AND status='pending' AND expires_at>?
+          ON CONFLICT(user_id,client_id) DO UPDATE SET access_role=excluded.access_role,permission_role=excluded.permission_role`).bind(
+            user!.id,
+            clientId,
+            role,
+            role,
+            invitation.id,
+            Date.now(),
+          ),
+        ),
+        env.DB.prepare(
+          "UPDATE team_invitations SET status='accepted',accepted_at=? WHERE id=? AND status='pending' AND expires_at>?",
+        ).bind(Date.now(), invitation.id, Date.now()),
+      ]);
+      if (!result[0].meta.changes)
+        return {
+          response: Response.redirect(
+            withQuery(stateRow.return_to, "auth_error", "Invitation changed. Start sign-in again."),
+            302,
+          ),
+        };
+      user.role = invitation.role;
+      user.status = "active";
+    }
 
     if (!user) {
       if (!emailAllowedForNewUser(email, env)) {
@@ -417,6 +477,7 @@ export async function handleAuthRoute(
         email,
         name: profile.name || undefined,
         role,
+        status: "active",
       };
     } else {
       await env.DB.prepare(
@@ -470,7 +531,7 @@ export async function handleAuthRoute(
               u.email, u.name, u.role
        FROM google_auth_handoffs h
        JOIN users u ON u.id = h.user_id
-       WHERE h.handoff_hash = ?`,
+       WHERE u.status='active' AND h.handoff_hash = ?`,
     )
       .bind(await handoffHash(handoff, env))
       .first<{

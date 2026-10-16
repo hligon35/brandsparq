@@ -1,3 +1,4 @@
+import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
@@ -11,6 +12,7 @@ import type { MarketingPost } from "@/types/domain";
 type AiAction = "rewrite" | "image" | "regenerate" | null;
 
 export default function PostReviewScreen() {
+  const can = useCapabilities();
   const { postId } = useLocalSearchParams<{ postId: string }>();
   const router = useRouter();
   const [post, setPost] = useState<MarketingPost | undefined>();
@@ -90,6 +92,8 @@ export default function PostReviewScreen() {
     );
   }
 
+  const reviewable = ["awaiting_approval", "edit_requested"].includes(post.status);
+  const editable = reviewable && can("review", post.clientId);
   async function assignAccount(accountId: string) {
     setAssigningAccount(true);
     try {
@@ -196,30 +200,32 @@ export default function PostReviewScreen() {
         </Card>
 
         <View style={styles.copyColumn}>
-          <Card>
-            <SectionTitle
-              title="Edit copy"
-              subtitle="Make final headline and caption changes before approval."
-            />
-            <Text style={styles.label}>Headline</Text>
-            <TextInput
-              value={headlineDraft}
-              onChangeText={setHeadlineDraft}
-              style={styles.singleInput}
-            />
-            <Text style={styles.label}>Caption</Text>
-            <TextInput
-              value={captionDraft}
-              onChangeText={setCaptionDraft}
-              multiline
-              style={styles.input}
-            />
-            <Button
-              label={saving ? "Saving…" : "Save copy"}
-              secondary
-              onPress={saving || aiAction ? undefined : saveCopy}
-            />
-          </Card>
+          {editable && (
+            <Card>
+              <SectionTitle
+                title="Edit copy"
+                subtitle="Make final headline and caption changes before approval."
+              />
+              <Text style={styles.label}>Headline</Text>
+              <TextInput
+                value={headlineDraft}
+                onChangeText={setHeadlineDraft}
+                style={styles.singleInput}
+              />
+              <Text style={styles.label}>Caption</Text>
+              <TextInput
+                value={captionDraft}
+                onChangeText={setCaptionDraft}
+                multiline
+                style={styles.input}
+              />
+              <Button
+                label={saving ? "Saving…" : "Save copy"}
+                secondary
+                onPress={saving || aiAction ? undefined : saveCopy}
+              />
+            </Card>
+          )}
 
           <Card>
             <SectionTitle
@@ -237,8 +243,8 @@ export default function PostReviewScreen() {
                   return (
                     <Pressable
                       key={account.id}
-                      disabled={assigningAccount}
-                      onPress={() => assignAccount(account.id)}
+                      disabled={assigningAccount || !editable}
+                      onPress={editable ? () => assignAccount(account.id) : undefined}
                       style={[styles.accountOption, active && styles.accountOptionActive]}
                     >
                       <Text style={[styles.accountName, active && styles.accountNameActive]}>
@@ -293,61 +299,65 @@ export default function PostReviewScreen() {
             </Text>
           </Card>
 
-          <View style={styles.reviewActions}>
-            <View style={styles.reviewAction}>
-              <Button
-                label={saving ? "Working…" : "Request changes"}
-                secondary
-                onPress={saving || aiAction ? undefined : reject}
-              />
+          {editable && (
+            <View style={styles.reviewActions}>
+              <View style={styles.reviewAction}>
+                <Button
+                  label={saving ? "Working…" : "Request changes"}
+                  secondary
+                  onPress={saving || aiAction ? undefined : reject}
+                />
+              </View>
+              <View style={styles.reviewAction}>
+                <Button
+                  label={saving ? "Approving…" : "Approve post"}
+                  onPress={saving || aiAction || !post.socialAccountId ? undefined : approve}
+                />
+              </View>
             </View>
-            <View style={styles.reviewAction}>
-              <Button
-                label={saving ? "Approving…" : "Approve post"}
-                onPress={saving || aiAction || !post.socialAccountId ? undefined : approve}
-              />
-            </View>
-          </View>
+          )}
         </View>
       </View>
 
-      <Card>
-        <SectionTitle
-          title="AI change request"
-          subtitle="Rewrite the caption, edit the graphic, or regenerate the whole post."
-        />
-        <TextInput
-          value={instruction}
-          onChangeText={setInstruction}
-          multiline
-          placeholder="Example: Keep the product untouched, make the background more energetic, and reduce the headline."
-          placeholderTextColor={colors.muted}
-          style={styles.input}
-        />
-        <View style={styles.aiActions}>
-          <View style={styles.aiButton}>
-            <Button
-              label={aiAction === "rewrite" ? "Rewriting…" : "Rewrite caption"}
-              onPress={aiAction ? undefined : () => runAi("rewrite")}
-              secondary
-            />
+      {reviewable && can("ai_edit", post.clientId) && (
+        <Card>
+          <SectionTitle
+            title="AI change request"
+            subtitle="Rewrite the caption, edit the graphic, or regenerate the whole post."
+          />
+          <TextInput
+            value={instruction}
+            onChangeText={setInstruction}
+            multiline
+            placeholder="Example: Keep the product untouched, make the background more energetic, and reduce the headline."
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+          />
+          <View style={styles.aiActions}>
+            <View style={styles.aiButton}>
+              <Button
+                label={aiAction === "rewrite" ? "Rewriting…" : "Rewrite caption"}
+                onPress={aiAction ? undefined : () => runAi("rewrite")}
+                secondary
+              />
+            </View>
+            <View style={styles.aiButton}>
+              <Button
+                label={aiAction === "image" ? "Editing graphic…" : "Edit graphic with AI"}
+                onPress={aiAction ? undefined : () => runAi("image")}
+                secondary
+              />
+            </View>
+            <View style={styles.aiButton}>
+              <Button
+                label={aiAction === "regenerate" ? "Regenerating…" : "Regenerate post"}
+                onPress={aiAction ? undefined : () => runAi("regenerate")}
+                secondary
+              />
+            </View>
           </View>
-          <View style={styles.aiButton}>
-            <Button
-              label={aiAction === "image" ? "Editing graphic…" : "Edit graphic with AI"}
-              onPress={aiAction ? undefined : () => runAi("image")}
-              secondary
-            />
-          </View>
-          <View style={styles.aiButton}>
-            <Button
-              label={aiAction === "regenerate" ? "Regenerating…" : "Regenerate post"}
-              onPress={aiAction ? undefined : () => runAi("regenerate")}
-              secondary
-            />
-          </View>
-        </View>
-      </Card>
+        </Card>
+      )}
     </PageScroll>
   );
 }

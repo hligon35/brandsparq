@@ -40,7 +40,7 @@ npx wrangler d1 migrations apply brandsparq --remote
 npm run deploy
 ```
 
-The publish scheduler runs every minute. Analytics has a separate six-hour cron so provider metric collection does not run inside every publishing tick.
+The publish scheduler runs every minute. Analytics sync honors the workspace refresh interval; the additional six-hour cron also wakes the worker. Completed sync timestamps prevent unnecessary provider collection.
 
 
 ## Workers Builds settings

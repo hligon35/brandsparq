@@ -13,18 +13,13 @@
     "deploy:worker": "npm run validate && npm --prefix cloudflare run deploy",
     "deploy:cloudflare": "npm run deploy:worker",
     "typecheck": "tsc --noEmit",
-<<<<<<< HEAD
-    "build:cloudflare": "npm ci --prefix cloudflare && npm run build:web",
-    "validate": "npm run audit:launch && npm test && npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web",
-=======
     "validate": "npm run audit:launch && npm run lint && npm run format:check && npm test && npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web && npm run test:e2e",
->>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
     "deploy:production": "npm run validate && npm --prefix cloudflare run deploy",
     "audit:launch": "node scripts/launch-audit.mjs",
     "smoke:production": "node scripts/smoke-production.mjs",
     "test": "node --import ./tests/register.mjs --test tests/*.test.mjs",
     "test:unit": "node --import ./tests/register.mjs --test tests/unit.test.mjs",
-    "test:integration": "node --import ./tests/register.mjs --test tests/launch.test.mjs tests/providers.test.mjs tests/workflow-safety.test.mjs",
+    "test:integration": "node --import ./tests/register.mjs --test tests/launch.test.mjs tests/providers.test.mjs tests/workflow-safety.test.mjs tests/workspace-experience.test.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium webkit",
     "test:mobile": "node scripts/test-mobile.mjs",
@@ -32,7 +27,8 @@
     "lint": "biome lint .",
     "format": "biome format . --write",
     "format:check": "biome format .",
-    "smoke:staging": "node scripts/smoke-staging.mjs"
+    "smoke:staging": "node scripts/smoke-staging.mjs",
+    "build:cloudflare": "npm ci --prefix cloudflare && npm run build:web"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

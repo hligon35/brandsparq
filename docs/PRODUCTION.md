@@ -15,9 +15,7 @@ Create or verify:
 - DLQ: `brandsparq-generation-dlq`
 - Custom domain: `brandsparq.getsparqd.com`
 
-The production D1 binding is already configured in `cloudflare/wrangler.toml`.
-
-Apply every migration before deploying Worker code that depends on it:
+Apply every pending migration before deploying the Worker:
 
 ```bash
 cd cloudflare
@@ -193,8 +191,6 @@ npm run smoke:production
 
 Production deployment now fails fast unless the app TypeScript check, Worker TypeScript check, and Expo web export all succeed.
 
-Migration `0008_production_readiness.sql` must be applied before deploying the production-readiness Worker changes.
-
 The deploy script exports Expo web to `dist/` and deploys the Worker plus static assets.
 
 ## Production verification
@@ -246,22 +242,16 @@ After the latest migrations and deployment, sign in as an owner and open **More 
 
 See `docs/SPRINT8.md` for the complete launch-certification and manual acceptance process.
 
-<<<<<<< HEAD
-## Cloudflare Workers Builds configuration
-
-BrandSparQ uses `cloudflare/` as the Worker project root because that directory contains `wrangler.toml`.
-
-Configure the connected Worker with:
-
-```text
-Root directory: /cloudflare
-Build command: npm run build
-Deploy command: npm run deploy
-```
-
-Workers Builds installs `cloudflare/package.json` dependencies automatically. The Worker `build` script installs the parent Expo application dependencies and runs the Expo web export, producing `../dist` for the Worker assets binding.
-=======
 ## Workflow safety update
 
 Apply migration `0017_workflow_safety.sql` before publishing the updated Worker and Expo app together. See [workflow safety](WORKFLOW_SAFETY.md) for notification retry behavior, archive safeguards and the manual hold for ambiguous provider outcomes.
->>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
+
+## Workspace experience update
+
+Apply migration `0018_workspace_experience.sql` before deploying the Phase 2 Worker and app together. See [workspace experience](WORKSPACE_EXPERIENCE.md) for invitation lifecycle, client role overrides, review delivery and recovery behavior, plus the remaining native and live-provider acceptance steps.
+
+## Cloudflare Workers Builds configuration
+
+Use `/cloudflare` as the root directory, `npm run build` as the build command and `npm run deploy` as the deploy command. The build installs parent Expo dependencies and exports `../dist` for the Worker assets binding.
+
+The production-readiness migration `0017_production_readiness.sql` and workflow-safety migration `0017_workflow_safety.sql` both precede Phase 2 migration 0018. Apply all pending migrations in filename order.

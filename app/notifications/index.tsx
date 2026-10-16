@@ -1,6 +1,7 @@
 import { Alert } from "@/components/feedback";
 import { useEffect, useMemo, useState } from "react";
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCapabilities } from "@/auth/capabilities";
 import { api } from "@/api/client";
 import { registerThisDeviceForPush } from "@/notifications/register";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
@@ -9,6 +10,7 @@ import { colors, radius, spacing } from "@/theme/tokens";
 type Filter = "all" | "unread" | "failed";
 
 export default function NotificationsScreen() {
+  const can = useCapabilities();
   const [items, setItems] = useState<any[]>([]);
   const [unread, setUnread] = useState(0);
   const [filter, setFilter] = useState<Filter>("all");
@@ -96,7 +98,12 @@ export default function NotificationsScreen() {
         action={
           <View style={styles.actions}>
             <Button label="Enable push" small secondary onPress={enablePush} />
-            <Button label="Send test" small secondary onPress={test} />
+            <Button
+              label="Send test"
+              small
+              secondary
+              onPress={can("notifications_manage") ? test : undefined}
+            />
           </View>
         }
       />

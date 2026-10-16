@@ -166,16 +166,12 @@ export async function findNextAvailableSlot(
   throw new Error("No available publishing slot found in the next 14 days.");
 }
 
-<<<<<<< HEAD
 export async function validateSchedule(
   env: SchedulingEnv,
   clientId: string,
   scheduledAt: string,
-  excludePostId?: string | null
+  excludePostId?: string | null,
 ) {
-=======
-export async function validateSchedule(env: SchedulingEnv, clientId: string, scheduledAt: string) {
->>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
   const requested = new Date(scheduledAt).toISOString();
   const suggested = await findNextAvailableSlot(env, clientId, requested, excludePostId);
   return {

@@ -393,7 +393,7 @@ export async function runLaunchCertification(env: OperationsEnv, user: SessionUs
   }
 
   const owners = await env.DB.prepare(
-    "SELECT COUNT(*) AS count FROM users WHERE role='owner'",
+    "SELECT COUNT(*) AS count FROM users WHERE role='owner' AND status='active'",
   ).first<{ count: number }>();
   check(
     "access:owner",
@@ -540,13 +540,13 @@ export async function handleOperationsRoute(
   if (request.method === "GET" && url.pathname === "/v1/system/access") {
     const [users, clients, access] = await Promise.all([
       env.DB.prepare(
-        "SELECT id,email,name,role,created_at,updated_at FROM users ORDER BY CASE role WHEN 'owner' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END,email",
+        "SELECT id,email,name,role,status,created_at,updated_at FROM users ORDER BY CASE role WHEN 'owner' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END,email",
       ).all<any>(),
       env.DB.prepare(
         "SELECT id,name,status FROM clients WHERE COALESCE(status,'active')!='archived' ORDER BY name",
       ).all<any>(),
       env.DB.prepare(
-        "SELECT user_id,client_id,access_role,created_at FROM user_client_access ORDER BY created_at",
+        "SELECT a.user_id,a.client_id,COALESCE(a.permission_role,u.role) AS access_role,a.created_at FROM user_client_access a JOIN users u ON u.id=a.user_id ORDER BY a.created_at",
       ).all<any>(),
     ]);
     return {
@@ -561,10 +561,15 @@ export async function handleOperationsRoute(
     if (!["owner", "admin", "reviewer", "publisher", "viewer"].includes(role)) {
       return { body: { error: "Invalid workspace role." }, status: 400 };
     }
-    const target = await env.DB.prepare("SELECT id,role FROM users WHERE id=?")
+    const target = await env.DB.prepare("SELECT id,role,status FROM users WHERE id=?")
       .bind(roleMatch[1])
       .first<any>();
     if (!target) return { body: { error: "User not found." }, status: 404 };
+    if (target.status === "invited")
+      return {
+        body: { error: "Revoke and resend the invitation to change its role." },
+        status: 409,
+      };
     if (target.role === "owner" && role !== "owner") {
       const owners = await env.DB.prepare(
         "SELECT COUNT(*) AS count FROM users WHERE role='owner'",
@@ -572,9 +577,13 @@ export async function handleOperationsRoute(
       if (Number(owners?.count || 0) <= 1)
         return { body: { error: "BrandSparQ must keep at least one owner." }, status: 409 };
     }
-    await env.DB.prepare("UPDATE users SET role=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-      .bind(role, target.id)
-      .run();
+    const changed =
+      await env.DB.prepare(`UPDATE users SET role=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND
+      (role!='owner' OR ?='owner' OR status!='active' OR (SELECT COUNT(*) FROM users WHERE role='owner' AND status='active')>1)`)
+        .bind(role, target.id, role)
+        .run();
+    if (!changed.meta.changes)
+      return { body: { error: "BrandSparQ must keep an active owner." }, status: 409 };
     await env.DB.prepare(
       `INSERT INTO recovery_actions (id,actor_user_id,action,entity_type,entity_id,previous_state,next_state)
        VALUES (?,?,'change_user_role','user',?,?,?)`,
@@ -605,12 +614,14 @@ export async function handleOperationsRoute(
         .run();
     } else {
       const accessRole = String(payload.accessRole || target.role || "viewer");
+      if (!["admin", "reviewer", "publisher", "viewer"].includes(accessRole))
+        return { body: { error: "Invalid client role." }, status: 400 };
       await env.DB.prepare(
-        `INSERT INTO user_client_access (user_id,client_id,access_role)
-         VALUES (?,?,?)
-         ON CONFLICT(user_id,client_id) DO UPDATE SET access_role=excluded.access_role`,
+        `INSERT INTO user_client_access (user_id,client_id,access_role,permission_role)
+         VALUES (?,?,?,?)
+         ON CONFLICT(user_id,client_id) DO UPDATE SET access_role=excluded.access_role,permission_role=excluded.permission_role`,
       )
-        .bind(target.id, client.id, accessRole)
+        .bind(target.id, client.id, accessRole, accessRole)
         .run();
     }
     await env.DB.prepare(

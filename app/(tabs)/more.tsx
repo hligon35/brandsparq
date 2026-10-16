@@ -18,6 +18,18 @@ const items: {
     href: "/clients" as Href,
   },
   {
+    label: "Generation progress",
+    description: "Planning, graphics, errors and recovery.",
+    icon: "sparkles-outline",
+    href: "/generation" as Href,
+  },
+  {
+    label: "Paused content",
+    description: "Restore paused review and calendar work.",
+    icon: "pause-circle-outline",
+    href: "/paused" as Href,
+  },
+  {
     label: "Campaigns",
     description: "Group generated content around goals and deadlines.",
     icon: "layers-outline",
@@ -68,7 +80,7 @@ export default function MoreScreen() {
             href: "/system" as Href,
           },
         ]
-      : items;
+      : items.filter((item) => item.href !== "/settings");
 
   return (
     <PageScroll>

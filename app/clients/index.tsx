@@ -1,3 +1,6 @@
+import { useAuth } from "@/auth/context";
+import { useCapabilities } from "@/auth/capabilities";
+import { StatusBadge } from "@/components/ui";
 import { Alert } from "@/components/feedback";
 import { Link } from "expo-router";
 import { useEffect, useState } from "react";
@@ -8,6 +11,9 @@ import { colors, radius, spacing } from "@/theme/tokens";
 import type { Client } from "@/types/domain";
 
 export default function ClientsScreen() {
+  const can = useCapabilities();
+  const { user } = useAuth();
+  const [showArchived, setShowArchived] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [name, setName] = useState("");
   const [timezone, setTimezone] = useState("America/Indiana/Indianapolis");
@@ -17,7 +23,7 @@ export default function ClientsScreen() {
   async function load() {
     setError("");
     try {
-      setClients(await api.getClients());
+      setClients(await api.getClients(showArchived));
     } catch (err) {
       setClients([]);
       setError(err instanceof Error ? err.message : "Unable to load clients.");
@@ -25,7 +31,7 @@ export default function ClientsScreen() {
   }
   useEffect(() => {
     void load();
-  }, []);
+  }, [showArchived]);
 
   async function create() {
     if (!name.trim()) return;
@@ -61,34 +67,41 @@ export default function ClientsScreen() {
         subtitle="Create clients and manage the rules BrandSparQ uses to create, caption, and schedule their content."
       />
 
-      <Card>
-        <SectionTitle
-          title="Add client"
-          subtitle="Start with the client name and timezone. Brand Brain can be completed next."
-        />
-        <View style={styles.formRow}>
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="Client name"
-            placeholderTextColor={colors.muted}
-            style={styles.input}
+      <Button
+        label={showArchived ? "Hide archived clients" : "Show archived clients"}
+        secondary
+        onPress={() => setShowArchived((v) => !v)}
+      />
+      {["owner", "admin"].includes(user?.role || "") && (
+        <Card>
+          <SectionTitle
+            title="Add client"
+            subtitle="Start with the client name and timezone. Brand Brain can be completed next."
           />
-          <TextInput
-            value={timezone}
-            onChangeText={setTimezone}
-            placeholder="America/Indiana/Indianapolis"
-            placeholderTextColor={colors.muted}
-            style={styles.input}
-          />
-          <View style={styles.createButton}>
-            <Button
-              label={working ? "Working…" : "Create client"}
-              onPress={working || !name.trim() ? undefined : create}
+          <View style={styles.formRow}>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="Client name"
+              placeholderTextColor={colors.muted}
+              style={styles.input}
             />
+            <TextInput
+              value={timezone}
+              onChangeText={setTimezone}
+              placeholder="America/Indiana/Indianapolis"
+              placeholderTextColor={colors.muted}
+              style={styles.input}
+            />
+            <View style={styles.createButton}>
+              <Button
+                label={working ? "Working…" : "Create client"}
+                onPress={working || !name.trim() ? undefined : create}
+              />
+            </View>
           </View>
-        </View>
-      </Card>
+        </Card>
+      )}
 
       {error ? (
         <Card subtle>
@@ -107,6 +120,7 @@ export default function ClientsScreen() {
               style={[styles.clientColor, { backgroundColor: client.color || colors.primary }]}
             />
             <Text style={styles.cardTitle}>{client.name}</Text>
+            <StatusBadge label={client.status || "active"} />
             <Text style={styles.sub}>{client.timezone || "Timezone not set"}</Text>
             <Text style={styles.sub}>
               Voice, audience, CTA, imagery, colors, assets, and posting rules
@@ -117,9 +131,35 @@ export default function ClientsScreen() {
                   <Text style={styles.edit}>Edit Brand Brain →</Text>
                 </Pressable>
               </Link>
-              <Pressable disabled={working} onPress={() => archive(client)}>
-                <Text style={styles.archive}>Archive</Text>
-              </Pressable>
+              {can("client_manage", client.id) &&
+                (client.status === "archived" ? (
+                  <Button
+                    label="Restore client"
+                    small
+                    onPress={
+                      working
+                        ? undefined
+                        : async () => {
+                            setWorking(true);
+                            try {
+                              await api.restoreClient(client.id);
+                              await load();
+                            } catch (e) {
+                              Alert.alert(
+                                "Unable to restore",
+                                e instanceof Error ? e.message : "Try again.",
+                              );
+                            } finally {
+                              setWorking(false);
+                            }
+                          }
+                    }
+                  />
+                ) : (
+                  <Pressable disabled={working} onPress={() => archive(client)}>
+                    <Text style={styles.archive}>Archive</Text>
+                  </Pressable>
+                ))}
             </View>
           </Card>
         ))}

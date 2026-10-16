@@ -1,3 +1,4 @@
+import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { Link } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
@@ -9,6 +10,7 @@ import { colors, radius, spacing } from "@/theme/tokens";
 import type { MarketingPost } from "@/types/domain";
 
 export default function ReviewScreen() {
+  const can = useCapabilities();
   const [posts, setPosts] = useState<MarketingPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -146,7 +148,7 @@ export default function ReviewScreen() {
                 <Card style={[styles.card, active && styles.cardSelected]}>
                   <View style={styles.cardTop}>
                     <Pressable
-                      onPress={() => toggle(post.id)}
+                      onPress={can("review", post.clientId) ? () => toggle(post.id) : undefined}
                       style={[styles.selector, active && styles.selectorActive]}
                     >
                       <Text style={[styles.selectorText, active && styles.selectorTextActive]}>

@@ -1,3 +1,4 @@
+import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { Link } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
@@ -74,6 +75,7 @@ function titleFor(mode: CalendarMode, anchor: Date) {
 }
 
 export default function CalendarScreen() {
+  const can = useCapabilities();
   const [mode, setMode] = useState<CalendarMode>("week");
   const [anchor, setAnchor] = useState(startOfDay(new Date()));
   const [posts, setPosts] = useState<MarketingPost[]>([]);
@@ -184,7 +186,7 @@ export default function CalendarScreen() {
       <Card key={post.id} style={[styles.postCard, active && styles.postCardSelected]}>
         <View style={styles.row}>
           <Pressable
-            onPress={() => toggle(post.id)}
+            onPress={can("calendar_manage", post.clientId) ? () => toggle(post.id) : undefined}
             style={[styles.selector, active && styles.selectorActive]}
           >
             <Text style={[styles.selectorText, active && styles.selectorTextActive]}>

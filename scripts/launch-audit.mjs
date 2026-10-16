@@ -65,15 +65,21 @@ const migrations = fs
   .readdirSync(path.join(root, "cloudflare/migrations"))
   .filter((name) => /^\d{4}_.+\.sql$/.test(name))
   .sort();
-const numbers = migrations.map((name) => Number(name.slice(0, 4)));
+// Both filenames were published on independent branches before their merge.
+// D1 tracks filenames, so preserve them instead of renaming an applied migration.
+const legacy17 = new Set(["0017_production_readiness.sql", "0017_workflow_safety.sql"]);
+const numbers = [...new Set(migrations.map((name) => Number(name.slice(0, 4))))];
 for (let i = 1; i < numbers.length; i++) {
   if (numbers[i] !== numbers[i - 1] + 1)
-    fail(`Migration sequence gap between ${migrations[i - 1]} and ${migrations[i]}.`);
+    fail(`Migration sequence gap between ${numbers[i - 1]} and ${numbers[i]}.`);
 }
-const duplicate = new Set();
 for (const n of numbers) {
-  if (duplicate.has(n)) fail(`Duplicate migration number: ${String(n).padStart(4, "0")}`);
-  duplicate.add(n);
+  const names = migrations.filter((name) => Number(name.slice(0, 4)) === n);
+  if (
+    names.length > 1 &&
+    !(n === 17 && names.length === 2 && names.every((name) => legacy17.has(name)))
+  )
+    fail(`Duplicate migration number: ${String(n).padStart(4, "0")}`);
 }
 
 const sourceFiles = [];

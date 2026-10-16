@@ -148,3 +148,107 @@ test("provider callback errors remain visible after a full-page return", async (
   await expect(page.getByRole("alert", { name: "Social connection failed" })).toBeVisible();
   await expect(page.getByText("Provider authorization was denied", { exact: true })).toBeVisible();
 });
+
+test("generation progress shows failures and supports retry then cancel", async ({
+  page,
+  request,
+}) => {
+  await signIn(page);
+  await page.goto("/generation?jobId=fixture-generation");
+  await expect(page.getByText("Fixture generation failure", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Retry generation", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Cancel generation", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel generation", exact: true }).click();
+  await expect
+    .poll(async () => (await (await request.post("/__test/state")).json()).generationJobs[0].status)
+    .toBe("canceled");
+});
+
+test("campaign metadata saves and persists after reload", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/campaigns/fixture-campaign");
+  await page.getByLabel("Campaign name", { exact: true }).fill("Updated community campaign");
+  await page.getByLabel("Notes", { exact: true }).fill("Ready for October outreach");
+  await page.getByRole("button", { name: "Save campaign", exact: true }).click();
+  await expect(page.getByRole("alert", { name: "Campaign saved" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Campaign name", { exact: true })).toHaveValue(
+    "Updated community campaign",
+  );
+  await expect(page.getByLabel("Notes", { exact: true })).toHaveValue("Ready for October outreach");
+});
+
+test("archived clients can be found and restored explicitly", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/clients");
+  const card = page.getByText("Client A", { exact: true }).locator("..");
+  await card.getByText("Archive", { exact: true }).click();
+  await expect(page.getByText("Client A", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Show archived clients", exact: true }).click();
+  await page.getByRole("button", { name: "Restore client", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Restore client", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Client A", { exact: true })).toBeVisible();
+});
+
+test("paused approved posts resume through the scheduler", async ({ page, request }) => {
+  await signIn(page);
+  const token = await page.evaluate(() => sessionStorage.getItem("brandsparq_session"));
+  const headers = { authorization: "Bearer " + token };
+  expect((await request.post("/v1/posts/fixture-post/approve", { headers })).status()).toBe(200);
+  expect(
+    (
+      await request.post("/v1/posts/bulk/pause", { headers, data: { postIds: ["fixture-post"] } })
+    ).status(),
+  ).toBe(200);
+  await page.goto("/paused");
+  await page.getByRole("button", { name: "Resume at next slot", exact: true }).click();
+  await expect(page.getByText("No paused posts.", { exact: true })).toBeVisible();
+  expect((await (await request.post("/__test/state")).json()).post.status).toBe(
+    "calendar_scheduled",
+  );
+});
+
+test("owners can send and revoke team invitations from Access Management", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/access");
+  await page.getByLabel("Teammate email", { exact: true }).fill("new-member@example.test");
+  await page.getByRole("button", { name: "Add Client A", exact: true }).click();
+  await page.getByRole("button", { name: "Send invitation", exact: true }).click();
+  await expect(page.getByRole("alert", { name: "Invitation created" })).toBeVisible();
+  await page.getByRole("button", { name: "Close message", exact: true }).click();
+  await expect(page.getByText(/new-member@example.test · pending/)).toBeVisible();
+  await page.getByRole("button", { name: "Revoke invitation", exact: true }).click();
+  await expect(page.getByText(/new-member@example.test · revoked/)).toBeVisible();
+});
+
+test("reviewer controls send email and revoke replaced review links", async ({ page, request }) => {
+  await signIn(page);
+  await page.goto("/clients/client-a/reviewers");
+  await page.getByLabel("Reviewer email", { exact: true }).fill("client-reviewer@example.test");
+  await page.getByRole("button", { name: "Add reviewer", exact: true }).click();
+  await expect(page.getByText("client-reviewer@example.test", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Send review links", exact: true }).click();
+  await expect(page.getByRole("alert", { name: "Review delivery" })).toBeVisible();
+  await page.getByRole("button", { name: "Close message", exact: true }).click();
+  await expect(
+    page.getByText("client-reviewer@example.test · sent", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Revoke link", exact: true }).first().click();
+  await expect(page.getByText("Revoked", { exact: true })).toBeVisible();
+});
+
+test("viewers see read-only client screens and no creation navigation", async ({ page }) => {
+  await page.goto("/login?handoff=viewer-handoff");
+  await expect(
+    page.getByRole("heading", { name: "Marketing moves faster with a system." }),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Create", exact: true })).toHaveCount(0);
+  await page.goto("/clients");
+  await expect(page.getByRole("button", { name: "Create client", exact: true })).toHaveCount(0);
+  await page.goto("/clients/client-a/brand");
+  await expect(page.getByLabel("Brand voice", { exact: true })).not.toBeEditable();
+  await expect(page.getByRole("button", { name: "Save Brand Brain", exact: true })).toHaveCount(0);
+  await page.goto("/posts/fixture-post");
+  await expect(page.getByRole("button", { name: "Approve post", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Rewrite caption", exact: true })).toHaveCount(0);
+});

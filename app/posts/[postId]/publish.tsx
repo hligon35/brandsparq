@@ -1,3 +1,4 @@
+import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
@@ -9,6 +10,7 @@ import { colors, spacing } from "@/theme/tokens";
 import type { MarketingPost } from "@/types/domain";
 
 export default function PublishDecisionScreen() {
+  const can = useCapabilities();
   const { postId } = useLocalSearchParams<{ postId: string }>();
   const router = useRouter();
   const [post, setPost] = useState<MarketingPost>();
@@ -96,18 +98,26 @@ export default function PublishDecisionScreen() {
         <View style={styles.action}>
           <Button
             label={working ? "Updating…" : "Keep schedule"}
-            onPress={working ? undefined : keep}
+            onPress={working || !can("calendar_manage", post.clientId) ? undefined : keep}
           />
         </View>
         <View style={styles.action}>
           <Button
             label="Reschedule"
             secondary
-            onPress={() => router.push(`/posts/${post.id}/reschedule`)}
+            onPress={
+              can("calendar_manage", post.clientId)
+                ? () => router.push(`/posts/${post.id}/reschedule`)
+                : undefined
+            }
           />
         </View>
         <View style={styles.action}>
-          <Button label="Publish now" secondary onPress={working ? undefined : publishNow} />
+          <Button
+            label="Publish now"
+            secondary
+            onPress={working || !can("publish", post.clientId) ? undefined : publishNow}
+          />
         </View>
       </View>
 

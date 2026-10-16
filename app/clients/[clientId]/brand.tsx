@@ -1,3 +1,6 @@
+import { Link } from "expo-router";
+import { useCapabilities } from "@/auth/capabilities";
+import { Choices } from "@/components/forms";
 import { Alert } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams } from "expo-router";
@@ -29,6 +32,9 @@ const fields = [
 
 export default function BrandBrainScreen() {
   const { clientId } = useLocalSearchParams<{ clientId: string }>();
+  const can = useCapabilities();
+  const [clientActive, setClientActive] = useState(true);
+  const editable = clientActive && can("brand_manage", clientId);
   const [brand, setBrand] = useState<Record<string, string>>({});
   const [name, setName] = useState("Brand Brain");
   const [timezone, setTimezone] = useState("");
@@ -45,9 +51,11 @@ export default function BrandBrainScreen() {
         api.getBrand(clientId),
         api.getBrandAssets(clientId),
       ]);
+      setClientActive(data.client_status === "active");
       setName(data.name || "Brand Brain");
       setTimezone(data.timezone || "");
       setBrand({
+        logoPreference: data.logo_preference || "primary",
         voice: data.voice || "",
         audience: data.audience || "",
         tagline: data.tagline || "",
@@ -136,6 +144,11 @@ export default function BrandBrainScreen() {
         </Card>
       )}
 
+      {(can("review", clientId) || can("client_manage", clientId)) && (
+        <Link href={`/clients/${clientId}/reviewers`} asChild>
+          <Button label="Manage reviewers" secondary />
+        </Link>
+      )}
       <Card>
         <SectionTitle
           title="Client profile"
@@ -144,11 +157,21 @@ export default function BrandBrainScreen() {
         <View style={[styles.colorRow, wide && styles.colorRowWide]}>
           <View style={styles.colorField}>
             <Text style={styles.label}>Name</Text>
-            <TextInput style={styles.input} value={name} onChangeText={setName} />
+            <TextInput
+              editable={editable}
+              style={styles.input}
+              value={name}
+              onChangeText={setName}
+            />
           </View>
           <View style={styles.colorField}>
             <Text style={styles.label}>Timezone</Text>
-            <TextInput style={styles.input} value={timezone} onChangeText={setTimezone} />
+            <TextInput
+              editable={editable}
+              style={styles.input}
+              value={timezone}
+              onChangeText={setTimezone}
+            />
           </View>
         </View>
       </Card>
@@ -158,29 +181,63 @@ export default function BrandBrainScreen() {
           title="Brand assets"
           subtitle="Upload primary logos, alternate logos, and approved reference images."
         />
-        <View style={styles.assetActions}>
-          <Button
-            label="Upload logo"
-            onPress={saving ? undefined : () => addAsset("logo")}
-            secondary
+        {editable && (
+          <View style={styles.assetActions}>
+            <Button
+              label="Upload logo"
+              onPress={saving ? undefined : () => addAsset("logo")}
+              secondary
+            />
+            <Button
+              label="Upload alternate logo"
+              onPress={saving ? undefined : () => addAsset("alternate_logo")}
+              secondary
+            />
+            <Button
+              label="Add reference image"
+              onPress={saving ? undefined : () => addAsset("reference")}
+              secondary
+            />
+          </View>
+        )}
+        {editable && (
+          <Choices
+            values={["primary", "alternate"]}
+            value={brand.logoPreference || "primary"}
+            onChange={(logoPreference) => setBrand((b) => ({ ...b, logoPreference }))}
           />
-          <Button
-            label="Upload alternate logo"
-            onPress={saving ? undefined : () => addAsset("alternate_logo")}
-            secondary
-          />
-          <Button
-            label="Add reference image"
-            onPress={saving ? undefined : () => addAsset("reference")}
-            secondary
-          />
-        </View>
+        )}
         {!!assets.length && (
           <View style={styles.assetList}>
             {assets.map((asset) => (
               <View key={asset.id} style={styles.assetRow}>
                 <Text style={styles.assetName}>{asset.label || asset.filename}</Text>
                 <Text style={styles.assetRole}>{String(asset.role).replace("_", " ")}</Text>
+                {editable && (
+                  <Button
+                    label="Remove asset"
+                    small
+                    secondary
+                    onPress={
+                      saving
+                        ? undefined
+                        : async () => {
+                            setSaving(true);
+                            try {
+                              await api.removeBrandAsset(clientId, asset.id);
+                              await load();
+                            } catch (e) {
+                              Alert.alert(
+                                "Unable to remove asset",
+                                e instanceof Error ? e.message : "Try again.",
+                              );
+                            } finally {
+                              setSaving(false);
+                            }
+                          }
+                    }
+                  />
+                )}
               </View>
             ))}
           </View>
@@ -196,6 +253,7 @@ export default function BrandBrainScreen() {
           <View style={styles.colorField}>
             <Text style={styles.label}>Primary</Text>
             <TextInput
+              editable={editable}
               style={styles.input}
               value={brand.primaryColor || ""}
               onChangeText={(v) => setBrand({ ...brand, primaryColor: v })}
@@ -206,6 +264,7 @@ export default function BrandBrainScreen() {
           <View style={styles.colorField}>
             <Text style={styles.label}>Secondary</Text>
             <TextInput
+              editable={editable}
               style={styles.input}
               value={brand.secondaryColor || ""}
               onChangeText={(v) => setBrand({ ...brand, secondaryColor: v })}
@@ -222,6 +281,7 @@ export default function BrandBrainScreen() {
             <Card style={styles.fieldCard}>
               <Text style={styles.label}>{label}</Text>
               <TextInput
+                editable={editable}
                 accessibilityLabel={label}
                 style={[styles.input, multiline && styles.multiline]}
                 value={brand[key] || ""}
@@ -235,12 +295,14 @@ export default function BrandBrainScreen() {
         ))}
       </View>
 
-      <View style={styles.saveWrap}>
-        <Button
-          label={saving ? "Saving…" : "Save Brand Brain"}
-          onPress={saving ? undefined : save}
-        />
-      </View>
+      {editable && (
+        <View style={styles.saveWrap}>
+          <Button
+            label={saving ? "Saving…" : "Save Brand Brain"}
+            onPress={saving ? undefined : save}
+          />
+        </View>
+      )}
     </PageScroll>
   );
 }

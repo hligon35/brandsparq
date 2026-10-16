@@ -26,6 +26,7 @@ type AuthUser = {
   email: string;
   name?: string;
   role: string;
+  clientRoles?: Record<string, string>;
 };
 
 type ApiPost = {
@@ -130,34 +131,55 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  getDashboard: () =>
-    jsonRequest<{ data: {
-      needsReview: number;
-      scheduled: number;
-      publishingToday: number;
-      failed: number;
-      nextPost: {
-        status: string;
-        client_name: string;
-        platform: string;
-        scheduled_publish_at: string;
-      } | null;
-    } }>("/v1/dashboard"),
-
-  createClient: (name: string, timezone = "America/Indiana/Indianapolis") =>
-    jsonRequest<{ ok: true; data: Client }>("/v1/clients", {
+  getGenerationJobs: () => jsonRequest<{ data: any[] }>("/v1/generation-jobs"),
+  getGenerationJob: (id: string) => jsonRequest<{ data: any }>(`/v1/generation-jobs/${id}`),
+  generationAction: (id: string, action: "retry" | "cancel") =>
+    jsonRequest<{ ok: true }>(`/v1/generation-jobs/${id}/${action}`, { method: "POST" }),
+  restoreClient: (id: string) =>
+    jsonRequest<{ ok: true }>(`/v1/clients/${id}/restore`, { method: "POST" }),
+  getPausedPosts: () => jsonRequest<{ data: any[] }>("/v1/posts/paused"),
+  pausedAction: (id: string, action: "resume" | "restore-review" | "cancel") =>
+    jsonRequest<{ ok: true }>(`/v1/posts/${id}/${action}`, { method: "POST" }),
+  removeBrandAsset: (clientId: string, id: string) =>
+    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}/brand-assets/${id}/remove`, {
       method: "POST",
-      body: JSON.stringify({ name, timezone }),
     }),
-
-  updateClient: (clientId: string, payload: { name?: string; timezone?: string; status?: string }) =>
-    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}`, {
-      method: "PATCH",
+  getReviewers: (clientId: string) =>
+    jsonRequest<{ data: any[] }>(`/v1/clients/${clientId}/reviewers`),
+  saveReviewer: (clientId: string, email: string, enabled = true) =>
+    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}/reviewers`, {
+      method: "POST",
+      body: JSON.stringify({ email, enabled }),
+    }),
+  getReviewLinks: (clientId: string) =>
+    jsonRequest<{ data: { tokens: any[]; deliveries: any[] } }>(
+      `/v1/clients/${clientId}/review-links`,
+    ),
+  reviewLinksAction: (clientId: string, payload: Record<string, unknown> = {}) =>
+    jsonRequest<{ ok: true; data?: { sent: number; failed: number } }>(
+      `/v1/clients/${clientId}/review-links`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+  getInvitations: () => jsonRequest<{ data: any[] }>("/v1/team/invitations"),
+  invite: (payload: Record<string, unknown>) =>
+    jsonRequest<{ ok: true; deliveryStatus: string; error?: string }>("/v1/team/invitations", {
+      method: "POST",
       body: JSON.stringify(payload),
     }),
-
-  archiveClient: (clientId: string) =>
-    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}/archive`, { method: "POST" }),
+  invitationAction: (id: string, action: "resend" | "revoke") =>
+    jsonRequest<{ ok: true }>(`/v1/team/invitations/${id}/${action}`, { method: "POST" }),
+  memberAction: (id: string, action: "status" | "revoke-sessions", status?: string) =>
+    jsonRequest<{ ok: true }>(`/v1/team/users/${id}/${action}`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    }),
+  getInvitation: (token: string) =>
+    jsonRequest<{ data: { email: string; expiresAt: number } }>(`/v1/public/invitations/${token}`),
+  unregisterPushToken: (token: string) =>
+    jsonRequest<{ ok: true }>("/v1/push-token/unregister", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
 
   getGoogleAuthStartUrl(returnTo: string) {
     return `${API_URL}/v1/auth/google/start?return_to=${encodeURIComponent(returnTo)}`;
@@ -175,8 +197,6 @@ export const api = {
 
   getSession: () => jsonRequest<{ user: AuthUser }>("/v1/auth/session"),
 
-<<<<<<< HEAD
-=======
   signOut: () => jsonRequest<{ ok: true }>("/v1/auth/logout", { method: "POST" }),
 
   getDashboard: () =>
@@ -207,7 +227,6 @@ export const api = {
       method: "POST",
     }),
 
->>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
   getBrandAssets: (clientId: string) =>
     jsonRequest<{ data: any[] }>(`/v1/clients/${clientId}/brand-assets`),
 
@@ -549,7 +568,7 @@ export const api = {
     width?: number,
     height?: number,
   ) {
-    const source = await fetch(uri);
+    const source = await fetchWithTimeout(uri);
     const blob = await source.blob();
     const headers = authHeaders({
       "content-type": blob.type || contentType,

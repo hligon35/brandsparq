@@ -1,3 +1,4 @@
+import { rememberPushToken } from "./device";
 import { Platform } from "react-native";
 import { api } from "@/api/client";
 
@@ -40,5 +41,6 @@ export async function registerThisDeviceForPush() {
   const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
 
   await api.registerPushToken(token, Platform.OS);
+  await rememberPushToken(token);
   return token;
 }

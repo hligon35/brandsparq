@@ -1,3 +1,4 @@
+import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { useEffect, useState } from "react";
 import { StyleSheet, Switch, Text, TextInput, View } from "react-native";
@@ -6,6 +7,7 @@ import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components
 import { colors, radius, spacing } from "@/theme/tokens";
 
 export default function SettingsScreen() {
+  const can = useCapabilities();
   const [workspace, setWorkspace] = useState<any>({});
   const [notifications, setNotifications] = useState<any>({});
   const [saving, setSaving] = useState(false);
@@ -194,7 +196,10 @@ export default function SettingsScreen() {
         </View>
       </Card>
 
-      <Button label={saving ? "Saving…" : "Save settings"} onPress={saving ? undefined : save} />
+      <Button
+        label={saving ? "Saving…" : "Save settings"}
+        onPress={saving || !can("settings_manage") ? undefined : save}
+      />
     </PageScroll>
   );
 }

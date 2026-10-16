@@ -1,4 +1,5 @@
-import { hasClientAccess } from "./authz";
+import { hasPermission } from "../../src/shared/permissions";
+import { hasClientAccess, hasClientPermission } from "./authz";
 
 export interface NotificationEnv {
   DB: D1Database;
@@ -118,6 +119,7 @@ async function sendExpoPush(token: string, input: NotifyInput): Promise<Delivery
       data: {
         type: input.type,
         postId: input.postId || undefined,
+        userId: input.userId || undefined,
         deepLink: input.deepLink || undefined,
       },
       sound: "default",
@@ -172,6 +174,19 @@ async function safelyDeliver(send: () => Promise<DeliveryResult>): Promise<Deliv
   }
 }
 
+export function sendWorkspaceEmail(
+  env: NotificationEnv,
+  to: string,
+  title: string,
+  body: string,
+  deepLink: string,
+  key: string,
+) {
+  return safelyDeliver(() =>
+    sendEmail(env, to, { type: "workspace_email", title, body, deepLink }, key),
+  );
+}
+
 export async function deliverNotification(env: NotificationEnv, input: NotifyInput) {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -189,12 +204,13 @@ export async function deliverNotification(env: NotificationEnv, input: NotifyInp
                 COALESCE(np.publish_failure_enabled, 1) AS publish_failure_enabled
          FROM users u
          LEFT JOIN notification_preferences np ON np.user_id = u.id
-         WHERE u.id = ?`,
+         WHERE u.id = ? AND u.status='active'`,
       )
         .bind(input.userId)
         .first<any>()
     : null;
 
+  if (input.userId && !user) return { id: null, sent: false, suppressed: true, error: null };
   if (input.postId && input.userId) {
     const post = await env.DB.prepare("SELECT client_id FROM posts WHERE id=?")
       .bind(input.postId)
@@ -301,17 +317,17 @@ export async function notifyPostOwners(
   deepLink?: string,
   options?: { suppressEmail?: boolean },
 ) {
-  const users = await env.DB.prepare(`SELECT u.id FROM users u
-    WHERE u.role='owner' OR (u.role='admin' AND EXISTS (
-      SELECT 1 FROM user_client_access a JOIN posts p ON p.client_id=a.client_id
-      WHERE a.user_id=u.id AND p.id=?))`)
-    .bind(postId)
-    .all<{
-      id: string;
-    }>();
+  const users =
+    await env.DB.prepare(`SELECT u.id,CASE WHEN u.role='owner' THEN 'owner' ELSE COALESCE(a.permission_role,u.role) END AS role FROM posts p
+    JOIN users u ON u.status='active'
+    LEFT JOIN user_client_access a ON a.user_id=u.id AND a.client_id=p.client_id
+    WHERE p.id=? AND (u.role='owner' OR a.user_id IS NOT NULL)`)
+      .bind(postId)
+      .all<{ id: string; role: string }>();
 
   const results = [];
   for (const user of users.results) {
+    if (!hasPermission(user, type === "review_ready" ? "review" : "publish")) continue;
     results.push(
       await deliverNotification(env, {
         userId: user.id,
@@ -332,7 +348,7 @@ export async function retryNotificationDeliveries(env: NotificationEnv) {
   const now = new Date().toISOString();
   const rows =
     await env.DB.prepare(`SELECT d.*,n.user_id,n.post_id,n.type,n.title,n.body,n.deep_link,
-    u.role,p.client_id,np.email_enabled,np.push_enabled,np.review_email_enabled,
+    u.role,u.status AS user_status,p.client_id,np.email_enabled,np.push_enabled,np.review_email_enabled,
     np.review_ready_enabled,np.prepublish_enabled,np.publish_success_enabled,np.publish_failure_enabled
     FROM notification_deliveries d JOIN notifications n ON n.id=d.notification_id
     LEFT JOIN users u ON u.id=n.user_id LEFT JOIN posts p ON p.id=n.post_id
@@ -353,13 +369,15 @@ export async function retryNotificationDeliveries(env: NotificationEnv) {
     if (!claimed.meta.changes) continue;
     const event = eventPreferenceColumn(row.type);
     const allowed =
+      (!row.user_id || row.user_status === "active") &&
       (!row.post_id ||
         (row.client_id &&
           row.user_id &&
           row.role &&
-          (await hasClientAccess(
+          (await hasClientPermission(
             env.DB,
             { id: row.user_id, role: row.role, email: "" },
+            row.type === "review_ready" ? "review" : "publish",
             row.client_id,
           )))) &&
       (!event || Number(row[event] ?? 1) === 1) &&
@@ -383,6 +401,7 @@ export async function retryNotificationDeliveries(env: NotificationEnv) {
         .run();
     } else {
       const input = {
+        userId: row.user_id,
         type: row.type,
         title: row.title,
         body: row.body,

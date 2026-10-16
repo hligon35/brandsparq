@@ -2,7 +2,8 @@ import { Alert } from "@/components/feedback";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
-import { Card, PageHeader, PageScroll, SectionTitle, StatusBadge } from "@/components/ui";
+import { Button, Card, PageHeader, PageScroll, SectionTitle, StatusBadge } from "@/components/ui";
+import { Field, Choices } from "@/components/forms";
 import { colors, radius, spacing } from "@/theme/tokens";
 
 const roles = ["admin", "reviewer", "publisher", "viewer"];
@@ -13,12 +14,18 @@ export default function AccessScreen() {
     clients: [],
     access: [],
   });
+  const [invitations, setInvitations] = useState<any[]>([]);
+  const [email, setEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("viewer");
+  const [inviteClients, setInviteClients] = useState<Record<string, string>>({});
+  const [working, setWorking] = useState(false);
   const [selected, setSelected] = useState<string>();
 
   async function load() {
     try {
       const result = await api.getAccessManagement();
       setData(result.data);
+      setInvitations((await api.getInvitations()).data);
       if (!selected && result.data.users.length) setSelected(result.data.users[0].id);
     } catch (e) {
       Alert.alert("Unable to load access", e instanceof Error ? e.message : "Try again.");
@@ -52,6 +59,18 @@ export default function AccessScreen() {
     }
   }
 
+  async function act(action: () => Promise<unknown>) {
+    setWorking(true);
+    try {
+      await action();
+      await load();
+    } catch (e) {
+      Alert.alert("Access update failed", e instanceof Error ? e.message : "Try again.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
   return (
     <PageScroll>
       <PageHeader
@@ -60,6 +79,103 @@ export default function AccessScreen() {
         subtitle="Assign workspace roles and exactly which clients each non-owner can access."
       />
 
+      <Card>
+        <SectionTitle
+          title="Invite teammate"
+          subtitle="Invitations last seven days and must be accepted with the invited Google account."
+        />
+        <Field label="Teammate email" value={email} onChange={setEmail} />
+        <Text style={styles.muted}>Workspace role</Text>
+        <Choices values={roles} value={inviteRole} onChange={setInviteRole} disabled={working} />
+        <Text style={styles.muted}>Initial client access</Text>
+        {data.clients.map((client) => (
+          <View key={client.id} style={{ gap: 8 }}>
+            <Button
+              label={`${inviteClients[client.id] ? "Remove" : "Add"} ${client.name}`}
+              small
+              secondary
+              onPress={
+                working
+                  ? undefined
+                  : () =>
+                      setInviteClients((current) => {
+                        const next = { ...current };
+                        if (next[client.id]) delete next[client.id];
+                        else next[client.id] = inviteRole;
+                        return next;
+                      })
+              }
+            />
+            {inviteClients[client.id] && (
+              <Choices
+                values={roles}
+                value={inviteClients[client.id]}
+                disabled={working}
+                onChange={(role) => setInviteClients((c) => ({ ...c, [client.id]: role }))}
+              />
+            )}
+          </View>
+        ))}
+        <Button
+          label="Send invitation"
+          onPress={
+            working || !email.trim()
+              ? undefined
+              : () =>
+                  act(async () => {
+                    const result = await api.invite({
+                      email,
+                      role: inviteRole,
+                      clientRoles: inviteClients,
+                    });
+                    setEmail("");
+                    setInviteClients({});
+                    Alert.alert(
+                      "Invitation created",
+                      result.deliveryStatus === "sent"
+                        ? "The invitation email was sent."
+                        : result.error || "Email failed. Use Resend to try again.",
+                    );
+                  })
+          }
+        />
+      </Card>
+      <Card>
+        <SectionTitle title="Invitations" />
+        {!invitations.length && <Text style={styles.muted}>No invitations yet.</Text>}
+        {invitations.map((invite) => (
+          <View key={invite.id} style={{ gap: 8 }}>
+            <Text style={styles.muted}>
+              {invite.email} · {invite.status} · email {invite.delivery_status}
+            </Text>
+            {!!invite.delivery_error && <Text style={styles.muted}>{invite.delivery_error}</Text>}
+            {invite.status !== "accepted" && (
+              <View style={styles.roles}>
+                <Button
+                  label="Resend invitation"
+                  small
+                  secondary
+                  onPress={
+                    working ? undefined : () => act(() => api.invitationAction(invite.id, "resend"))
+                  }
+                />
+                {invite.status === "pending" && (
+                  <Button
+                    label="Revoke invitation"
+                    small
+                    secondary
+                    onPress={
+                      working
+                        ? undefined
+                        : () => act(() => api.invitationAction(invite.id, "revoke"))
+                    }
+                  />
+                )}
+              </View>
+            )}
+          </View>
+        ))}
+      </Card>
       <Card>
         <SectionTitle
           title="People"
@@ -86,6 +202,51 @@ export default function AccessScreen() {
       {user && (
         <Card>
           <SectionTitle title={user.name || user.email} subtitle="Workspace role" />
+          <Text style={styles.muted}>Account: {user.status}</Text>
+          {user.status !== "invited" && (
+            <View style={styles.roles}>
+              <Button
+                label={user.status === "active" ? "Suspend account" : "Reactivate account"}
+                small
+                secondary
+                onPress={
+                  working
+                    ? undefined
+                    : () =>
+                        act(() =>
+                          api.memberAction(
+                            user.id,
+                            "status",
+                            user.status === "active" ? "suspended" : "active",
+                          ),
+                        )
+                }
+              />
+              <Button
+                label="Revoke sessions"
+                small
+                secondary
+                onPress={
+                  working
+                    ? undefined
+                    : () => act(() => api.memberAction(user.id, "revoke-sessions"))
+                }
+              />
+              {user.status !== "removed" && (
+                <Button
+                  label="Remove access"
+                  small
+                  secondary
+                  onPress={
+                    working
+                      ? undefined
+                      : () => act(() => api.memberAction(user.id, "status", "removed"))
+                  }
+                />
+              )}
+            </View>
+          )}
+
           {user.role === "owner" ? (
             <View style={styles.ownerNote}>
               <StatusBadge label="owner" />
@@ -142,6 +303,25 @@ export default function AccessScreen() {
               );
             })}
           </View>
+          {user.role !== "owner" &&
+            data.clients
+              .filter((client) => assigned.has(client.id))
+              .map((client) => (
+                <View key={client.id} style={{ gap: 8 }}>
+                  <Text style={styles.clientName}>{client.name} role</Text>
+                  <Choices
+                    values={roles}
+                    value={
+                      data.access.find((a) => a.user_id === user.id && a.client_id === client.id)
+                        ?.access_role || user.role
+                    }
+                    disabled={working}
+                    onChange={(role) =>
+                      void act(() => api.updateUserClientAccess(user.id, client.id, true, role))
+                    }
+                  />
+                </View>
+              ))}
         </Card>
       )}
     </PageScroll>

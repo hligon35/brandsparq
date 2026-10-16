@@ -1,5 +1,11 @@
 import type { SessionUser } from "./auth";
-import { accessibleClientIds, hasClientAccess, hasPermission, type Permission } from "./authz";
+import {
+  accessibleClientIds,
+  hasClientAccess,
+  hasClientPermission,
+  hasPermission,
+  type Permission,
+} from "./authz";
 import { deliverNotification } from "./notifications";
 import { findNextAvailableSlot, validateSchedule } from "./scheduling";
 import {
@@ -54,7 +60,11 @@ async function authorize(
   clientId?: string | null,
   requireActive = true,
 ) {
-  if (!hasPermission(user, permission)) {
+  if (
+    !(clientId
+      ? await hasClientPermission(env.DB, user, permission, clientId)
+      : hasPermission(user, permission))
+  ) {
     return "You do not have permission to perform this action.";
   }
   if (clientId && !(await hasClientAccess(env.DB, user, clientId))) {
@@ -69,138 +79,12 @@ async function authorize(
   return null;
 }
 
-const rolePermissions: Record<string, Set<string>> = {
-  owner: new Set(["clients:write","campaigns:write","social:write","settings:write","publishing:write","analytics:write"]),
-  admin: new Set(["clients:write","campaigns:write","social:write","settings:write","publishing:write","analytics:write"]),
-  reviewer: new Set(["campaigns:write"]),
-  publisher: new Set(["publishing:write"]),
-  viewer: new Set(),
-};
-
-function permitted(user: User, permission: string) {
-  return rolePermissions[user.role]?.has(permission) ?? false;
-}
-
-function forbidden() {
-  return { body: { error: "You do not have permission to perform this action." }, status: 403 } as const;
-}
-
 export async function handleManagementRoute(
   request: Request,
   url: URL,
   env: ManagementEnv,
   user: User,
 ): Promise<ManagementResult | null> {
-  if (request.method === "GET" && url.pathname === "/v1/dashboard") {
-    const counts = await env.DB.prepare(
-      `SELECT
-        SUM(CASE WHEN status = 'awaiting_approval' THEN 1 ELSE 0 END) AS awaiting_review,
-        SUM(CASE WHEN status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued') THEN 1 ELSE 0 END) AS scheduled,
-        SUM(CASE WHEN status IN ('publish_queued','publishing') THEN 1 ELSE 0 END) AS publishing,
-        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
-       FROM posts`
-    ).first<any>();
-
-    const nextPost = await env.DB.prepare(
-      `SELECT p.id,p.platform,p.status,p.scheduled_publish_at,c.name AS client_name
-       FROM posts p JOIN clients c ON c.id=p.client_id
-       WHERE p.scheduled_publish_at IS NOT NULL
-         AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued','publishing')
-       ORDER BY p.scheduled_publish_at ASC LIMIT 1`
-    ).first();
-
-    const recent = await env.DB.prepare(
-      `SELECT a.id,a.post_id,a.action,a.actor_id,a.created_at,p.title,c.name AS client_name
-       FROM audit_logs a
-       LEFT JOIN posts p ON p.id=a.post_id
-       LEFT JOIN clients c ON c.id=p.client_id
-       ORDER BY a.created_at DESC LIMIT 8`
-    ).all();
-
-    const warnings = await env.DB.prepare(
-      `SELECT id,client_id,platform,account_name,status,last_error,token_expires_at
-       FROM social_accounts
-       WHERE status != 'connected'
-          OR last_error IS NOT NULL
-          OR (token_expires_at IS NOT NULL AND token_expires_at <= ?)
-       ORDER BY updated_at DESC LIMIT 10`
-    ).bind(Date.now() + 7 * 24 * 60 * 60 * 1000).all();
-
-    return {
-      body: {
-        data: {
-          awaiting_review: Number(counts?.awaiting_review || 0),
-          scheduled: Number(counts?.scheduled || 0),
-          publishing_today: Number(counts?.publishing || 0),
-          failed: Number(counts?.failed || 0),
-          next_post: nextPost || null,
-          recent_activity: recent.results,
-          connection_warnings: warnings.results,
-        },
-      },
-    };
-  }
-
-  if (request.method === "POST" && url.pathname === "/v1/clients") {
-    if (!permitted(user, "clients:write")) return forbidden();
-    const payload = await request.json<{name?:string;timezone?:string}>().catch(() => ({} as any));
-    const name = payload.name?.trim();
-    if (!name) return { body: { error: "Client name is required." }, status: 400 };
-    const id = crypto.randomUUID();
-    await env.DB.prepare(
-      "INSERT INTO clients (id,name,timezone,status) VALUES (?,?,?,'active')"
-    ).bind(id,name,payload.timezone?.trim() || "America/Indiana/Indianapolis").run();
-    return { body: { ok: true, data: { id, name, timezone: payload.timezone?.trim() || "America/Indiana/Indianapolis", status: "active" } }, status: 201 };
-  }
-
-  const clientMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)$/);
-  if (clientMatch && request.method === "PATCH") {
-    if (!permitted(user, "clients:write")) return forbidden();
-    const payload = await request.json<{name?:string;timezone?:string;status?:string}>().catch(() => ({} as any));
-    if (payload.status && !["active","inactive","archived"].includes(payload.status)) {
-      return { body: { error: "Invalid client status." }, status: 400 };
-    }
-    await env.DB.prepare(
-      `UPDATE clients SET
-         name=COALESCE(?,name),
-         timezone=COALESCE(?,timezone),
-         status=COALESCE(?,status),
-         archived_at=CASE WHEN ?='archived' THEN CURRENT_TIMESTAMP WHEN ?='active' THEN NULL ELSE archived_at END
-       WHERE id=?`
-    ).bind(
-      payload.name?.trim() || null,
-      payload.timezone?.trim() || null,
-      payload.status || null,
-      payload.status || null,
-      payload.status || null,
-      clientMatch[1]
-    ).run();
-    return { body: { ok: true } };
-  }
-
-  const archiveClientMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/archive$/);
-  if (archiveClientMatch && request.method === "POST") {
-    if (!permitted(user, "clients:write")) return forbidden();
-    await env.DB.prepare(
-      "UPDATE clients SET status='archived',archived_at=CURRENT_TIMESTAMP WHERE id=?"
-    ).bind(archiveClientMatch[1]).run();
-    return { body: { ok: true } };
-  }
-
-  if (clientMatch && request.method === "DELETE") {
-    if (user.role !== "owner") return forbidden();
-    const dependencies = await env.DB.prepare(
-      `SELECT
-        (SELECT COUNT(*) FROM posts WHERE client_id=?) AS posts,
-        (SELECT COUNT(*) FROM campaigns WHERE client_id=?) AS campaigns,
-        (SELECT COUNT(*) FROM assets WHERE client_id=?) AS assets`
-    ).bind(clientMatch[1],clientMatch[1],clientMatch[1]).first<any>();
-    if (Number(dependencies?.posts||0)+Number(dependencies?.campaigns||0)+Number(dependencies?.assets||0)>0) {
-      return { body: { error: "Archive this client instead; it has related business records." }, status: 409 };
-    }
-    await env.DB.prepare("DELETE FROM clients WHERE id=?").bind(clientMatch[1]).run();
-    return { body: { ok: true } };
-  }
   if (request.method === "GET" && url.pathname === "/v1/campaigns") {
     const denied = await authorize(env, user, "read");
     if (denied) return { body: { error: denied }, status: 403 };
@@ -267,35 +151,57 @@ export async function handleManagementRoute(
   }
 
   if (campaignMatch && request.method === "POST") {
-    const campaign = await env.DB.prepare("SELECT client_id FROM campaigns WHERE id = ?")
+    const campaign = await env.DB.prepare("SELECT * FROM campaigns WHERE id = ?")
       .bind(campaignMatch[1])
-      .first<{ client_id: string }>();
+      .first<any>();
     if (!campaign) return { body: { error: "Campaign not found." }, status: 404 };
 
     const denied = await authorize(env, user, "client_manage", campaign.client_id);
     if (denied) return { body: { error: denied }, status: 403 };
 
     const payload = await request.json<any>().catch(() => ({}) as any);
+    const name =
+      payload.name === undefined
+        ? campaign.name
+        : typeof payload.name === "string"
+          ? payload.name.trim()
+          : "";
+    const status = payload.status === undefined ? campaign.status : payload.status;
+    const priority =
+      payload.priority === undefined ? Number(campaign.priority || 0) : Number(payload.priority);
+    const start = payload.startsAt === undefined ? campaign.starts_at : payload.startsAt || null;
+    const end = payload.endsAt === undefined ? campaign.ends_at : payload.endsAt || null;
+    if (
+      !name ||
+      name.length > 200 ||
+      !["draft", "active", "paused", "completed", "archived"].includes(status) ||
+      !Number.isInteger(priority) ||
+      priority < 0 ||
+      priority > 100 ||
+      (start && !Number.isFinite(Date.parse(start))) ||
+      (end && !Number.isFinite(Date.parse(end))) ||
+      (start && end && Date.parse(end) < Date.parse(start))
+    )
+      return {
+        body: { error: "Check the campaign name, status, priority (0–100), and start/end dates." },
+        status: 400,
+      };
+    if (
+      (payload.notes !== undefined && typeof payload.notes !== "string") ||
+      (payload.objective !== undefined && typeof payload.objective !== "string")
+    )
+      return { body: { error: "Objective and notes must be text." }, status: 400 };
     await env.DB.prepare(
-      `UPDATE campaigns SET
-       name = COALESCE(?, name),
-       objective = COALESCE(?, objective),
-       status = COALESCE(?, status),
-       starts_at = ?,
-       ends_at = ?,
-       priority = COALESCE(?, priority),
-       notes = ?,
-       updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
+      "UPDATE campaigns SET name=?,objective=?,status=?,starts_at=?,ends_at=?,priority=?,notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
     )
       .bind(
-        payload.name || null,
-        payload.objective || null,
-        payload.status || null,
-        payload.startsAt || null,
-        payload.endsAt || null,
-        payload.priority ?? null,
-        payload.notes || null,
+        name,
+        (payload.objective ?? campaign.objective ?? "").slice(0, 2000),
+        status,
+        start,
+        end,
+        priority,
+        (payload.notes ?? campaign.notes ?? "").slice(0, 10000),
         campaignMatch[1],
       )
       .run();
@@ -328,14 +234,6 @@ export async function handleManagementRoute(
     return { body: { data: visible } };
   }
 
-<<<<<<< HEAD
-  if (request.method === "GET" && url.pathname === "/v1/social/connect") {
-    if (!permitted(user, "social:write")) return forbidden();
-    const platform = url.searchParams.get("platform") as any;
-    const clientId = url.searchParams.get("clientId") || "";
-    const returnTo = url.searchParams.get("returnTo") || `${url.origin}/social`;
-    if (!["facebook","instagram","linkedin","tiktok","x"].includes(platform) || !clientId) {
-=======
   if (request.method === "POST" && url.pathname === "/v1/social/connect") {
     const payload = await request.json<any>().catch(() => ({}));
     const platform = payload.platform;
@@ -343,7 +241,6 @@ export async function handleManagementRoute(
     const returnTo =
       typeof payload.returnTo === "string" ? payload.returnTo : `${url.origin}/social`;
     if (!["facebook", "instagram", "linkedin", "tiktok", "x"].includes(platform) || !clientId) {
->>>>>>> a4e4f712177ce7aa411b8c681ddb3575cb6c9c27
       return { body: { error: "platform and clientId are required." }, status: 400 };
     }
 
@@ -425,14 +322,19 @@ export async function handleManagementRoute(
 
   const assignMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/social-account$/);
   if (assignMatch && request.method === "POST") {
-    const post = await env.DB.prepare("SELECT client_id FROM posts WHERE id = ?")
+    const post = await env.DB.prepare("SELECT client_id,status FROM posts WHERE id = ?")
       .bind(assignMatch[1])
-      .first<{ client_id: string }>();
+      .first<{ client_id: string; status: string }>();
     if (!post) return { body: { error: "Post not found." }, status: 404 };
 
     const denied = await authorize(env, user, "review", post.client_id);
     if (denied) return { body: { error: denied }, status: 403 };
 
+    if (!["awaiting_approval", "edit_requested"].includes(post.status))
+      return {
+        body: { error: "Change destinations only while a post is in review." },
+        status: 409,
+      };
     const payload = await request.json<{ socialAccountId?: string }>().catch(() => ({}) as any);
     if (!payload.socialAccountId)
       return { body: { error: "socialAccountId is required." }, status: 400 };
@@ -523,6 +425,18 @@ export async function handleManagementRoute(
        WHERE ${notificationScope} AND read_at IS NULL`,
     )
       .bind(...notificationBindings)
+      .run();
+    return { body: { ok: true } };
+  }
+
+  if (request.method === "POST" && url.pathname === "/v1/push-token/unregister") {
+    const payload = await request.json<any>().catch(() => ({}));
+    if (typeof payload.token !== "string")
+      return { body: { error: "Device token is required." }, status: 400 };
+    await env.DB.prepare(
+      "UPDATE device_push_tokens SET enabled=0,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND expo_push_token=?",
+    )
+      .bind(user.id, payload.token)
       .run();
     return { body: { ok: true } };
   }
@@ -856,9 +770,6 @@ export async function handleManagementRoute(
   }
 
   if (request.method === "POST" && url.pathname === "/v1/analytics/sync") {
-    const denied = await authorize(env, user, "analytics_manage");
-    if (denied) return { body: { error: denied }, status: 403 };
-
     const payload = await request.json<{ accountId?: string }>().catch(() => ({}) as any);
     const allowedClients = await accessibleClientIds(env.DB, user);
     let accounts: Array<{ id: string; client_id: string }> = [];
@@ -883,8 +794,14 @@ export async function handleManagementRoute(
           : rows.results.filter((row) => allowedClients.includes(row.client_id));
     }
 
+    const permitted = [];
+    for (const account of accounts)
+      if (!(await authorize(env, user, "analytics_manage", account.client_id)))
+        permitted.push(account);
+    if (!permitted.length && !hasPermission(user, "analytics_manage"))
+      return { body: { error: "Analytics permission is required." }, status: 403 };
     const results = [];
-    for (const account of accounts) {
+    for (const account of permitted) {
       try {
         const result = await syncAccountAnalytics(env, account.id);
         results.push({ accountId: account.id, ok: true, ...result });

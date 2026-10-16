@@ -1,3 +1,4 @@
+import { useCapabilities } from "@/auth/capabilities";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, Redirect, Tabs, usePathname } from "expo-router";
 import {
@@ -23,6 +24,7 @@ const navItems = [
 ];
 
 function DesktopHeader() {
+  const can = useCapabilities();
   const pathname = usePathname();
 
   return (
@@ -30,26 +32,28 @@ function DesktopHeader() {
       <View style={styles.desktopHeaderInner}>
         <BrandLogo compact showTagline={false} />
         <View style={styles.desktopNav}>
-          {navItems.map((item) => {
-            const active =
-              item.href === "/"
-                ? pathname === "/"
-                : pathname === item.href || pathname.startsWith(`${item.href}/`);
-            return (
-              <Link key={item.label} href={item.href} asChild>
-                <Pressable
-                  style={StyleSheet.flatten([
-                    styles.desktopNavItem,
-                    active ? styles.desktopNavItemActive : undefined,
-                  ])}
-                >
-                  <Text style={[styles.desktopNavText, active && styles.desktopNavTextActive]}>
-                    {item.label}
-                  </Text>
-                </Pressable>
-              </Link>
-            );
-          })}
+          {navItems
+            .filter((item) => item.href !== "/create" || can("generate"))
+            .map((item) => {
+              const active =
+                item.href === "/"
+                  ? pathname === "/"
+                  : pathname === item.href || pathname.startsWith(`${item.href}/`);
+              return (
+                <Link key={item.label} href={item.href} asChild>
+                  <Pressable
+                    style={StyleSheet.flatten([
+                      styles.desktopNavItem,
+                      active ? styles.desktopNavItemActive : undefined,
+                    ])}
+                  >
+                    <Text style={[styles.desktopNavText, active && styles.desktopNavTextActive]}>
+                      {item.label}
+                    </Text>
+                  </Pressable>
+                </Link>
+              );
+            })}
         </View>
       </View>
     </View>
@@ -57,6 +61,7 @@ function DesktopHeader() {
 }
 
 export default function TabsLayout() {
+  const can = useCapabilities();
   const { ready, user } = useAuth();
   const { width } = useWindowDimensions();
   const desktopWeb = Platform.OS === "web" && width >= breakpoints.wide;
@@ -105,6 +110,7 @@ export default function TabsLayout() {
         name="create"
         options={{
           title: "Create",
+          href: can("generate") ? "/create" : null,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="add-circle-outline" color={color} size={size} />
           ),

@@ -1,3 +1,4 @@
+import { unregisterThisDevice } from "@/notifications/device";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import {
@@ -8,6 +9,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
 } from "react";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { colors } from "@/theme/tokens";
@@ -21,6 +23,7 @@ export type AuthUser = {
   email: string;
   name?: string;
   role: string;
+  clientRoles?: Record<string, string>;
 };
 
 type AuthValue = {
@@ -34,6 +37,7 @@ type AuthValue = {
 const AuthContext = createContext<AuthValue | null>(null);
 
 export function AuthProvider({ children }: PropsWithChildren) {
+  const handoffRequest = useRef<{ handoff: string; promise: Promise<void> } | null>(null);
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
 
@@ -64,11 +68,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
     })();
   }, []);
 
-  const completeGoogleSignIn = useCallback(async (handoff: string) => {
-    const result = await api.completeGoogleAuth(handoff);
-    setApiSessionToken(result.token);
-    await setSessionToken(result.token);
-    setUser(result.user);
+  const completeGoogleSignIn = useCallback((handoff: string) => {
+    if (handoffRequest.current?.handoff === handoff) return handoffRequest.current.promise;
+    // Deep-link and auth-session callbacks can both receive the same native handoff.
+    const promise = (async () => {
+      const result = await api.completeGoogleAuth(handoff);
+      setApiSessionToken(result.token);
+      await setSessionToken(result.token);
+      setUser((await api.getSession()).user);
+    })();
+    handoffRequest.current = { handoff, promise };
+    return promise;
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
@@ -113,8 +123,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       completeGoogleSignIn,
       async signOut() {
         try {
+          await unregisterThisDevice().catch(() => undefined);
           await api.signOut();
         } finally {
+          handoffRequest.current = null;
           setApiSessionToken(null);
           await clearSessionToken();
           setUser(null);

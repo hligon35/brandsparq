@@ -44,9 +44,17 @@ async function reset() {
     },
   });
   w.env.PUBLIC_BASE_URL = base;
+  w.env.REVIEW_BASE_URL = base;
   w.env.GOOGLE_REDIRECT_URI = `${base}/v1/auth/google/callback`;
   w.env.ENVIRONMENT = "development";
+  w.exec(
+    "INSERT INTO campaigns(id,client_id,name,objective,status,notes,priority) VALUES ('fixture-campaign','client-a','Community campaign','Awareness','active','Initial notes',3)",
+  );
+  w.exec(
+    "INSERT INTO generation_jobs(id,client_id,asset_ids,status,stage,error_message,campaign_id) VALUES ('fixture-generation','client-a','[]','failed','planning','Fixture generation failure','fixture-campaign')",
+  );
   w.post("fixture-post");
+  w.exec("UPDATE posts SET campaign_id='fixture-campaign' WHERE id='fixture-post'");
   w.exec(
     "UPDATE posts SET title='Launch campaign',headline='Launch campaign',graphic_key='fixture.jpg',suggested_publish_at=? WHERE id='fixture-post'",
     new Date(Date.now() + 3600000).toISOString(),
@@ -68,6 +76,12 @@ async function reset() {
     "fixture-handoff",
     "owner",
     digest(`${w.env.AUTH_PEPPER}:google-handoff:fixture-handoff`),
+    Date.now() + 3600000,
+    Date.now(),
+  );
+  w.exec(
+    "INSERT INTO google_auth_handoffs(id,user_id,handoff_hash,expires_at,created_at) VALUES ('viewer-handoff','viewer',?,?,?)",
+    digest(`${w.env.AUTH_PEPPER}:google-handoff:viewer-handoff`),
     Date.now() + 3600000,
     Date.now(),
   );

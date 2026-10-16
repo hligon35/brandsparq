@@ -70,14 +70,14 @@ export async function hashSecret(value: string, pepper = "") {
   return [...new Uint8Array(digest)].map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
-
 function base64UrlEncode(value: Uint8Array | string) {
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
   return bytesToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function base64UrlDecode(value: string) {
-  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4);
+  const padded =
+    value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (value.length % 4)) % 4);
   return base64ToBytes(padded);
 }
 
@@ -88,20 +88,20 @@ async function mediaSigningKey(env: SecurityEnv) {
     new TextEncoder().encode(env.AUTH_PEPPER),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign", "verify"]
+    ["sign", "verify"],
   );
 }
 
 export async function createSignedMediaToken(
   r2Key: string,
   env: SecurityEnv,
-  ttlMs = 15 * 60 * 1000
+  ttlMs = 15 * 60 * 1000,
 ) {
   const payload = base64UrlEncode(JSON.stringify({ key: r2Key, expiresAt: Date.now() + ttlMs }));
   const signature = await crypto.subtle.sign(
     "HMAC",
     await mediaSigningKey(env),
-    new TextEncoder().encode(payload)
+    new TextEncoder().encode(payload),
   );
   return `${payload}.${base64UrlEncode(new Uint8Array(signature))}`;
 }
@@ -114,7 +114,7 @@ export async function verifySignedMediaToken(token: string, env: SecurityEnv) {
     "HMAC",
     await mediaSigningKey(env),
     base64UrlDecode(signature),
-    new TextEncoder().encode(payload)
+    new TextEncoder().encode(payload),
   );
   if (!valid) return null;
 
