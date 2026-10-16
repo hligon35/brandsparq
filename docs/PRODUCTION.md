@@ -255,3 +255,23 @@ Apply migration `0018_workspace_experience.sql` before deploying the Phase 2 Wor
 Use `/cloudflare` as the root directory, `npm run build` as the build command and `npm run deploy` as the deploy command. The build installs parent Expo dependencies and exports `../dist` for the Worker assets binding.
 
 The production-readiness migration `0017_production_readiness.sql` and workflow-safety migration `0017_workflow_safety.sql` both precede Phase 2 migration 0018. Apply all pending migrations in filename order.
+
+## Smoke checks behind Cloudflare Access
+
+An Access sign-in redirect means the smoke request has not reached the Worker. A successful deployment does not prove application readiness, and an Access HTML response cannot certify the application's session guard.
+
+For automated checks, create a dedicated service token in Cloudflare Zero Trust and authorize that token in the BrandSparQ Access application's **Service Auth** policy. Keep the existing human Google sign-in policy. Use the client ID and secret from that token (not the Google OAuth credentials):
+
+```powershell
+git pull origin main
+$env:CF_ACCESS_CLIENT_ID = Read-Host "Access service token client ID"
+$credential = Get-Credential -UserName "access-service-token" -Message "Enter the Access client secret as the password"
+$env:CF_ACCESS_CLIENT_SECRET = $credential.GetNetworkCredential().Password
+npm run smoke:production
+Remove-Item Env:CF_ACCESS_CLIENT_ID, Env:CF_ACCESS_CLIENT_SECRET
+Remove-Variable credential
+```
+
+No redeploy is needed for this script-only change. Never commit the credentials. The smoke script does not follow redirects or send an app session, so service credentials remain on the configured origin and `/v1/dashboard` must still reject anonymous application access with a JSON 401. Missing/denied Access credentials remain a failing check, with an explicit gate diagnostic.
+
+Reference: https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/
