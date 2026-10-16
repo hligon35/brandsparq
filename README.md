@@ -39,3 +39,15 @@ See [Sprint 9](docs/SPRINT9.md) for native Maestro setup, staging smoke, CI and 
 The [Phase 1 workflow safety update](docs/WORKFLOW_SAFETY.md) documents correctness/privacy fixes and migration 0017.
 
 The [Phase 2 workspace experience update](docs/WORKSPACE_EXPERIENCE.md) documents generation recovery, team/client roles, review delivery and migration 0018.
+
+## Windows formatting recovery
+
+Git and editor settings enforce LF source line endings across platforms. If an existing Windows checkout reports formatting errors across most or all files after pulling, normalize it once:
+
+```powershell
+git pull origin main
+npm run format
+npm run format:check
+```
+
+This preserves the formatting gate; increasing `--max-diagnostics` only displays more errors. Avoid committing unrelated edits during recovery.
