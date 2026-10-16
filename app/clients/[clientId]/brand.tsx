@@ -1,7 +1,8 @@
+import { Alert } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";
 import { useResponsive } from "@/hooks/useResponsive";

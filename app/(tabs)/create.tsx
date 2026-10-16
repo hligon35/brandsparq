@@ -1,7 +1,8 @@
+import { Alert } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
 import { Link } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
 import { prepareCampaignAsset } from "@/media/prepareUpload";
 import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";

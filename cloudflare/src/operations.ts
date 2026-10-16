@@ -148,6 +148,17 @@ export async function recoverStaleWork(env: OperationsEnv) {
   ).all<any>();
 
   for (const job of stalePublish.results) {
+    const post = await env.DB.prepare("SELECT status FROM posts WHERE id=?")
+      .bind(job.post_id)
+      .first<{ status: string }>();
+    if (post && ["published", "provider_processing"].includes(post.status)) {
+      await env.DB.prepare(
+        "UPDATE publish_jobs SET status='completed',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+      )
+        .bind(job.id)
+        .run();
+      continue;
+    }
     if (Number(job.attempt_count) >= Number(job.max_attempts)) {
       const now = new Date().toISOString();
       await env.DB.batch([
@@ -203,7 +214,7 @@ export async function recoverStaleWork(env: OperationsEnv) {
 
   for (const job of staleGeneration.results) {
     await env.DB.prepare(
-      `UPDATE generation_jobs SET status='queued',stage='queued',stage_updated_at=CURRENT_TIMESTAMP,error_message='Recovered stale generation job.' WHERE id=?`,
+      `UPDATE generation_jobs SET status='queued',stage='queued',claim_token=NULL,stage_updated_at=CURRENT_TIMESTAMP,error_message='Recovered stale generation job.' WHERE id=?`,
     )
       .bind(job.id)
       .run();
@@ -630,11 +641,24 @@ export async function handleOperationsRoute(
   const retryPost = url.pathname.match(/^\/v1\/system\/posts\/([^/]+)\/retry$/);
   if (request.method === "POST" && retryPost) {
     const post = await env.DB.prepare(
-      "SELECT id,status,scheduled_publish_at,publish_version FROM posts WHERE id=?",
+      "SELECT id,status,scheduled_publish_at,publish_version,failure_code,client_id FROM posts WHERE id=?",
     )
       .bind(retryPost[1])
       .first<any>();
     if (!post) return { body: { error: "Post not found." }, status: 404 };
+    if (post.failure_code === "PUBLISH_OUTCOME_UNKNOWN")
+      return {
+        body: {
+          error:
+            "Confirm this post's outcome at the provider before creating replacement content. Automatic retry is blocked to prevent duplicate publication.",
+        },
+        status: 409,
+      };
+    const client = await env.DB.prepare("SELECT status FROM clients WHERE id=?")
+      .bind(post.client_id)
+      .first<{ status: string }>();
+    if (!client || client.status !== "active")
+      return { body: { error: "Archived clients cannot publish." }, status: 409 };
     if (post.status !== "failed")
       return {
         body: { error: "Only failed posts can be retried from System Health." },

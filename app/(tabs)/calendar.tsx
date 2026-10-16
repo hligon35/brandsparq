@@ -1,6 +1,7 @@
+import { Alert } from "@/components/feedback";
 import { Link } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
 import { useResponsive } from "@/hooks/useResponsive";

@@ -593,6 +593,31 @@ async function sendReviewEmail(
 }
 
 export async function runGenerationJob(env: GenerationEnv, jobId: string) {
+  const token = crypto.randomUUID();
+  const claimed =
+    await env.DB.prepare(`UPDATE generation_jobs SET claim_token=?,status='processing',stage_updated_at=?
+    WHERE id=? AND status IN ('queued','retrying') AND claim_token IS NULL
+      AND EXISTS (SELECT 1 FROM clients c WHERE c.id=generation_jobs.client_id AND c.status='active')`)
+      .bind(token, new Date().toISOString(), jobId)
+      .run();
+  if (!claimed.meta.changes) return { resumed: true, claimed: false };
+  try {
+    return await processGenerationJob(env, jobId);
+  } catch (error) {
+    await env.DB.prepare(
+      "UPDATE generation_jobs SET status='retrying',claim_token=NULL WHERE id=? AND claim_token=?",
+    )
+      .bind(jobId, token)
+      .run();
+    throw error;
+  } finally {
+    await env.DB.prepare("UPDATE generation_jobs SET claim_token=NULL WHERE id=? AND claim_token=?")
+      .bind(jobId, token)
+      .run();
+  }
+}
+
+async function processGenerationJob(env: GenerationEnv, jobId: string) {
   if (!env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured.");
 
   let job = await env.DB.prepare(
@@ -980,7 +1005,7 @@ export async function runGraphicJob(env: GenerationEnv, graphicJobId: string) {
      attempt_count=attempt_count+1,
      claimed_at=CURRENT_TIMESTAMP,
      updated_at=CURRENT_TIMESTAMP
-     WHERE id=? AND status IN ('queued','retrying')`,
+     WHERE id=? AND status IN ('queued','retrying') AND EXISTS (SELECT 1 FROM posts p JOIN clients c ON c.id=p.client_id WHERE p.id=graphic_jobs.post_id AND c.status='active')`,
   )
     .bind(graphicJobId)
     .run();
@@ -1080,6 +1105,7 @@ export async function finalizeGenerationReview(env: GenerationEnv, jobId: string
     .bind(jobId)
     .first<any>();
   if (!job) throw new Error("Generation job not found.");
+  if (job.status === "canceled") return { ready: false };
 
   const posts = await env.DB.prepare(
     `SELECT id,title,platform,suggested_publish_at
@@ -1203,11 +1229,48 @@ export async function finalizeGenerationReview(env: GenerationEnv, jobId: string
   };
 }
 
-export async function rewritePostCaptionWithAI(
-  env: GenerationEnv,
-  postId: string,
-  instruction?: string,
-) {
+export class RevisionConflict extends Error {
+  status = 409;
+}
+
+async function revise<T>(env: GenerationEnv, postId: string, action: () => Promise<T>): Promise<T> {
+  const claimed =
+    await env.DB.prepare(`UPDATE posts SET status='regenerating',updated_at=CURRENT_TIMESTAMP
+    WHERE id=? AND status IN ('awaiting_approval','edit_requested') AND EXISTS
+      (SELECT 1 FROM clients c WHERE c.id=posts.client_id AND c.status='active')`)
+      .bind(postId)
+      .run();
+  if (!claimed.meta.changes)
+    throw new RevisionConflict("Only active posts awaiting review can be changed with AI.");
+  try {
+    const result = await action();
+    await env.DB.prepare(
+      "UPDATE posts SET status='awaiting_approval',rejected_at=NULL,rejection_reason=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='regenerating'",
+    )
+      .bind(postId)
+      .run();
+    return result;
+  } catch (error) {
+    await env.DB.prepare(
+      "UPDATE posts SET status='edit_requested',ai_last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='regenerating'",
+    )
+      .bind(error instanceof Error ? error.message.slice(0, 1000) : "AI edit failed", postId)
+      .run();
+    throw error;
+  }
+}
+
+export function rewritePostCaptionWithAI(env: GenerationEnv, postId: string, instruction?: string) {
+  return revise(env, postId, () => rewriteCaption(env, postId, instruction));
+}
+export function editPostGraphicWithAI(env: GenerationEnv, postId: string, instruction: string) {
+  return revise(env, postId, () => editGraphic(env, postId, instruction));
+}
+export function regeneratePostWithAI(env: GenerationEnv, postId: string, instruction?: string) {
+  return revise(env, postId, () => regenerate(env, postId, instruction));
+}
+
+async function rewriteCaption(env: GenerationEnv, postId: string, instruction?: string) {
   const post = await loadPost(env, postId);
   if (!post) throw new Error("Post not found.");
   const images = await toImageInputs(env, await postSourceAssets(env, postId), 2);
@@ -1240,7 +1303,7 @@ export async function rewritePostCaptionWithAI(
   });
 
   await env.DB.prepare(
-    "UPDATE posts SET title=?,headline=?,caption=?,hashtags=?,status='awaiting_approval',ai_caption_response_id=?,ai_last_error=NULL,updated_at=? WHERE id=?",
+    "UPDATE posts SET title=?,headline=?,caption=?,hashtags=?,ai_caption_response_id=?,ai_last_error=NULL,updated_at=? WHERE id=?",
   )
     .bind(
       result.data.headline,
@@ -1266,11 +1329,7 @@ export async function rewritePostCaptionWithAI(
   return result.data;
 }
 
-export async function editPostGraphicWithAI(
-  env: GenerationEnv,
-  postId: string,
-  instruction: string,
-) {
+async function editGraphic(env: GenerationEnv, postId: string, instruction: string) {
   const post = await loadPost(env, postId);
   if (!post) throw new Error("Post not found.");
   if (!instruction.trim()) throw new Error("An image-edit instruction is required.");
@@ -1306,12 +1365,8 @@ export async function editPostGraphicWithAI(
   return { postId, imageModel: result.imageModel, responseId: result.responseId };
 }
 
-export async function regeneratePostWithAI(
-  env: GenerationEnv,
-  postId: string,
-  instruction?: string,
-) {
-  await rewritePostCaptionWithAI(
+async function regenerate(env: GenerationEnv, postId: string, instruction?: string) {
+  await rewriteCaption(
     env,
     postId,
     instruction || "Create a distinct fresh variation while preserving all verified facts.",

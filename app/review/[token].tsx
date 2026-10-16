@@ -1,6 +1,7 @@
+import { Alert } from "@/components/feedback";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, Image, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { BrandLogo } from "@/components/brand";
 import { Button, Card, PageHeader, PageScroll, SectionTitle, StatusBadge } from "@/components/ui";

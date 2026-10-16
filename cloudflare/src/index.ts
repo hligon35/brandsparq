@@ -17,7 +17,11 @@ import {
   recordSystemEvent,
   recoverStaleWork,
 } from "./operations";
-import { checkExpoPushReceipts, notifyPostOwners } from "./notifications";
+import {
+  checkExpoPushReceipts,
+  retryNotificationDeliveries,
+  notifyPostOwners,
+} from "./notifications";
 import { hashSecret } from "./security";
 import {
   checkPendingPublishReceipts,
@@ -138,6 +142,7 @@ function response(request: Request, env: Env, body: unknown, init: ResponseInit 
     ...init,
     headers: {
       "content-type": "application/json",
+      "cache-control": "no-store",
       "x-content-type-options": "nosniff",
       "referrer-policy": "strict-origin-when-cross-origin",
       "permissions-policy": "camera=(), microphone=(), geolocation=()",
@@ -198,6 +203,12 @@ async function authorize(
   }
   if (clientId && !(await hasClientAccess(env.DB, user, clientId))) {
     return "You do not have access to this client.";
+  }
+  if (clientId && permission !== "read") {
+    const client = await env.DB.prepare("SELECT status FROM clients WHERE id=?")
+      .bind(clientId)
+      .first<{ status: string }>();
+    if (!client || client.status !== "active") return "This client is archived or unavailable.";
   }
   return null;
 }
@@ -409,7 +420,7 @@ export default {
       const caption = payload.caption?.trim().slice(0, 5000);
       const comment = payload.comment?.trim().slice(0, 2000);
 
-      await env.DB.batch([
+      const changed = await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
            headline = COALESCE(NULLIF(?, ''), headline),
@@ -418,7 +429,7 @@ export default {
            reviewer_comment = COALESCE(NULLIF(?, ''), reviewer_comment),
            status = 'awaiting_approval',
            updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
+           WHERE id = ? AND status IN ('awaiting_approval','edit_requested')`,
         ).bind(headline || null, headline || null, caption || null, comment || null, row.post_id),
         ...(comment
           ? [
@@ -430,6 +441,13 @@ export default {
             ]
           : []),
       ]);
+      if (!changed[0].meta.changes)
+        return response(
+          request,
+          env,
+          { error: "This post changed during review. Reload it before editing." },
+          { status: 409 },
+        );
 
       return response(request, env, { ok: true, postId: row.post_id });
     }
@@ -467,7 +485,7 @@ export default {
       const reason = payload.reason?.trim().slice(0, 2000) || "Changes requested.";
       const now = new Date().toISOString();
 
-      await env.DB.batch([
+      const changed = await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
            status='edit_requested',
@@ -475,7 +493,7 @@ export default {
            rejection_reason=?,
            reviewer_comment=?,
            updated_at=?
-           WHERE id=?`,
+           WHERE id=? AND status IN ('awaiting_approval','edit_requested')`,
         ).bind(now, reason, reason, now, row.post_id),
         env.DB.prepare(
           `INSERT INTO review_comments
@@ -488,6 +506,13 @@ export default {
            VALUES (?, ?, 'rejected_via_review_link', ?)`,
         ).bind(crypto.randomUUID(), row.post_id, row.status),
       ]);
+      if (!changed[0].meta.changes)
+        return response(
+          request,
+          env,
+          { error: "This post changed during review. Reload it before editing." },
+          { status: 409 },
+        );
 
       return response(request, env, {
         ok: true,
@@ -529,37 +554,15 @@ export default {
       const instruction = payload.instruction?.trim().slice(0, 2000);
 
       try {
-        await env.DB.prepare(
-          "UPDATE posts SET status='regenerating',updated_at=CURRENT_TIMESTAMP WHERE id=?",
-        )
-          .bind(row.post_id)
-          .run();
-
         const data = await regeneratePostWithAI(env, row.post_id, instruction);
-        await env.DB.prepare(
-          `UPDATE posts SET
-           status='awaiting_approval',
-           rejected_at=NULL,
-           rejection_reason=NULL,
-           updated_at=CURRENT_TIMESTAMP
-           WHERE id=?`,
-        )
-          .bind(row.post_id)
-          .run();
 
         return response(request, env, { ok: true, data });
       } catch (error) {
-        await env.DB.prepare(
-          "UPDATE posts SET status='edit_requested',updated_at=CURRENT_TIMESTAMP WHERE id=?",
-        )
-          .bind(row.post_id)
-          .run();
-
         return response(
           request,
           env,
           { error: error instanceof Error ? error.message : "Unable to regenerate this post." },
-          { status: 502 },
+          { status: (error as { status?: number }).status === 409 ? 409 : 502 },
         );
       }
     }
@@ -624,7 +627,7 @@ export default {
         row.suggested_publish_at,
         row.post_id,
       );
-      await env.DB.batch([
+      const approved = await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
              status = 'calendar_scheduled',
@@ -632,18 +635,24 @@ export default {
              calendar_added_at = ?,
              scheduled_publish_at = ?,
              updated_at = ?
-           WHERE id = ?`,
+           WHERE id = ? AND status='awaiting_approval'`,
         ).bind(now, now, scheduledAt, now, row.post_id),
-        env.DB.prepare("UPDATE review_tokens SET used_at = ? WHERE id = ?").bind(
-          Date.now(),
-          row.review_token_id,
-        ),
+        env.DB.prepare(
+          "UPDATE review_tokens SET used_at = ? WHERE id = ? AND EXISTS (SELECT 1 FROM posts WHERE id=? AND approved_at=? AND status='calendar_scheduled')",
+        ).bind(Date.now(), row.review_token_id, row.post_id, now),
         env.DB.prepare(
           `INSERT INTO approvals
              (id, post_id, decision, previous_status)
-           VALUES (?, ?, 'approved_via_review_link', ?)`,
-        ).bind(crypto.randomUUID(), row.post_id, row.status),
+           SELECT ?, ?, 'approved_via_review_link', ? WHERE EXISTS (SELECT 1 FROM posts WHERE id=? AND approved_at=? AND status='calendar_scheduled')`,
+        ).bind(crypto.randomUUID(), row.post_id, row.status, row.post_id, now),
       ]);
+      if (!approved[0].meta.changes)
+        return response(
+          request,
+          env,
+          { error: "This post changed during approval. Reload and review it again." },
+          { status: 409 },
+        );
       await audit(env, row.post_id, "post.approved_via_review_link");
       return response(request, env, {
         ok: true,
@@ -1123,12 +1132,52 @@ export default {
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
       const now = new Date().toISOString();
-      await env.DB.prepare(
-        `UPDATE clients SET status = 'archived', archived_at = ?, updated_at = ?
-         WHERE id = ?`,
-      )
-        .bind(now, now, archiveClientMatch[1])
-        .run();
+      const result = await env.DB.batch([
+        env.DB.prepare(`UPDATE clients SET status='archived',archived_at=?,updated_at=? WHERE id=?
+          AND NOT EXISTS (SELECT 1 FROM posts WHERE client_id=clients.id AND status IN ('publishing','provider_processing','regenerating'))
+          AND NOT EXISTS (SELECT 1 FROM generation_jobs WHERE client_id=clients.id AND status='processing')
+          AND NOT EXISTS (SELECT 1 FROM graphic_jobs g JOIN posts p ON p.id=g.post_id WHERE p.client_id=clients.id AND g.status='processing')`).bind(
+          now,
+          now,
+          archiveClientMatch[1],
+        ),
+        env.DB.prepare(`UPDATE publish_jobs SET status='canceled',completed_at=?,updated_at=?
+          WHERE status IN ('queued','retrying') AND post_id IN (SELECT p.id FROM posts p JOIN clients c ON c.id=p.client_id WHERE c.id=? AND c.status='archived')`).bind(
+          now,
+          now,
+          archiveClientMatch[1],
+        ),
+        env.DB.prepare(`UPDATE posts SET status='paused',publish_version=publish_version+1,updated_at=?
+          WHERE client_id=? AND status NOT IN ('published','failed','canceled') AND EXISTS(SELECT 1 FROM clients WHERE id=posts.client_id AND status='archived')`).bind(
+          now,
+          archiveClientMatch[1],
+        ),
+        env.DB.prepare(`UPDATE generation_jobs SET status='canceled',claim_token=NULL,stage_updated_at=?
+          WHERE client_id=? AND status NOT IN ('completed','failed') AND EXISTS(SELECT 1 FROM clients WHERE id=generation_jobs.client_id AND status='archived')`).bind(
+          now,
+          archiveClientMatch[1],
+        ),
+        env.DB.prepare(`UPDATE graphic_jobs SET status='canceled',updated_at=? WHERE status IN ('queued','retrying') AND post_id IN
+          (SELECT p.id FROM posts p JOIN clients c ON c.id=p.client_id WHERE c.id=? AND c.status='archived')`).bind(
+          now,
+          archiveClientMatch[1],
+        ),
+        env.DB.prepare(`UPDATE review_tokens SET expires_at=? WHERE post_id IN
+          (SELECT p.id FROM posts p JOIN clients c ON c.id=p.client_id WHERE c.id=? AND c.status='archived')`).bind(
+          Date.now(),
+          archiveClientMatch[1],
+        ),
+      ]);
+      if (!result[0].meta.changes)
+        return response(
+          request,
+          env,
+          {
+            error:
+              "Wait for active publishing or generation to finish before archiving this client.",
+          },
+          { status: 409 },
+        );
 
       return response(request, env, { ok: true });
     }
@@ -1436,7 +1485,7 @@ export default {
         );
         const now = new Date().toISOString();
 
-        await env.DB.batch([
+        const approved = await env.DB.batch([
           env.DB.prepare(
             `UPDATE posts SET
              status='calendar_scheduled',
@@ -1444,15 +1493,19 @@ export default {
              calendar_added_at=?,
              scheduled_publish_at=?,
              updated_at=?
-             WHERE id=?`,
+             WHERE id=? AND status='awaiting_approval'`,
           ).bind(now, now, scheduledAt, now, postId),
           env.DB.prepare(
             `INSERT INTO approvals
              (id,post_id,decision,previous_status)
-             VALUES (?,?,'approved_bulk',?)`,
-          ).bind(crypto.randomUUID(), postId, post.status),
+             SELECT ?,?,'approved_bulk',? WHERE EXISTS (SELECT 1 FROM posts WHERE id=? AND approved_at=? AND status='calendar_scheduled')`,
+          ).bind(crypto.randomUUID(), postId, post.status, postId, now),
         ]);
 
+        if (!approved[0].meta.changes) {
+          results.push({ postId, ok: false, error: "Post changed during approval." });
+          continue;
+        }
         results.push({ postId, ok: true, scheduledPublishAt: scheduledAt });
       }
 
@@ -1491,7 +1544,7 @@ export default {
         }
 
         const now = new Date().toISOString();
-        await env.DB.batch([
+        const changed = await env.DB.batch([
           env.DB.prepare(
             `UPDATE posts SET
              status='edit_requested',
@@ -1499,7 +1552,7 @@ export default {
              rejection_reason=?,
              reviewer_comment=?,
              updated_at=?
-             WHERE id=?`,
+             WHERE id=? AND status IN ('awaiting_approval','edit_requested')`,
           ).bind(now, reason, reason, now, postId),
           env.DB.prepare(
             `INSERT INTO review_comments
@@ -1508,7 +1561,11 @@ export default {
           ).bind(crypto.randomUUID(), postId, sessionUser!.id, reason),
         ]);
 
-        results.push({ postId, ok: true });
+        results.push({
+          postId,
+          ok: !!changed[0].meta.changes,
+          ...(!changed[0].meta.changes ? { error: "Post changed during review." } : {}),
+        });
       }
 
       return response(request, env, { ok: true, results });
@@ -1680,7 +1737,7 @@ export default {
       const caption = payload.caption?.trim().slice(0, 5000);
       const comment = payload.comment?.trim().slice(0, 2000);
 
-      await env.DB.batch([
+      const changed = await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
            headline=COALESCE(NULLIF(?,''),headline),
@@ -1689,7 +1746,7 @@ export default {
            reviewer_comment=COALESCE(NULLIF(?,''),reviewer_comment),
            status='awaiting_approval',
            updated_at=CURRENT_TIMESTAMP
-           WHERE id=?`,
+           WHERE id=? AND status IN ('awaiting_approval','edit_requested')`,
         ).bind(
           headline || null,
           headline || null,
@@ -1705,6 +1762,13 @@ export default {
             ]
           : []),
       ]);
+      if (!changed[0].meta.changes)
+        return response(
+          request,
+          env,
+          { error: "This post changed during review. Reload it before editing." },
+          { status: 409 },
+        );
 
       await audit(env, editPostMatch[1], "post.edited_in_review");
       return response(request, env, { ok: true });
@@ -1727,7 +1791,7 @@ export default {
       const reason = payload.reason?.trim().slice(0, 2000) || "Changes requested.";
       const now = new Date().toISOString();
 
-      await env.DB.batch([
+      const changed = await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
            status='edit_requested',
@@ -1735,12 +1799,19 @@ export default {
            rejection_reason=?,
            reviewer_comment=?,
            updated_at=?
-           WHERE id=?`,
+           WHERE id=? AND status IN ('awaiting_approval','edit_requested')`,
         ).bind(now, reason, reason, now, rejectPostMatch[1]),
         env.DB.prepare(
           "INSERT INTO review_comments (id,post_id,user_id,comment) VALUES (?,?,?,?)",
         ).bind(crypto.randomUUID(), rejectPostMatch[1], sessionUser!.id, reason),
       ]);
+      if (!changed[0].meta.changes)
+        return response(
+          request,
+          env,
+          { error: "This post changed during review. Reload it before editing." },
+          { status: 409 },
+        );
 
       await audit(env, rejectPostMatch[1], "post.rejected", { reason });
       return response(request, env, { ok: true, status: "edit_requested" });
@@ -1795,7 +1866,7 @@ export default {
         post.suggested_publish_at,
         postId,
       );
-      await env.DB.batch([
+      const approved = await env.DB.batch([
         env.DB.prepare(
           `UPDATE posts SET
            status = 'calendar_scheduled',
@@ -1803,13 +1874,20 @@ export default {
            calendar_added_at = ?,
            scheduled_publish_at = ?,
            updated_at = ?
-           WHERE id = ?`,
+           WHERE id = ? AND status='awaiting_approval'`,
         ).bind(now, now, scheduledAt, now, postId),
         env.DB.prepare(
           `INSERT INTO approvals (id, post_id, decision, previous_status)
-           VALUES (?, ?, 'approved', ?)`,
-        ).bind(crypto.randomUUID(), postId, post.status),
+           SELECT ?, ?, 'approved', ? WHERE EXISTS (SELECT 1 FROM posts WHERE id=? AND approved_at=? AND status='calendar_scheduled')`,
+        ).bind(crypto.randomUUID(), postId, post.status, postId, now),
       ]);
+      if (!approved[0].meta.changes)
+        return response(
+          request,
+          env,
+          { error: "This post changed during approval. Reload and review it again." },
+          { status: 409 },
+        );
       await audit(env, postId, "post.approved");
 
       return response(request, env, { ok: true, postId, status: "calendar_scheduled" });
@@ -2008,7 +2086,7 @@ export default {
           request,
           env,
           { error: error instanceof Error ? error.message : "Unable to rewrite caption." },
-          { status: 502 },
+          { status: (error as { status?: number }).status === 409 ? 409 : 502 },
         );
       }
     }
@@ -2034,7 +2112,7 @@ export default {
           request,
           env,
           { error: error instanceof Error ? error.message : "Unable to edit graphic." },
-          { status: 502 },
+          { status: (error as { status?: number }).status === 409 ? 409 : 502 },
         );
       }
     }
@@ -2060,7 +2138,7 @@ export default {
           request,
           env,
           { error: error instanceof Error ? error.message : "Unable to regenerate post." },
-          { status: 502 },
+          { status: (error as { status?: number }).status === 409 ? 409 : 502 },
         );
       }
     }
@@ -2070,6 +2148,7 @@ export default {
 
   async scheduled(_event: ScheduledController, env: Env): Promise<void> {
     try {
+      await retryNotificationDeliveries(env);
       await checkExpoPushReceipts(env);
     } catch (error) {
       await recordSystemEvent(env, {
@@ -2393,6 +2472,19 @@ export default {
         continue;
       }
 
+      if (
+        claim.postId !== message.body.postId ||
+        claim.executionKey !== message.body.executionKey
+      ) {
+        await markPublishJobFailed(
+          env,
+          message.body.publishJobId,
+          "Queue execution identity mismatch.",
+        );
+        message.ack();
+        continue;
+      }
+
       const post = await env.DB.prepare("SELECT id, social_account_id FROM posts WHERE id = ?")
         .bind(message.body.postId)
         .first<any>();
@@ -2480,6 +2572,23 @@ export default {
 
         message.ack();
       } catch (error) {
+        const persisted = await env.DB.prepare("SELECT status FROM posts WHERE id=?")
+          .bind(message.body.postId)
+          .first<{ status: string }>();
+        if (persisted && ["published", "provider_processing"].includes(persisted.status)) {
+          await markPublishJobCompleted(env, message.body.publishJobId);
+          await recordSystemEvent(env, {
+            severity: "warning",
+            category: "notifications",
+            eventType: "post_publish_followup_failed",
+            entityType: "post",
+            entityId: message.body.postId,
+            message:
+              error instanceof Error ? error.message.slice(0, 1000) : "Publish follow-up failed.",
+          }).catch(() => undefined);
+          message.ack();
+          continue;
+        }
         const errorMessage =
           error instanceof Error ? error.message.slice(0, 1500) : "Publishing failed";
         const providerError = error as any;
@@ -2497,11 +2606,13 @@ export default {
           ).bind(
             exhausted ? "failed" : "publish_queued",
             claim.attempt,
-            providerError?.category === "authorization"
-              ? "SOCIAL_AUTH_REQUIRED"
-              : providerError?.category === "rate_limit"
-                ? "SOCIAL_RATE_LIMIT"
-                : "PROVIDER_ERROR",
+            providerError?.category === "uncertain"
+              ? "PUBLISH_OUTCOME_UNKNOWN"
+              : providerError?.category === "authorization"
+                ? "SOCIAL_AUTH_REQUIRED"
+                : providerError?.category === "rate_limit"
+                  ? "SOCIAL_RATE_LIMIT"
+                  : "PROVIDER_ERROR",
             errorMessage,
             new Date().toISOString(),
             message.body.postId,

@@ -1,5 +1,6 @@
+import { Alert } from "@/components/feedback";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
 import { registerThisDeviceForPush } from "@/notifications/register";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";

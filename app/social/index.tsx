@@ -1,7 +1,9 @@
+import { Alert } from "@/components/feedback";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
+import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
 import { colors, spacing } from "@/theme/tokens";
@@ -17,10 +19,15 @@ function expiryLabel(value?: number | null) {
 }
 
 export default function SocialConnectionsScreen() {
+  const { social_error: callbackError } = useLocalSearchParams<{ social_error?: string }>();
   const [clients, setClients] = useState<any[]>([]);
   const [clientId, setClientId] = useState("");
   const [accounts, setAccounts] = useState<any[]>([]);
   const [workingId, setWorkingId] = useState("");
+
+  useEffect(() => {
+    if (callbackError) Alert.alert("Social connection failed", callbackError);
+  }, [callbackError]);
 
   async function load() {
     try {
@@ -57,21 +64,34 @@ export default function SocialConnectionsScreen() {
     if (!clientId) return;
     const returnTo =
       Platform.OS === "web" ? `${window.location.origin}/social` : Linking.createURL("/social");
-    const url = api.getSocialConnectUrl(platformName, clientId, returnTo);
-    if (Platform.OS === "web") {
-      window.location.assign(url);
-      return;
-    }
-    const result = await WebBrowser.openAuthSessionAsync(url, returnTo);
-    if (result.type === "success") {
-      await load();
-      return;
-    }
-    if (result.type !== "cancel" && result.type !== "dismiss") {
-      Alert.alert(
-        "Connection incomplete",
-        "The social provider did not return a completed authorization.",
+    setWorkingId(platformName);
+    try {
+      const { authorizationUrl: url } = await api.startSocialConnection(
+        platformName,
+        clientId,
+        returnTo,
       );
+      if (Platform.OS === "web") {
+        window.location.assign(url);
+        return;
+      }
+      const result = await WebBrowser.openAuthSessionAsync(url, returnTo);
+      if (result.type === "success") {
+        const error = Linking.parse(result.url).queryParams?.social_error;
+        if (error) throw new Error(String(error));
+        await load();
+        return;
+      }
+      if (result.type !== "cancel" && result.type !== "dismiss") {
+        Alert.alert(
+          "Connection incomplete",
+          "The social provider did not return a completed authorization.",
+        );
+      }
+    } catch (error) {
+      Alert.alert("Unable to connect", error instanceof Error ? error.message : "Try again.");
+    } finally {
+      setWorkingId("");
     }
   }
 
@@ -190,7 +210,11 @@ export default function SocialConnectionsScreen() {
                         onPress={workingId ? undefined : () => verify(account.id)}
                       />
                       {unhealthy && (
-                        <Button label="Reconnect" small onPress={() => connect(platformName)} />
+                        <Button
+                          label="Reconnect"
+                          small
+                          onPress={workingId ? undefined : () => connect(platformName)}
+                        />
                       )}
                       <Button
                         label="Disconnect"
@@ -206,7 +230,7 @@ export default function SocialConnectionsScreen() {
               {!existing.length && <Text style={styles.meta}>No account connected.</Text>}
               <Button
                 label={existing.length ? "Connect another" : "Connect"}
-                onPress={() => connect(platformName)}
+                onPress={workingId ? undefined : () => connect(platformName)}
               />
             </Card>
           );

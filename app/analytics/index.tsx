@@ -1,5 +1,6 @@
+import { Alert } from "@/components/feedback";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, SectionTitle, StatusBadge } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";

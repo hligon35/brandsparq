@@ -1,6 +1,7 @@
+import { Alert } from "@/components/feedback";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
 import { useResponsive } from "@/hooks/useResponsive";

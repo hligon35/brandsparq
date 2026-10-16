@@ -2,6 +2,7 @@ import { decryptSecret, encryptSecret, hashSecret } from "./security";
 
 export interface SocialEnv {
   DB: D1Database;
+  ENVIRONMENT?: string;
   MEDIA: R2Bucket;
   SOCIAL_TOKEN_KEY?: string;
   AUTH_PEPPER?: string;
@@ -43,7 +44,7 @@ type SocialAccountRow = {
 
 export class SocialProviderError extends Error {
   status?: number;
-  category: "rate_limit" | "authorization" | "temporary" | "permanent";
+  category: "rate_limit" | "authorization" | "temporary" | "permanent" | "uncertain";
   retryable: boolean;
   retryAfterSeconds?: number;
 
@@ -51,7 +52,7 @@ export class SocialProviderError extends Error {
     message: string,
     options: {
       status?: number;
-      category?: "rate_limit" | "authorization" | "temporary" | "permanent";
+      category?: "rate_limit" | "authorization" | "temporary" | "permanent" | "uncertain";
       retryable?: boolean;
       retryAfterSeconds?: number;
     } = {},
@@ -153,13 +154,15 @@ function providerConfigured(platform: Platform, env: SocialEnv) {
   return !!env.X_CLIENT_ID;
 }
 
-function validReturnTo(value: string, requestOrigin: string) {
+function validReturnTo(value: string, requestOrigin: string, env: SocialEnv) {
   try {
     const target = new URL(value);
     return (
       target.protocol === "brandsparq:" ||
       target.origin === requestOrigin ||
-      (target.protocol === "http:" && ["localhost", "127.0.0.1"].includes(target.hostname))
+      (env.ENVIRONMENT !== "production" &&
+        target.protocol === "http:" &&
+        ["localhost", "127.0.0.1"].includes(target.hostname))
     );
   } catch {
     return false;
@@ -185,7 +188,7 @@ export async function socialOAuthStart(
   if (!providerConfigured(platform, env)) {
     throw new Error(`${platform} OAuth is not configured.`);
   }
-  if (!validReturnTo(returnTo, url.origin)) {
+  if (!validReturnTo(returnTo, url.origin, env)) {
     throw new Error("Invalid social OAuth return URL.");
   }
 
@@ -274,9 +277,12 @@ async function loadOAuthState(env: SocialEnv, state: string) {
     .bind(hash, Date.now())
     .first<any>();
   if (!row) throw new Error("Social OAuth state is invalid or expired.");
-  await env.DB.prepare("UPDATE social_oauth_states SET consumed_at = ? WHERE id = ?")
-    .bind(Date.now(), row.id)
+  const claimed = await env.DB.prepare(
+    "UPDATE social_oauth_states SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND expires_at > ?",
+  )
+    .bind(Date.now(), row.id, Date.now())
     .run();
+  if (!claimed.meta.changes) throw new Error("Social OAuth state is invalid or expired.");
   return row;
 }
 
@@ -812,6 +818,34 @@ async function accountToken(env: SocialEnv, account: SocialAccountRow) {
   return nextAccess;
 }
 
+function uncertainPublication(message: string) {
+  return new SocialProviderError(`${message} Check the provider before retrying.`, {
+    category: "uncertain",
+    retryable: false,
+  });
+}
+
+// A lost final-submit response is ambiguous: automatic reposting is unsafe.
+async function submitPost(url: string, init: RequestInit) {
+  let response: Response;
+  try {
+    response = await fetch(url, { ...init, signal: AbortSignal.timeout(60000) });
+  } catch {
+    throw uncertainPublication("Provider submission response was lost.");
+  }
+  if (response.status >= 500 || response.status === 408)
+    throw uncertainPublication(`Provider submission returned ${response.status}.`);
+  await requireProviderOk(response, "Provider submission failed");
+  return response;
+}
+async function publicationPayload(response: Response) {
+  try {
+    return await response.json<any>();
+  } catch {
+    throw uncertainPublication("Provider returned an unreadable publication receipt.");
+  }
+}
+
 export async function publishPostToSocial(env: SocialEnv, postId: string) {
   const post = await env.DB.prepare(
     `SELECT p.*, sa.platform, sa.account_name, sa.external_account_id,
@@ -825,7 +859,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
     .first<any>();
 
   if (!post) throw new Error("Post or social account not found.");
-  const account = post as SocialAccountRow;
+  const account = { ...post, id: post.social_account_id } as SocialAccountRow;
   const token = await accountToken(env, account);
   const mediaUrl = await createPublicMediaUrl(env, post);
 
@@ -848,7 +882,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
     );
     await requireProviderOk(create, "Instagram media creation failed");
     const container = await create.json<any>();
-    const publish = await fetch(
+    const publish = await submitPost(
       `https://graph.facebook.com/v23.0/${post.external_account_id}/media_publish`,
       {
         method: "POST",
@@ -860,10 +894,10 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       },
     );
     await requireProviderOk(publish, "Instagram publishing failed");
-    raw = await publish.json<any>();
+    raw = await publicationPayload(publish);
     providerPostId = (raw as any).id || null;
   } else if (post.platform === "facebook") {
-    const publish = await fetch(
+    const publish = await submitPost(
       `https://graph.facebook.com/v23.0/${post.external_account_id}/photos`,
       {
         method: "POST",
@@ -876,7 +910,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       },
     );
     await requireProviderOk(publish, "Facebook publishing failed");
-    raw = await publish.json<any>();
+    raw = await publicationPayload(publish);
     providerPostId = (raw as any).post_id || (raw as any).id || null;
   } else if (post.platform === "linkedin") {
     const owner =
@@ -906,7 +940,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
     });
     await requireProviderOk(upload, "LinkedIn image upload failed");
 
-    const publish = await fetch("https://api.linkedin.com/rest/posts", {
+    const publish = await submitPost("https://api.linkedin.com/rest/posts", {
       method: "POST",
       headers: {
         authorization: `Bearer ${token}`,
@@ -932,7 +966,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
     raw = { id: publish.headers.get("x-restli-id") };
     providerPostId = (raw as any).id || null;
   } else if (post.platform === "tiktok") {
-    const publish = await fetch("https://open.tiktokapis.com/v2/post/publish/content/init/", {
+    const publish = await submitPost("https://open.tiktokapis.com/v2/post/publish/content/init/", {
       method: "POST",
       headers: {
         authorization: `Bearer ${token}`,
@@ -955,7 +989,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       }),
     });
     await requireProviderOk(publish, "TikTok publishing failed");
-    raw = await publish.json<any>();
+    raw = await publicationPayload(publish);
     providerPostId = (raw as any).data?.publish_id || null;
   } else {
     const imageResponse = await fetch(mediaUrl);
@@ -971,7 +1005,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
     await requireProviderOk(media, "X media upload failed");
     const mediaPayload = await media.json<any>();
     const mediaId = mediaPayload.data?.id || mediaPayload.media_id_string;
-    const publish = await fetch("https://api.x.com/2/tweets", {
+    const publish = await submitPost("https://api.x.com/2/tweets", {
       method: "POST",
       headers: {
         authorization: `Bearer ${token}`,
@@ -983,9 +1017,19 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       }),
     });
     await requireProviderOk(publish, "X publishing failed");
-    raw = await publish.json<any>();
+    raw = await publicationPayload(publish);
     providerPostId = (raw as any).data?.id || null;
     if (providerPostId) providerPostUrl = `https://x.com/i/web/status/${providerPostId}`;
+  }
+
+  if (!providerPostId) {
+    const rejection = (raw as any)?.error;
+    if (rejection?.code && rejection.code !== "ok")
+      throw new SocialProviderError(
+        `Provider rejected publication: ${rejection.message || rejection.code}`,
+        { category: "permanent", retryable: false },
+      );
+    throw uncertainPublication("Provider accepted the request without a publication ID.");
   }
 
   const receiptId = crypto.randomUUID();
@@ -994,41 +1038,47 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
   const providerStatus = asynchronous ? "submitted" : "confirmed";
   const now = new Date().toISOString();
 
-  await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO social_publish_receipts
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO social_publish_receipts
        (id, post_id, social_account_id, provider_post_id, provider_post_url,
         status, provider_status, last_checked_at, confirmed_at, raw_json)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(
-      receiptId,
-      post.id,
-      post.social_account_id,
-      providerPostId,
-      providerPostUrl,
-      receiptStatus,
-      providerStatus,
-      now,
-      asynchronous ? null : now,
-      JSON.stringify(raw || {}),
-    ),
-    env.DB.prepare(
-      `UPDATE posts SET
+      ).bind(
+        receiptId,
+        post.id,
+        post.social_account_id,
+        providerPostId,
+        providerPostUrl,
+        receiptStatus,
+        providerStatus,
+        now,
+        asynchronous ? null : now,
+        JSON.stringify(raw || {}),
+      ),
+      env.DB.prepare(
+        `UPDATE posts SET
        status = ?,
        platform_post_id = ?,
        platform_url = ?,
        published_at = ?,
        updated_at = ?
        WHERE id = ?`,
-    ).bind(
-      asynchronous ? "provider_processing" : "published",
-      providerPostId,
-      providerPostUrl,
-      asynchronous ? null : now,
-      now,
-      post.id,
-    ),
-  ]);
+      ).bind(
+        asynchronous ? "provider_processing" : "published",
+        providerPostId,
+        providerPostUrl,
+        asynchronous ? null : now,
+        now,
+        post.id,
+      ),
+    ]);
+  } catch {
+    throw uncertainPublication(
+      `Provider accepted publication ${providerPostId}, but saving its receipt failed.`,
+    );
+  }
 
   return {
     receiptId,
@@ -1502,7 +1552,7 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
     };
   }
 
-  const account = receipt as SocialAccountRow;
+  const account = { ...receipt, id: receipt.social_account_id } as SocialAccountRow;
   const token = await accountToken(env, account);
 
   if (receipt.platform !== "tiktok") {

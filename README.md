@@ -33,3 +33,5 @@ Production data comes from the Cloudflare API; demo fallbacks are not used.
 With Node 22.15+, install root and Worker dependencies, then run `npx playwright install --with-deps chromium webkit` and `npm run validate`. The gate includes lint/format, unit/integration tests, both TypeScript checks, web export and browser acceptance tests.
 
 See [Sprint 9](docs/SPRINT9.md) for native Maestro setup, staging smoke, CI and remaining release acceptance.
+
+The [Phase 1 workflow safety update](docs/WORKFLOW_SAFETY.md) documents correctness/privacy fixes and migration 0017.

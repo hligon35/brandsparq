@@ -1,8 +1,8 @@
+import { Alert } from "@/components/feedback";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Pressable,
   SafeAreaView,

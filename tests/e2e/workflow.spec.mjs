@@ -98,3 +98,53 @@ test("failed review links show a recovery state and never enable approval", asyn
   await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Approve/ })).toHaveCount(0);
 });
+
+test("browser API errors show a visible, dismissible message", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/clients");
+  await page.route("**/v1/clients", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({ status: 403, json: { error: "Client creation denied by fixture" } });
+  });
+  await page.getByPlaceholder("Client name", { exact: true }).fill("Test client");
+  await page.getByRole("button", { name: "Create client", exact: true }).click();
+  await expect(page.getByRole("alert", { name: "Unable to create client" })).toBeVisible();
+  await expect(page.getByText("Client creation denied by fixture", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close message", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("social connection authenticates its API request before navigating to the provider", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/social");
+  await page.route("https://www.facebook.com/brandsparq-test", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: "<html><title>Fixture provider</title><body>Provider authorization</body></html>",
+    }),
+  );
+  let authenticated = false;
+  await page.route("**/v1/social/connect", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().headers().authorization).toMatch(/^Bearer .+/);
+    expect(route.request().postDataJSON()).toMatchObject({
+      platform: "facebook",
+      clientId: "client-a",
+    });
+    authenticated = true;
+    await route.fulfill({ json: { authorizationUrl: "https://www.facebook.com/brandsparq-test" } });
+  });
+  await page.getByRole("button", { name: "Connect another", exact: true }).click();
+  await page.waitForURL("https://www.facebook.com/brandsparq-test");
+  expect(authenticated).toBe(true);
+  expect(page.url()).not.toContain("token");
+});
+
+test("provider callback errors remain visible after a full-page return", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/social?social_error=Provider%20authorization%20was%20denied");
+  await expect(page.getByRole("alert", { name: "Social connection failed" })).toBeVisible();
+  await expect(page.getByText("Provider authorization was denied", { exact: true })).toBeVisible();
+});

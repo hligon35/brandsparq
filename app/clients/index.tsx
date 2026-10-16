@@ -1,6 +1,7 @@
+import { Alert } from "@/components/feedback";
 import { Link } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";

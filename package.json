@@ -19,7 +19,7 @@
     "smoke:production": "node scripts/smoke-production.mjs",
     "test": "node --import ./tests/register.mjs --test tests/*.test.mjs",
     "test:unit": "node --import ./tests/register.mjs --test tests/unit.test.mjs",
-    "test:integration": "node --import ./tests/register.mjs --test tests/launch.test.mjs tests/providers.test.mjs",
+    "test:integration": "node --import ./tests/register.mjs --test tests/launch.test.mjs tests/providers.test.mjs tests/workflow-safety.test.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium webkit",
     "test:mobile": "node scripts/test-mobile.mjs",

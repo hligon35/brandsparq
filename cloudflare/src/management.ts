@@ -11,6 +11,7 @@ import {
 
 export interface ManagementEnv {
   DB: D1Database;
+  ENVIRONMENT?: string;
   MEDIA: R2Bucket;
   SOCIAL_TOKEN_KEY?: string;
   AUTH_PEPPER?: string;
@@ -51,12 +52,19 @@ async function authorize(
   user: User,
   permission: Permission,
   clientId?: string | null,
+  requireActive = true,
 ) {
   if (!hasPermission(user, permission)) {
     return "You do not have permission to perform this action.";
   }
   if (clientId && !(await hasClientAccess(env.DB, user, clientId))) {
     return "You do not have access to this client.";
+  }
+  if (clientId && permission !== "read" && requireActive) {
+    const client = await env.DB.prepare("SELECT status FROM clients WHERE id=?")
+      .bind(clientId)
+      .first<{ status: string }>();
+    if (!client || client.status !== "active") return "This client is archived or unavailable.";
   }
   return null;
 }
@@ -194,10 +202,12 @@ export async function handleManagementRoute(
     return { body: { data: visible } };
   }
 
-  if (request.method === "GET" && url.pathname === "/v1/social/connect") {
-    const platform = url.searchParams.get("platform") as any;
-    const clientId = url.searchParams.get("clientId") || "";
-    const returnTo = url.searchParams.get("returnTo") || `${url.origin}/social`;
+  if (request.method === "POST" && url.pathname === "/v1/social/connect") {
+    const payload = await request.json<any>().catch(() => ({}));
+    const platform = payload.platform;
+    const clientId = typeof payload.clientId === "string" ? payload.clientId : "";
+    const returnTo =
+      typeof payload.returnTo === "string" ? payload.returnTo : `${url.origin}/social`;
     if (!["facebook", "instagram", "linkedin", "tiktok", "x"].includes(platform) || !clientId) {
       return { body: { error: "platform and clientId are required." }, status: 400 };
     }
@@ -205,8 +215,17 @@ export async function handleManagementRoute(
     const denied = await authorize(env, user, "social_manage", clientId);
     if (denied) return { body: { error: denied }, status: 403 };
 
-    const start = await socialOAuthStart(env, url, platform, clientId, user.id, returnTo);
-    return { response: Response.redirect(start, 302) };
+    try {
+      const start = await socialOAuthStart(env, url, platform, clientId, user.id, returnTo);
+      return { body: { authorizationUrl: start } };
+    } catch (error) {
+      return {
+        body: {
+          error: error instanceof Error ? error.message : "Unable to start social authorization.",
+        },
+        status: 400,
+      };
+    }
   }
 
   const callbackMatch = url.pathname.match(/^\/v1\/social\/(meta|linkedin|tiktok|x)\/callback$/);
@@ -250,7 +269,7 @@ export async function handleManagementRoute(
       .first<{ client_id: string }>();
     if (!account) return { body: { error: "Social account not found." }, status: 404 };
 
-    const denied = await authorize(env, user, "social_manage", account.client_id);
+    const denied = await authorize(env, user, "social_manage", account.client_id, false);
     if (denied) return { body: { error: denied }, status: 403 };
 
     await env.DB.prepare(
@@ -299,16 +318,20 @@ export async function handleManagementRoute(
     return { body: { ok: true } };
   }
 
+  // Historical notices must also respect assignments that have since been revoked.
+  const notificationScope = `(n.user_id=? OR n.user_id IS NULL) AND
+    (n.post_id IS NULL OR EXISTS (SELECT 1 FROM posts p WHERE p.id=n.post_id AND
+      (?='owner' OR EXISTS (SELECT 1 FROM user_client_access a WHERE a.client_id=p.client_id AND a.user_id=?))))`;
+  const notificationBindings = [user.id, user.role, user.id];
+
   if (request.method === "GET" && url.pathname === "/v1/notifications") {
     const denied = await authorize(env, user, "read");
     if (denied) return { body: { error: denied }, status: 403 };
 
     const rows = await env.DB.prepare(
-      `SELECT * FROM notifications
-       WHERE user_id = ? OR user_id IS NULL
-       ORDER BY created_at DESC LIMIT 100`,
+      `SELECT n.* FROM notifications n WHERE ${notificationScope} ORDER BY n.created_at DESC LIMIT 100`,
     )
-      .bind(user.id)
+      .bind(...notificationBindings)
       .all<any>();
 
     const ids = rows.results.map((row: any) => row.id);
@@ -348,10 +371,10 @@ export async function handleManagementRoute(
     if (denied) return { body: { error: denied }, status: 403 };
 
     await env.DB.prepare(
-      `UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP)
-       WHERE id=? AND (user_id=? OR user_id IS NULL)`,
+      `UPDATE notifications AS n SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP)
+       WHERE id=? AND ${notificationScope}`,
     )
-      .bind(readNotificationMatch[1], user.id)
+      .bind(readNotificationMatch[1], ...notificationBindings)
       .run();
     return { body: { ok: true } };
   }
@@ -361,10 +384,10 @@ export async function handleManagementRoute(
     if (denied) return { body: { error: denied }, status: 403 };
 
     await env.DB.prepare(
-      `UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP)
-       WHERE (user_id=? OR user_id IS NULL) AND read_at IS NULL`,
+      `UPDATE notifications AS n SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP)
+       WHERE ${notificationScope} AND read_at IS NULL`,
     )
-      .bind(user.id)
+      .bind(...notificationBindings)
       .run();
     return { body: { ok: true } };
   }

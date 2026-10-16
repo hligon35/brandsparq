@@ -1,5 +1,6 @@
+import { Alert } from "@/components/feedback";
 import { useEffect, useState } from "react";
-import { Alert, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";

@@ -41,6 +41,7 @@ function requireKey(env: OpenAIEnv) {
 async function requestResponses(env: OpenAIEnv, body: Record<string, unknown>) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
+    signal: AbortSignal.timeout(180000),
     headers: {
       authorization: `Bearer ${requireKey(env)}`,
       "content-type": "application/json",

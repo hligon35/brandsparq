@@ -2,11 +2,13 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider, useAuth } from "@/auth/context";
 import { colors } from "@/theme/tokens";
+import { FeedbackHost } from "@/components/feedback";
 
 export default function RootLayout() {
   return (
     <AuthProvider>
       <RootNavigator />
+      <FeedbackHost />
     </AuthProvider>
   );
 }

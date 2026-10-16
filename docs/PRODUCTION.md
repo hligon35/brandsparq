@@ -181,6 +181,7 @@ From the repository root:
 ```bash
 npm ci
 npm ci --prefix cloudflare
+npx playwright install --with-deps chromium webkit
 cd cloudflare
 npx wrangler d1 migrations apply brandsparq --remote
 cd ..
@@ -240,3 +241,7 @@ The canonical schema is the ordered migration set in `cloudflare/migrations/`; t
 After the latest migrations and deployment, sign in as an owner and open **More → System Health → Run launch check**. A `blocked` result is a release blocker. Review all warnings before launch.
 
 See `docs/SPRINT8.md` for the complete launch-certification and manual acceptance process.
+
+## Workflow safety update
+
+Apply migration `0017_workflow_safety.sql` before publishing the updated Worker and Expo app together. See [workflow safety](WORKFLOW_SAFETY.md) for notification retry behavior, archive safeguards and the manual hold for ambiguous provider outcomes.

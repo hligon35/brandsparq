@@ -182,9 +182,11 @@ export const api = {
       `/v1/social/accounts${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
     ),
 
-  getSocialConnectUrl(platform: string, clientId: string, returnTo: string) {
-    return `${API_URL}/v1/social/connect?platform=${encodeURIComponent(platform)}&clientId=${encodeURIComponent(clientId)}&returnTo=${encodeURIComponent(returnTo)}`;
-  },
+  startSocialConnection: (platform: string, clientId: string, returnTo: string) =>
+    jsonRequest<{ authorizationUrl: string }>("/v1/social/connect", {
+      method: "POST",
+      body: JSON.stringify({ platform, clientId, returnTo }),
+    }),
 
   disconnectSocialAccount: (accountId: string) =>
     jsonRequest<{ ok: true }>(`/v1/social/accounts/${accountId}/disconnect`, {
