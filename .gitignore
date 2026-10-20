@@ -13,3 +13,8 @@ cloudflare/.wrangler/
 playwright-report/
 test-results/
 .maestro/tests/
+
+.env.sandbox
+.env.production
+cloudflare/wrangler.staging.toml
+backups/

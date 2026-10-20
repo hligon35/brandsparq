@@ -282,11 +282,14 @@ async function referenceInputs(env: GenerationEnv, clientId: string) {
 
 async function brandLogoInput(
   env: GenerationEnv,
-  logoAssetId?: string | null,
+  logoAssetId: string | null | undefined,
+  clientId: string,
 ): Promise<{ type: "input_image"; image_url: string } | null> {
   if (!logoAssetId) return null;
-  const asset = await env.DB.prepare("SELECT r2_key,content_type,size_bytes FROM assets WHERE id=?")
-    .bind(logoAssetId)
+  const asset = await env.DB.prepare(
+    "SELECT r2_key,content_type,size_bytes FROM assets WHERE id=? AND client_id=?",
+  )
+    .bind(logoAssetId, clientId)
     .first<{
       r2_key: string;
       content_type: string;
@@ -369,7 +372,7 @@ async function generateGraphic(
     .join("\n");
 
   images = [...images, ...(await referenceInputs(env, post.client_id))];
-  const logoInput = await brandLogoInput(env, post.logo_asset_id);
+  const logoInput = await brandLogoInput(env, post.logo_asset_id, post.client_id);
   const visualInputs = logoInput ? [...images, logoInput] : images;
 
   const result = await createImageResponse(env, {
@@ -1341,41 +1344,99 @@ export class RevisionConflict extends Error {
   status = 409;
 }
 
-async function revise<T>(env: GenerationEnv, postId: string, action: () => Promise<T>): Promise<T> {
-  const claimed =
-    await env.DB.prepare(`UPDATE posts SET status='regenerating',updated_at=CURRENT_TIMESTAMP
-    WHERE id=? AND status IN ('awaiting_approval','edit_requested') AND EXISTS
-      (SELECT 1 FROM clients c WHERE c.id=posts.client_id AND c.status='active')`)
-      .bind(postId)
-      .run();
+async function enqueueRevision(
+  env: GenerationEnv,
+  postId: string,
+  action: string,
+  instruction?: string,
+) {
+  const jobId = crypto.randomUUID();
+  const [claimed] = await env.DB.batch([
+    env.DB.prepare(`UPDATE posts SET status='regenerating',revision_job_id=?,updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status IN ('awaiting_approval','edit_requested') AND EXISTS
+      (SELECT 1 FROM clients c WHERE c.id=posts.client_id AND c.status='active')`).bind(
+      jobId,
+      postId,
+    ),
+    env.DB.prepare(`INSERT INTO revision_jobs(id,post_id,action,instruction)
+      SELECT ?,id,?,? FROM posts WHERE id=? AND revision_job_id=? AND status='regenerating'`).bind(
+      jobId,
+      action,
+      instruction || null,
+      postId,
+      jobId,
+    ),
+  ]);
   if (!claimed.meta.changes)
     throw new RevisionConflict("Only active posts awaiting review can be changed with AI.");
-  try {
-    const result = await action();
-    await env.DB.prepare(
-      "UPDATE posts SET status='awaiting_approval',rejected_at=NULL,rejection_reason=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='regenerating'",
-    )
-      .bind(postId)
-      .run();
-    return result;
-  } catch (error) {
-    await env.DB.prepare(
-      "UPDATE posts SET status='edit_requested',ai_last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='regenerating'",
-    )
-      .bind(error instanceof Error ? error.message.slice(0, 1000) : "AI edit failed", postId)
-      .run();
-    throw error;
-  }
+  // The row is the durable outbox: cron resends if queue delivery fails.
+  await env.GENERATION_QUEUE.send({ kind: "revision", revisionJobId: jobId }).catch(
+    () => undefined,
+  );
+  return { jobId, queued: true };
 }
 
 export function rewritePostCaptionWithAI(env: GenerationEnv, postId: string, instruction?: string) {
-  return revise(env, postId, () => rewriteCaption(env, postId, instruction));
+  return enqueueRevision(env, postId, "caption", instruction);
 }
 export function editPostGraphicWithAI(env: GenerationEnv, postId: string, instruction: string) {
-  return revise(env, postId, () => editGraphic(env, postId, instruction));
+  return enqueueRevision(env, postId, "image", instruction);
 }
 export function regeneratePostWithAI(env: GenerationEnv, postId: string, instruction?: string) {
-  return revise(env, postId, () => regenerate(env, postId, instruction));
+  return enqueueRevision(env, postId, "regenerate", instruction);
+}
+
+export async function runRevisionJob(env: GenerationEnv, jobId: string) {
+  const claimed =
+    await env.DB.prepare(`UPDATE revision_jobs SET status='processing',claimed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+    WHERE id=? AND status='queued' AND EXISTS (SELECT 1 FROM posts p JOIN clients c ON c.id=p.client_id
+      WHERE p.id=revision_jobs.post_id AND p.revision_job_id=revision_jobs.id AND p.status='regenerating' AND c.status='active')`)
+      .bind(jobId)
+      .run();
+  if (!claimed.meta.changes) return;
+  const job = await env.DB.prepare("SELECT * FROM revision_jobs WHERE id=?")
+    .bind(jobId)
+    .first<any>();
+  try {
+    if (job.action === "caption")
+      await rewriteCaption(env, job.post_id, job.instruction || undefined);
+    else if (job.action === "image") await editGraphic(env, job.post_id, job.instruction || "");
+    else await regenerate(env, job.post_id, job.instruction || undefined);
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE revision_jobs SET status='completed',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='processing'",
+      ).bind(jobId),
+      env.DB.prepare(
+        "UPDATE posts SET status='awaiting_approval',revision_job_id=NULL,rejected_at=NULL,rejection_reason=NULL,ai_last_error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND revision_job_id=? AND status='regenerating'",
+      ).bind(job.post_id, jobId),
+    ]);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message.slice(0, 1000) : "AI revision failed";
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE revision_jobs SET status='failed',error_message=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='processing'",
+      ).bind(detail, jobId),
+      env.DB.prepare(
+        "UPDATE posts SET status='edit_requested',revision_job_id=NULL,ai_last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND revision_job_id=? AND status='regenerating'",
+      ).bind(detail, job.post_id, jobId),
+    ]);
+  }
+}
+
+export async function recoverRevisionJobs(env: Pick<GenerationEnv, "DB" | "GENERATION_QUEUE">) {
+  // Do not run a second AI writer while a timed-out worker could still be finishing.
+  // Make stale work visible to operators; a new revision requires explicit review.
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE revision_jobs SET status='failed',error_message='Revision timed out; inspect the post before retrying.',updated_at=CURRENT_TIMESTAMP
+      WHERE status='processing' AND datetime(claimed_at)<datetime('now','-30 minutes')`),
+    env.DB.prepare(`UPDATE posts SET status='edit_requested',ai_last_error='Revision interrupted; inspect the post before retrying.',updated_at=CURRENT_TIMESTAMP
+      WHERE status='regenerating' AND EXISTS (SELECT 1 FROM revision_jobs r WHERE r.id=posts.revision_job_id AND r.status='failed')`),
+  ]);
+  const jobs = await env.DB.prepare(
+    "SELECT id FROM revision_jobs WHERE status='queued' ORDER BY created_at LIMIT 25",
+  ).all<{ id: string }>();
+  for (const job of jobs.results)
+    await env.GENERATION_QUEUE.send({ kind: "revision", revisionJobId: job.id });
 }
 
 async function rewriteCaption(env: GenerationEnv, postId: string, instruction?: string) {

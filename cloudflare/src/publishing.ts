@@ -91,9 +91,10 @@ export async function claimPublishJob(
        SELECT 1 FROM posts p JOIN clients c ON c.id=p.client_id
        WHERE p.id=publish_jobs.post_id AND c.status='active'
          AND publish_jobs.execution_key='post:' || p.id || ':publish:v' || p.publish_version
-         AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued'))`,
+         AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued')
+         AND (p.prepublish_response='publish_now' OR p.scheduled_publish_at IS NULL OR p.scheduled_publish_at<=?))`,
   )
-    .bind(now, now, publishJobId)
+    .bind(now, now, publishJobId, now)
     .run();
 
   if (!result.meta.changes) {
@@ -148,4 +149,30 @@ export async function markPublishJobCompleted(env: PublishingEnv, publishJobId: 
   )
     .bind(now, now, publishJobId)
     .run();
+}
+
+// The post transition and outbox cancellation share one transaction. A publisher
+// that already owns its job wins; otherwise the version invalidates old messages.
+export async function stopScheduledPost(
+  env: PublishingEnv,
+  postId: string,
+  target: "paused" | "canceled",
+  requireNoResponse = false,
+) {
+  const [changed] = await env.DB.batch([
+    env.DB.prepare(`UPDATE posts SET paused_from_status=status,status=?,publish_version=publish_version+1,updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued')
+        AND (?=0 OR prepublish_response IS NULL)
+        AND NOT EXISTS(SELECT 1 FROM publish_jobs j WHERE j.post_id=posts.id AND j.status='publishing')`).bind(
+      target,
+      postId,
+      requireNoResponse ? 1 : 0,
+    ),
+    env.DB.prepare(`UPDATE publish_jobs SET status='canceled',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+      WHERE post_id=? AND status IN ('queued','retrying') AND EXISTS (SELECT 1 FROM posts p WHERE p.id=publish_jobs.post_id AND p.status=?)`).bind(
+      postId,
+      target,
+    ),
+  ]);
+  return !!changed.meta.changes;
 }

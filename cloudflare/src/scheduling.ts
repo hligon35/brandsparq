@@ -116,6 +116,8 @@ export async function findNextAvailableSlot(
       ? new Date(desiredAt)
       : new Date(Date.now() + 60 * 60 * 1000);
 
+  // Never approve an AI suggestion or a manual date into the past.
+  candidate = new Date(Math.max(candidate.getTime(), Date.now() + 60_000));
   candidate.setSeconds(0, 0);
 
   for (let attempt = 0; attempt < 14 * 24 * 4; attempt += 1) {

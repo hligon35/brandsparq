@@ -12,6 +12,7 @@ import { issuePostMediaUrl, resolveMediaToken } from "./media";
 import {
   claimPublishJob,
   ensurePublishJob,
+  stopScheduledPost,
   markPublishJobCompleted,
   markPublishJobFailed,
   markPublishJobRetry,
@@ -47,6 +48,7 @@ import {
   markGraphicJobFailure,
   regeneratePostWithAI,
   rewritePostCaptionWithAI,
+  runRevisionJob,
   runGenerationJob,
   runGraphicJob,
 } from "./generation";
@@ -105,7 +107,11 @@ type GraphicMessage = {
   graphicJobId: string;
 };
 
-type JobMessage = PublishMessage | GenerationMessage | GraphicMessage;
+type JobMessage =
+  | PublishMessage
+  | GenerationMessage
+  | GraphicMessage
+  | { kind: "revision"; revisionJobId: string };
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -908,6 +914,23 @@ export default {
         .bind(brandMatch[1])
         .first();
       if (!client) return response(request, env, { error: "Client not found" }, { status: 404 });
+
+      // Client-scoped ownership is checked before persisting either logo pointer.
+      for (const assetId of [payload.logoAssetId, payload.alternateLogoAssetId]) {
+        if (!assetId) continue;
+        const owned = await env.DB.prepare(
+          "SELECT id FROM assets WHERE id=? AND client_id=? AND content_type LIKE 'image/%'",
+        )
+          .bind(assetId, brandMatch[1])
+          .first();
+        if (!owned)
+          return response(
+            request,
+            env,
+            { error: "Logo must be an image owned by this client." },
+            { status: 400 },
+          );
+      }
 
       const current = await env.DB.prepare("SELECT id FROM brand_profiles WHERE client_id = ?")
         .bind(brandMatch[1])
@@ -1770,23 +1793,12 @@ export default {
           continue;
         }
 
-        const now = new Date().toISOString();
-        await env.DB.batch([
-          env.DB.prepare(
-            `UPDATE publish_jobs SET
-             status='canceled',completed_at=?,updated_at=?
-             WHERE post_id=? AND status IN ('queued','retrying')`,
-          ).bind(now, now, postId),
-          env.DB.prepare(
-            `UPDATE posts SET
-             paused_from_status=status,status='paused',
-             publish_version=publish_version+1,
-             updated_at=?
-             WHERE id=?`,
-          ).bind(now, postId),
-        ]);
-
-        results.push({ postId, ok: true });
+        const stopped = await stopScheduledPost(env, postId, "paused");
+        results.push({
+          postId,
+          ok: stopped,
+          ...(stopped ? {} : { error: "Publishing already started. Refresh the post." }),
+        });
       }
 
       return response(request, env, { ok: true, results });
@@ -2093,7 +2105,7 @@ export default {
     if (request.method === "POST" && publishNowMatch) {
       const postId = publishNowMatch[1];
       const post = await env.DB.prepare(
-        "SELECT id, client_id, social_account_id, scheduled_publish_at, status FROM posts WHERE id = ?",
+        "SELECT id, client_id, social_account_id, scheduled_publish_at, status, publish_version FROM posts WHERE id = ?",
       )
         .bind(postId)
         .first<any>();
@@ -2135,9 +2147,9 @@ export default {
          prepublish_response = 'publish_now',
          status = CASE WHEN status = 'published' THEN status ELSE 'publish_queued' END,
          updated_at = ?
-         WHERE id = ?`,
+         WHERE id = ? AND status=? AND publish_version=?`,
       )
-        .bind(new Date().toISOString(), postId)
+        .bind(new Date().toISOString(), postId, post.status, post.publish_version)
         .run();
 
       if (job.shouldEnqueue) {
@@ -2288,12 +2300,13 @@ export default {
         new Date(row.scheduled_publish_at).getTime() -
         Number(row.prepublish_minutes || 30) * 60 * 1000;
       if (alertAt <= Date.now()) {
-        await env.DB.prepare(
-          "UPDATE posts SET status = 'pre_publish', prepublish_alert_at = ?, updated_at = ? WHERE id = ?",
+        const alerted = await env.DB.prepare(
+          "UPDATE posts SET status = 'pre_publish', prepublish_alert_at = ?, updated_at = ? WHERE id = ? AND status IN ('calendar_scheduled','rescheduled') AND prepublish_alert_at IS NULL",
         )
           .bind(nowIso, nowIso, row.id)
           .run();
 
+        if (!alerted.meta.changes) continue;
         const deepLink = env.PUBLIC_BASE_URL
           ? `${env.PUBLIC_BASE_URL.replace(/\/$/, "")}/posts/${row.id}/publish`
           : undefined;
@@ -2332,9 +2345,8 @@ export default {
         : row.no_response_policy || "auto_publish";
 
       if (policy === "hold") {
-        await env.DB.prepare("UPDATE posts SET status = 'paused', updated_at = ? WHERE id = ?")
-          .bind(nowIso, row.id)
-          .run();
+        const changed = await stopScheduledPost(env, row.id, "paused", true);
+        if (!changed) continue;
         await notifyPostOwners(
           env,
           row.id,
@@ -2346,9 +2358,8 @@ export default {
       }
 
       if (policy === "skip") {
-        await env.DB.prepare("UPDATE posts SET status = 'canceled', updated_at = ? WHERE id = ?")
-          .bind(nowIso, row.id)
-          .run();
+        const changed = await stopScheduledPost(env, row.id, "canceled", true);
+        if (!changed) continue;
         await notifyPostOwners(
           env,
           row.id,
@@ -2366,11 +2377,15 @@ export default {
       const job = await ensurePublishJob(env, row.id, scheduled?.scheduled_publish_at || nowIso);
 
       if (job.shouldEnqueue) {
-        await env.DB.prepare(
-          "UPDATE posts SET status = 'publish_queued', updated_at = ? WHERE id = ? AND status != 'published'",
+        const queued = await env.DB.prepare(
+          `UPDATE posts SET status = 'publish_queued', updated_at = ? WHERE id = ?
+            AND status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued')
+            AND scheduled_publish_at<=?
+            AND 'post:' || id || ':publish:v' || publish_version=?`,
         )
-          .bind(nowIso, row.id)
+          .bind(nowIso, row.id, nowIso, job.executionKey)
           .run();
+        if (!queued.meta.changes) continue;
 
         await env.PUBLISH_QUEUE.send({
           kind: "publish",
@@ -2482,6 +2497,15 @@ export default {
 
   async queue(batch: MessageBatch<JobMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
+      if (message.body.kind === "revision") {
+        try {
+          await runRevisionJob(env, message.body.revisionJobId);
+          message.ack();
+        } catch {
+          message.retry({ delaySeconds: 60 });
+        }
+        continue;
+      }
       if (message.body.kind === "graphic") {
         try {
           await runGraphicJob(env, message.body.graphicJobId);

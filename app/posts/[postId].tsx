@@ -76,6 +76,14 @@ export default function PostReviewScreen() {
       .catch(() => setSocialAccounts([]));
   }, [post?.clientId, post?.platform]);
 
+  useEffect(() => {
+    if (post?.status !== "regenerating") return;
+    const timer = setInterval(() => {
+      void reload().catch(() => undefined);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [post?.status, postId]);
+
   if (!post) {
     return (
       <PageScroll>
@@ -337,21 +345,27 @@ export default function PostReviewScreen() {
             <View style={styles.aiButton}>
               <Button
                 label={aiAction === "rewrite" ? "Rewriting…" : "Rewrite caption"}
-                onPress={aiAction ? undefined : () => runAi("rewrite")}
+                onPress={
+                  aiAction || post.status === "regenerating" ? undefined : () => runAi("rewrite")
+                }
                 secondary
               />
             </View>
             <View style={styles.aiButton}>
               <Button
                 label={aiAction === "image" ? "Editing graphic…" : "Edit graphic with AI"}
-                onPress={aiAction ? undefined : () => runAi("image")}
+                onPress={
+                  aiAction || post.status === "regenerating" ? undefined : () => runAi("image")
+                }
                 secondary
               />
             </View>
             <View style={styles.aiButton}>
               <Button
                 label={aiAction === "regenerate" ? "Regenerating…" : "Regenerate post"}
-                onPress={aiAction ? undefined : () => runAi("regenerate")}
+                onPress={
+                  aiAction || post.status === "regenerating" ? undefined : () => runAi("regenerate")
+                }
                 secondary
               />
             </View>
