@@ -30,10 +30,40 @@ export function verifyRestore({ sql, manifest, mediaDirectory }) {
       if (db.prepare(`SELECT COUNT(*) AS count FROM "${table}"`).get().count !== count)
         throw new Error(`Restored row count differs: ${table}`);
     }
-    const assets = db.prepare("SELECT r2_key FROM assets").all();
+    const tableNames = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+      .all()
+      .map((row) => row.name);
+    for (const table of tableNames) {
+      if (table.startsWith("_cf") || table === "d1_migrations") continue;
+      if (!(table in manifest.counts)) throw new Error(`Missing row inventory: ${table}`);
+    }
     const keys = new Set(manifest.media.map((item) => item.key));
-    if (keys.size !== manifest.media.length || assets.some((row) => !keys.has(row.r2_key)))
-      throw new Error("R2 inventory is incomplete or duplicated.");
+    if (keys.size !== manifest.media.length)
+      throw new Error("R2 inventory contains duplicate keys.");
+    // Graphics and derivatives are separate from source assets and must survive
+    // restoration too. Expiring access-token tables are deliberately not sources.
+    const references = {
+      assets: "r2_key",
+      posts: "graphic_key",
+      asset_derivatives: "r2_key",
+      creative_variants: "r2_key",
+    };
+    for (const [table, column] of Object.entries(references)) {
+      if (!tableNames.includes(table)) continue;
+      if (
+        !db
+          .prepare(`PRAGMA table_info("${table}")`)
+          .all()
+          .some((row) => row.name === column)
+      )
+        continue;
+      const rows = db
+        .prepare(`SELECT "${column}" AS key FROM "${table}" WHERE "${column}" IS NOT NULL`)
+        .all();
+      if (rows.some((row) => !keys.has(row.key)))
+        throw new Error(`R2 inventory is incomplete: ${table}.${column}`);
+    }
     for (const item of manifest.media) {
       if (!item.file || !/^[a-f0-9]{64}$/.test(item.sha256))
         throw new Error("Invalid media inventory.");

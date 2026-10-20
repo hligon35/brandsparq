@@ -8,9 +8,14 @@ Code fixes and local checks do not certify a live deployment. No staging resourc
 provider posts, production backup restore, device results, or client invitations
 have been created by this change. The pilot is **blocked** pending the live evidence below.
 
+PR #5 initially triggered CI run 39518116911. GitHub refused to start the job
+because the account is locked due to a billing issue. No CI steps ran; this is
+not a green CI result. The runner is pinned to Ubuntu 24.04 for the existing
+Playwright version rather than following the Ubuntu 26 `ubuntu-latest` migration.
+
 | Gate | Evidence required | Current state |
 | --- | --- | --- |
-| Code | Green CI on the exact release commit | See the PR checks |
+| Code | Green CI on the exact release commit | GitHub job refused to start: account locked due to billing issue |
 | Dependencies | Expo compatibility check and reviewed advisory disposition | Compatibility aligned; see DEPENDENCY_ADVISORIES.md |
 | Staging | Separate D1, R2, queues, secrets, OAuth apps and correct host | Configuration tooling ready; Cloudflare authentication absent |
 | Access | Anonymous routing probes, OAuth round trip, webhook and provider media retrieval | Not verified live |
