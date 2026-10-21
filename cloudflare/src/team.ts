@@ -1,3 +1,4 @@
+import { pilotInvitationError } from "./pilot";
 import type { SessionUser } from "./auth";
 import { hashSecret } from "./security";
 import { sendWorkspaceEmail, type NotificationEnv } from "./notifications";
@@ -40,6 +41,8 @@ async function invite(env: TeamEnv, actor: SessionUser, payload: any) {
     )
       return { body: { error: "Choose active clients and valid client roles." }, status: 400 };
   }
+  const pilotDenied = await pilotInvitationError(env, Object.keys(assignments));
+  if (pilotDenied) return { body: { error: pilotDenied }, status: 409 };
   const existing = await env.DB.prepare("SELECT id,status FROM users WHERE email=?")
     .bind(email)
     .first<any>();

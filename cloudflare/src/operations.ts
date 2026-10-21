@@ -1,4 +1,6 @@
-import { markGraphicJobFailure } from "./generation";
+import { configurePilot, pilotOverview } from "./pilot";
+import { REQUIRED_SCHEMA, REQUIRED_INDEXES } from "./schema";
+import { markGraphicJobFailure, recoverRevisionJobs } from "./generation";
 import type { SessionUser } from "./auth";
 import { hasPermission } from "./authz";
 import { ensurePublishJob } from "./publishing";
@@ -137,12 +139,13 @@ export async function readiness(env: OperationsEnv) {
 }
 
 export async function recoverStaleWork(env: OperationsEnv) {
+  await recoverRevisionJobs(env);
   const stalePublish = await env.DB.prepare(
-    `SELECT id,post_id,execution_key,attempt_count,max_attempts,last_error
+    `SELECT id,post_id,execution_key,attempt_count,max_attempts,last_error,status,claimed_at,updated_at
      FROM publish_jobs
      WHERE (
        (status='publishing' AND datetime(claimed_at) < datetime('now','-15 minutes'))
-       OR (status='retrying' AND datetime(updated_at) < datetime('now','-15 minutes'))
+       OR (status IN ('queued','retrying') AND datetime(updated_at) < datetime('now','-15 minutes'))
      )
      LIMIT 50`,
   ).all<any>();
@@ -159,16 +162,32 @@ export async function recoverStaleWork(env: OperationsEnv) {
         .run();
       continue;
     }
+    // A crashed worker may have submitted to the provider before losing its response.
+    // Keep the execution fenced until an operator reconciles the provider account.
+    if (job.status === "publishing") {
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE publish_jobs SET status='failed',last_error='Publish outcome unknown; reconcile provider before retry.',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+          WHERE id=? AND status='publishing' AND claimed_at=?`).bind(job.id, job.claimed_at),
+        env.DB.prepare(`UPDATE posts SET status='failed',failure_code='PUBLISH_OUTCOME_UNKNOWN',failure_message='Worker stopped during publishing. Check the provider before retrying.',updated_at=CURRENT_TIMESTAMP
+          WHERE id=? AND status IN ('publishing','publish_queued') AND EXISTS (SELECT 1 FROM publish_jobs WHERE id=? AND status='failed' AND claimed_at=?)`).bind(
+          job.post_id,
+          job.id,
+          job.claimed_at,
+        ),
+      ]);
+      continue;
+    }
     if (Number(job.attempt_count) >= Number(job.max_attempts)) {
       const now = new Date().toISOString();
-      await env.DB.batch([
+      const [failed] = await env.DB.batch([
         env.DB.prepare(
-          `UPDATE publish_jobs SET status='failed',completed_at=?,last_error=COALESCE(last_error,'Publishing worker timed out.'),updated_at=? WHERE id=?`,
-        ).bind(now, now, job.id),
+          `UPDATE publish_jobs SET status='failed',completed_at=?,last_error=COALESCE(last_error,'Publishing worker timed out.'),updated_at=? WHERE id=? AND status=? AND updated_at=?`,
+        ).bind(now, now, job.id, job.status, job.updated_at),
         env.DB.prepare(
-          `UPDATE posts SET status='failed',failure_code='WORKER_TIMEOUT',failure_message='Publishing worker timed out.',updated_at=? WHERE id=? AND status IN ('publishing','publish_queued')`,
-        ).bind(now, job.post_id),
+          `UPDATE posts SET status='failed',failure_code='WORKER_TIMEOUT',failure_message='Publishing worker timed out.',updated_at=? WHERE id=? AND status IN ('publishing','publish_queued') AND EXISTS (SELECT 1 FROM publish_jobs WHERE id=? AND status='failed')`,
+        ).bind(now, job.post_id, job.id),
       ]);
+      if (!failed.meta.changes) continue;
       await recordSystemEvent(env, {
         severity: "error",
         category: "publishing",
@@ -179,11 +198,12 @@ export async function recoverStaleWork(env: OperationsEnv) {
         metadata: { postId: job.post_id },
       });
     } else {
-      await env.DB.prepare(
-        `UPDATE publish_jobs SET status='retrying',claimed_at=NULL,last_error=COALESCE(last_error,'Recovered stale publishing claim.'),updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+      const recovered = await env.DB.prepare(
+        `UPDATE publish_jobs SET status='retrying',claimed_at=NULL,last_error=COALESCE(last_error,'Recovered stale publishing claim.'),updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=? AND updated_at=?`,
       )
-        .bind(job.id)
+        .bind(job.id, job.status, job.updated_at)
         .run();
+      if (!recovered.meta.changes) continue;
       await env.PUBLISH_QUEUE.send(
         {
           kind: "publish",
@@ -346,50 +366,93 @@ export async function runLaunchCertification(env: OperationsEnv, user: SessionUs
 
   check(
     "production:base-url",
-    env.PUBLIC_BASE_URL === "https://brandsparq.getsparqd.com",
+    env.ENVIRONMENT === "staging"
+      ? !!env.PUBLIC_BASE_URL &&
+          /^https:\/\/brandsparq-staging\.[a-z0-9-]+\.workers\.dev$/.test(env.PUBLIC_BASE_URL)
+      : env.PUBLIC_BASE_URL === "https://brandsparq.getsparqd.com",
     "blocker",
-    env.PUBLIC_BASE_URL === "https://brandsparq.getsparqd.com"
+    (
+      env.ENVIRONMENT === "staging"
+        ? !!env.PUBLIC_BASE_URL &&
+          /^https:\/\/brandsparq-staging\.[a-z0-9-]+\.workers\.dev$/.test(env.PUBLIC_BASE_URL)
+        : env.PUBLIC_BASE_URL === "https://brandsparq.getsparqd.com"
+    )
       ? "Production base URL is correct."
       : "PUBLIC_BASE_URL must be https://brandsparq.getsparqd.com.",
   );
   check(
     "production:google-redirect",
-    env.GOOGLE_REDIRECT_URI === "https://brandsparq.getsparqd.com/v1/auth/google/callback",
+    env.GOOGLE_REDIRECT_URI === `${env.PUBLIC_BASE_URL}/v1/auth/google/callback`,
     "blocker",
-    env.GOOGLE_REDIRECT_URI === "https://brandsparq.getsparqd.com/v1/auth/google/callback"
+    env.GOOGLE_REDIRECT_URI === `${env.PUBLIC_BASE_URL}/v1/auth/google/callback`
       ? "Google callback is production-safe."
       : "Google redirect URI does not match the production callback.",
   );
 
-  const requiredTables = [
-    "users",
-    "clients",
-    "user_client_access",
-    "brand_profiles",
-    "assets",
-    "campaigns",
-    "posts",
-    "generation_jobs",
-    "graphic_jobs",
-    "publish_jobs",
-    "social_accounts",
-    "notifications",
-    "analytics_daily",
-    "system_events",
-    "recovery_actions",
-    "launch_certification_runs",
-  ];
   const tableRows = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table'").all<{
     name: string;
   }>();
   const tables = new Set(tableRows.results.map((row) => row.name));
-  for (const table of requiredTables) {
+  for (const [table, columns] of Object.entries(REQUIRED_SCHEMA)) {
     check(
       `schema:${table}`,
       tables.has(table),
       "blocker",
       tables.has(table) ? `${table} is present.` : `Missing required table: ${table}.`,
     );
+    if (!tables.has(table)) continue;
+    const actual = await env.DB.prepare(`PRAGMA table_info("${table}")`).all<{
+      name: string;
+      type: string;
+      notnull: number;
+      pk: number;
+    }>();
+    for (const column of columns) {
+      const found = actual.results.find((row) => row.name === column.name);
+      check(
+        `schema:${table}.${column.name}`,
+        !!found &&
+          found.type === column.type &&
+          found.notnull === column.notnull &&
+          found.pk === column.pk,
+        "blocker",
+        `Required column definition: ${table}.${column.name}.`,
+      );
+    }
+  }
+  const indexes = await env.DB.prepare(
+    "SELECT name,sql FROM sqlite_master WHERE type='index'",
+  ).all<{
+    name: string;
+    sql: string;
+  }>();
+  const indexNames = new Map(indexes.results.map((row) => [row.name, row.sql]));
+  for (const index of REQUIRED_INDEXES)
+    check(
+      `schema:index:${index.name}`,
+      indexNames.get(index.name) === index.sql,
+      "blocker",
+      `Required index definition: ${index.name}.`,
+    );
+  const foreignKeys = await env.DB.prepare("PRAGMA foreign_key_check").all();
+  check(
+    "schema:foreign-keys",
+    foreignKeys.results.length === 0,
+    "blocker",
+    `${foreignKeys.results.length} foreign-key violation(s).`,
+  );
+  // Missing schema must produce a useful blocked result before dependent queries run.
+  if (checks.some((item) => !item.ok && item.name.startsWith("schema:"))) {
+    return {
+      id: null,
+      status: "blocked",
+      blockers: checks
+        .filter((item) => !item.ok && item.level === "blocker")
+        .map((item) => item.detail),
+      warnings: [],
+      checks,
+      createdAt: new Date().toISOString(),
+    };
   }
 
   const owners = await env.DB.prepare(
@@ -513,6 +576,12 @@ export async function handleOperationsRoute(
   if (!url.pathname.startsWith("/v1/system")) return null;
   if (!hasPermission(user, "system_manage"))
     return { body: { error: "Owner access is required for system operations." }, status: 403 };
+
+  if (url.pathname === "/v1/system/pilot") {
+    if (request.method === "GET") return { body: { data: await pilotOverview(env) } };
+    if (request.method === "POST")
+      return configurePilot(env, user, await request.json().catch(() => null));
+  }
 
   if (request.method === "GET" && url.pathname === "/v1/system/overview") {
     return { body: { data: await getSystemOverview(env) } };

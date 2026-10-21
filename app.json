@@ -45,7 +45,8 @@
           "icon": "./assets/brandsparqFavicon.png",
           "color": "#0B78F6"
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

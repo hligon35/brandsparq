@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import worker from "../cloudflare/src/index.ts";
 import { workspace } from "./workspace.mjs";
 import { encryptSecret, decryptSecret } from "../cloudflare/src/security.ts";
-import { runGenerationJob } from "../cloudflare/src/generation.ts";
+import { runGenerationJob, runRevisionJob } from "../cloudflare/src/generation.ts";
 import { publishPostToSocial, checkPublishReceipt } from "../cloudflare/src/social.ts";
 import { notifyPostOwners, retryNotificationDeliveries } from "../cloudflare/src/notifications.ts";
 
@@ -315,11 +315,13 @@ test("AI revision holds a claim through the provider call and restores review on
         release = resolve;
       }),
   );
-  const first = w.request("/v1/posts/edit/ai-rewrite-caption", {
+  const first = await w.request("/v1/posts/edit/ai-rewrite-caption", {
     user: "owner",
     method: "POST",
     body: {},
   });
+  assert.equal(first.status, 200);
+  const running = runRevisionJob(w.env, w.generated[0].revisionJobId);
   while (!release) await new Promise((resolve) => setImmediate(resolve));
   assert.equal(
     (await w.request("/v1/posts/edit/ai-regenerate", { user: "owner", method: "POST", body: {} }))
@@ -335,7 +337,7 @@ test("AI revision holds a claim through the provider call and restores review on
       output_text: JSON.stringify({ headline: "New", caption: "Updated", hashtags: [] }),
     }),
   );
-  assert.equal((await first).status, 200);
+  await running;
   assert.equal(w.row("SELECT status FROM posts WHERE id='edit'").status, "awaiting_approval");
   t.mock.method(globalThis, "fetch", async () => {
     throw new Error("AI failed");
@@ -348,8 +350,9 @@ test("AI revision holds a claim through the provider call and restores review on
         body: {},
       })
     ).status,
-    502,
+    200,
   );
+  await runRevisionJob(w.env, w.generated[1].revisionJobId);
   assert.equal(w.row("SELECT status FROM posts WHERE id='edit'").status, "edit_requested");
 });
 

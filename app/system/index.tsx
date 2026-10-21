@@ -1,3 +1,4 @@
+import { PilotControls } from "@/components/PilotControls";
 import { Alert } from "@/components/feedback";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -116,6 +117,8 @@ export default function SystemHealthScreen() {
           </View>
         }
       />
+
+      <PilotControls />
 
       <View style={styles.grid}>
         <Card style={styles.metric}>

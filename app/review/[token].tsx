@@ -39,6 +39,14 @@ export default function PublicReviewScreen() {
     void load();
   }, [token]);
 
+  useEffect(() => {
+    if (post?.status !== "regenerating") return;
+    const timer = setInterval(() => {
+      void load();
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [post?.status, token]);
+
   async function save() {
     if (!token) return;
     setWorking("save");
@@ -211,7 +219,7 @@ export default function PublicReviewScreen() {
                     <Button
                       label={working === "regenerate" ? "Regenerating…" : "Regenerate"}
                       secondary
-                      onPress={working ? undefined : regenerate}
+                      onPress={working || post.status === "regenerating" ? undefined : regenerate}
                     />
                   </View>
                 </View>

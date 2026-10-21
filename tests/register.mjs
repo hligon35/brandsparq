@@ -3,6 +3,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
+// Test processes never inherit a real provider transport. Tests must explicitly
+// mock fetch; the loopback E2E server installs its own provider-only fixture mock.
+globalThis.fetch = async () => {
+  throw new Error(
+    "External network is disabled in the test runtime. Mock provider requests explicitly.",
+  );
+};
+
 // Load the actual Worker TypeScript without changing its bundler import paths.
 registerHooks({
   resolve(specifier, context, nextResolve) {

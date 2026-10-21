@@ -21,3 +21,7 @@ jobs:
         run: npm run smoke:staging
         env:
           BRANDSPARQ_BASE_URL: ${{ inputs.base_url }}
+      - name: Check public provider routes and native API access without Access service credentials
+        run: npm run smoke:routing
+        env:
+          BRANDSPARQ_BASE_URL: ${{ inputs.base_url }}

@@ -275,3 +275,12 @@ Remove-Variable credential
 No redeploy is needed for this script-only change. Never commit the credentials. The smoke script does not follow redirects or send an app session, so service credentials remain on the configured origin and `/v1/dashboard` must still reject anonymous application access with a JSON 401. Missing/denied Access credentials remain a failing check, with an explicit gate diagnostic.
 
 Reference: https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/
+
+## Pilot-readiness hardening
+
+Apply `0019_revision_jobs.sql` and `0020_supervised_pilot.sql` before deploying this release. Follow
+[PILOT_READINESS.md](PILOT_READINESS.md) for isolated staging, Access routing,
+provider acceptance, restoration and native evidence, and supervised pilot gates.
+AI revisions now return a durable queued job rather than waiting for AI inside the
+request; review screens poll while the post is regenerating. A stale in-flight
+publisher is held for provider reconciliation rather than automatically reposted.
