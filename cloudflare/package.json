@@ -7,7 +7,7 @@
     "typecheck": "tsc --noEmit",
     "build": "npm ci --prefix .. && npm --prefix .. run build:web",
     "deploy:staging": "wrangler deploy --config wrangler.staging.toml",
-    "migrate:staging": "wrangler d1 migrations apply brandsparq-staging --remote --config wrangler.staging.toml"
+    "migrate:staging": "wrangler d1 migrations apply brandsparq-staging --remote --config wrangler.staging.toml && wrangler d1 execute brandsparq-staging --remote --config wrangler.staging.toml --file staging-init.sql"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260702.1",

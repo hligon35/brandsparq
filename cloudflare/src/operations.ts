@@ -1,3 +1,4 @@
+import { configurePilot, pilotOverview } from "./pilot";
 import { REQUIRED_SCHEMA, REQUIRED_INDEXES } from "./schema";
 import { markGraphicJobFailure, recoverRevisionJobs } from "./generation";
 import type { SessionUser } from "./auth";
@@ -575,6 +576,12 @@ export async function handleOperationsRoute(
   if (!url.pathname.startsWith("/v1/system")) return null;
   if (!hasPermission(user, "system_manage"))
     return { body: { error: "Owner access is required for system operations." }, status: 403 };
+
+  if (url.pathname === "/v1/system/pilot") {
+    if (request.method === "GET") return { body: { data: await pilotOverview(env) } };
+    if (request.method === "POST")
+      return configurePilot(env, user, await request.json().catch(() => null));
+  }
 
   if (request.method === "GET" && url.pathname === "/v1/system/overview") {
     return { body: { data: await getSystemOverview(env) } };

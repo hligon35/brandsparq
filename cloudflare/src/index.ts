@@ -1,3 +1,4 @@
+import { getPilot, pilotPublishError } from "./pilot";
 import { handleWorkspaceRoute } from "./workspace";
 import { handleTeamRoute, invitationPreview } from "./team";
 import { getSessionUser, handleAuthRoute, type SessionUser } from "./auth";
@@ -2136,10 +2137,16 @@ export default {
         );
       }
 
+      const pilotContext = await getPilot(env);
+      const pilotDenied = await pilotPublishError(env, sessionUser!, postId);
+      if (pilotDenied) return response(request, env, { error: pilotDenied }, { status: 409 });
+
       const job = await ensurePublishJob(
         env,
         postId,
         post.scheduled_publish_at || new Date().toISOString(),
+        sessionUser!.id,
+        pilotContext.revision,
       );
 
       await env.DB.prepare(
@@ -2339,13 +2346,21 @@ export default {
       .bind(nowIso)
       .all<any>();
 
+    const pilot = await getPilot(env);
     for (const row of due.results) {
-      const policy = row.prepublish_response
-        ? "auto_publish"
-        : row.no_response_policy || "auto_publish";
+      const policy =
+        pilot.mode !== "normal" &&
+        (pilot.mode !== "supervised" ||
+          !pilot.ends_at ||
+          pilot.ends_at <= nowIso ||
+          row.prepublish_response !== "publish_now")
+          ? "hold"
+          : row.prepublish_response
+            ? "auto_publish"
+            : row.no_response_policy || "auto_publish";
 
       if (policy === "hold") {
-        const changed = await stopScheduledPost(env, row.id, "paused", true);
+        const changed = await stopScheduledPost(env, row.id, "paused", pilot.mode === "normal");
         if (!changed) continue;
         await notifyPostOwners(
           env,
@@ -2585,6 +2600,9 @@ export default {
 
       const claim = await claimPublishJob(env, message.body.publishJobId);
       if (!claim.claimed) {
+        if (claim.eligible && claim.postId && (await getPilot(env)).mode !== "normal") {
+          await stopScheduledPost(env, claim.postId, "paused", false, claim.executionKey);
+        }
         message.ack();
         continue;
       }
@@ -2711,7 +2729,10 @@ export default {
         const providerError = error as any;
         const retryable =
           typeof providerError?.retryable === "boolean" ? providerError.retryable : true;
-        const exhausted = !retryable || claim.attempt >= claim.maxAttempts;
+        const exhausted =
+          !retryable ||
+          claim.attempt >= claim.maxAttempts ||
+          (await getPilot(env)).mode !== "normal";
 
         await env.DB.batch([
           env.DB.prepare(

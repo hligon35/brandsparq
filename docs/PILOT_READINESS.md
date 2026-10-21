@@ -42,7 +42,7 @@ Duplicate deliveries cannot run a second writer. Failures return the post to edi
 timed-out revisions require inspection before another revision. Review screens poll
 while regenerating, including public review links.
 
-Apply migration `0019_revision_jobs.sql` **before** deploying this app and Worker.
+Apply migrations `0019_revision_jobs.sql` and `0020_supervised_pilot.sql` **before** deploying this app and Worker.
 `npm run schema:check` verifies the generated schema manifest against every ordered
 migration. Launch certification checks all tables, column definitions, explicit
 index definitions and foreign-key integrity; schema gaps return `blocked` before
@@ -88,7 +88,7 @@ Run secret commands from the repository root with the explicit config path.
 Staging deployment always uses the separate generated configuration; it rejects
 the production D1 UUID, OAuth client and origin. It contains no production routes.
 Confirm every binding in Wrangler's dry-run/deploy output before accepting it.
-The production deploy command remains unchanged.
+The production deploy command remains unchanged. Staging deployment forces a same-origin web API URL so an inherited production `EXPO_PUBLIC_API_URL` cannot enter the staging bundle. Unknown production resource sections or extra D1/R2/queue bindings block configuration until explicit isolation rules are added. `migrate:staging` also applies `staging-init.sql`, restoring the staging publishing hold after migrations.
 
 After deployment set `BRANDSPARQ_BASE_URL` to the verified staging origin and run
 `npm run smoke:staging` and `npm run smoke:routing`. Run owner launch certification
@@ -223,3 +223,49 @@ unclaimed posts immediately on an ownership leak, duplicate post, uncertain
 publication or auth failure. A job already claimed requires provider reconciliation.
 Record the pilot's results and an explicit expansion decision; a clean deployment
 alone does not authorize broader client access.
+
+
+## Implemented pilot controls
+
+Owner operations now includes **System Health → Supervised pilot**, backed by
+`GET/POST /v1/system/pilot`. The initial migration retains normal production
+behavior. No pilot is activated by migration or this implementation. New staging
+initialization explicitly chooses `hold` so acceptance can run without scheduled
+publishing. Existing client assignments and sessions are not revoked by these
+publishing controls.
+
+An owner can hold publishing immediately. Unclaimed scheduled posts are paused
+and queued/retrying jobs are canceled transactionally. A publisher already in
+flight is left intact and reported to the owner; it requires provider reconciliation.
+
+Saving a supervised pilot requires a release commit, a future end within seven
+days, one connected destination for each of one or two active clients, and private
+HTTPS evidence references for CI, staging, routing, providers, restoration, Android,
+iOS and advisory review. References must omit query strings, fragments and URL
+credentials. These are owner attestations of completed checks, not automated
+verification of their contents. Store the reports privately and reference stable
+report pages rather than signed download URLs.
+
+Every publish requires an explicit active-owner decision for the current pilot
+revision and the exact client/account pair. The queue claim rechecks these rules
+and atomically limits each client to one new publishing execution per UTC day.
+Failed executions consume that daily slot. Provider errors do not retry
+automatically during a pilot. Expiration holds publishing instead of reopening
+broader access. Cron holds scheduled posts even if workspace policy says
+`auto_publish`. Duplicate or blocked claims cannot resume a paused post, and a
+blocked current execution is returned to paused status.
+
+Configuration updates use revision checks and unique mutation tokens, so concurrent
+updates by the same owner cannot apply the losing request's scope or audit. New
+invitations are blocked on hold/expiration and otherwise limited to pilot client
+assignments. Evidence and configuration changes are owner-only and audited.
+Existing pending invitations/access are retained; review them before activation.
+Returning to broader release is deliberately outside this pilot activation API.
+
+## Safe test execution
+
+`tests/register.mjs` replaces inherited provider fetch with a rejecting transport.
+Tests must explicitly mock provider fetch. The isolated E2E server installs its
+own provider fixtures and binds loopback. An initially unmocked scheduler test was
+stopped by automatic approval review; the default test transport now prevents
+that class of external email/provider request.

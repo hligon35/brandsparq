@@ -252,3 +252,29 @@ test("viewers see read-only client screens and no creation navigation", async ({
   await expect(page.getByRole("button", { name: "Approve post", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Rewrite caption", exact: true })).toHaveCount(0);
 });
+
+test("owner can persist a publishing hold and pilot controls fit narrow screens", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/system");
+  await expect(page.getByText("Pilot not enabled", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Hold publishing", exact: true }).click();
+  await expect(page.getByText("Publishing held", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Publishing held", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Configure supervised pilot", exact: true }).click();
+  await expect(page.getByLabel("Accepted release commit", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Green CI evidence", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Save supervised pilot", exact: true }).click();
+  await expect(
+    page.getByText(
+      "Provide the accepted release commit and a future pilot end within seven days.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: test.info().outputPath("pilot-controls.png"), fullPage: true });
+});

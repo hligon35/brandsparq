@@ -32,7 +32,7 @@
     "schema:generate": "node scripts/schema-manifest.mjs",
     "schema:check": "node scripts/schema-manifest.mjs --check",
     "configure:staging": "node --env-file-if-exists=.env.sandbox scripts/staging-config.mjs",
-    "deploy:staging": "npm run validate && npm run configure:staging && npm --prefix cloudflare run deploy:staging",
+    "deploy:staging": "node --env-file-if-exists=.env.sandbox scripts/deploy-staging.mjs",
     "migrate:staging": "npm run configure:staging && npm --prefix cloudflare run migrate:staging",
     "verify:restore": "node scripts/verify-restore.mjs",
     "smoke:routing": "node scripts/check-access-routing.mjs"
@@ -64,5 +64,10 @@
   },
   "engines": {
     "node": ">=22.15.0"
+  },
+  "overrides": {
+    "xcode": {
+      "uuid": "11.1.1"
+    }
   }
 }

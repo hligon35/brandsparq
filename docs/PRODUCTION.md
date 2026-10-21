@@ -278,7 +278,7 @@ Reference: https://developers.cloudflare.com/cloudflare-one/access-controls/serv
 
 ## Pilot-readiness hardening
 
-Apply `0019_revision_jobs.sql` before deploying this release. Follow
+Apply `0019_revision_jobs.sql` and `0020_supervised_pilot.sql` before deploying this release. Follow
 [PILOT_READINESS.md](PILOT_READINESS.md) for isolated staging, Access routing,
 provider acceptance, restoration and native evidence, and supervised pilot gates.
 AI revisions now return a durable queued job rather than waiting for AI inside the

@@ -1,3 +1,4 @@
+import type { PilotConfiguration, PilotOverview } from "@/shared/pilot";
 import { Platform } from "react-native";
 import type { Asset, Client, MarketingPost, PrePublishDecision } from "@/types/domain";
 
@@ -307,6 +308,13 @@ export const api = {
   testNotifications: () => jsonRequest<{ ok: true }>("/v1/notifications/test", { method: "POST" }),
 
   getSystemOverview: () => jsonRequest<{ data: any }>("/v1/system/overview"),
+
+  getPilot: () => jsonRequest<{ data: PilotOverview }>("/v1/system/pilot"),
+  configurePilot: (payload: PilotConfiguration) =>
+    jsonRequest<{ ok: true; data: PilotOverview }>("/v1/system/pilot", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   recoverSystemWork: () =>
     jsonRequest<{ ok: true; data: any }>("/v1/system/recover", { method: "POST" }),

@@ -1690,6 +1690,76 @@ export const REQUIRED_SCHEMA = {
       pk: 0,
     },
   ],
+  pilot_destinations: [
+    {
+      name: "client_id",
+      type: "TEXT",
+      notnull: 0,
+      pk: 1,
+    },
+    {
+      name: "social_account_id",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+  ],
+  pilot_settings: [
+    {
+      name: "id",
+      type: "TEXT",
+      notnull: 0,
+      pk: 1,
+    },
+    {
+      name: "mode",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "revision",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "mutation_token",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "ends_at",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "release_commit",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "evidence_json",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "updated_by",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "updated_at",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+  ],
   post_assets: [
     {
       name: "post_id",
@@ -2207,6 +2277,24 @@ export const REQUIRED_SCHEMA = {
       name: "updated_at",
       type: "TEXT",
       notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "supervised_by",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "pilot_revision",
+      type: "INTEGER",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "first_claimed_at",
+      type: "TEXT",
+      notnull: 0,
       pk: 0,
     },
   ],
@@ -3473,6 +3561,10 @@ export const REQUIRED_INDEXES = [
   {
     name: "idx_publish_attempts_job",
     sql: "CREATE INDEX idx_publish_attempts_job\n  ON publish_attempts(publish_job_id, created_at)",
+  },
+  {
+    name: "idx_publish_jobs_first_claim",
+    sql: "CREATE INDEX idx_publish_jobs_first_claim ON publish_jobs(first_claimed_at,post_id)",
   },
   {
     name: "idx_publish_jobs_post",
