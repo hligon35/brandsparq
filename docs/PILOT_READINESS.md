@@ -96,6 +96,14 @@ and save the result with the deployed commit and Worker version.
 
 ## Access routing contract
 
+Live probes on October 20 returned HTTP 302 redirects to the Cloudflare Access
+login for `/v1/dashboard`, `/v1/public/review/invalid-acceptance-token`,
+`/v1/public/invitations/invalid-acceptance-token`, and
+`/v1/public/publish-media/invalid-acceptance-token`. The provider-media and public
+review endpoints are currently gated before reaching the Worker. Account policy
+changes remain unperformed because Cloudflare authentication is unavailable.
+
+
 The Expo app uses application sessions and client authorization. Browser-only
 Cloudflare Access on the entire origin or all `/v1/*` breaks native clients,
 OAuth callbacks, review links and provider downloads. The native app must never

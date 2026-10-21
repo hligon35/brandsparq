@@ -157,3 +157,26 @@ test("a recovered job cannot publish a future schedule unless an explicit publis
   w.exec("UPDATE posts SET prepublish_response='publish_now' WHERE id='future'");
   assert.equal((await claimPublishJob(w.env, job.jobId)).claimed, true);
 });
+
+test("stale outbox recovery cannot overwrite a publisher that claimed after selection", async (t) => {
+  const w = workspace(t);
+  w.post("race", "client-a", "calendar_scheduled");
+  const job = await ensurePublishJob(w.env, "race");
+  w.exec("UPDATE publish_jobs SET status='retrying',updated_at='2000-01-01' WHERE id=?", job.jobId);
+  const original = w.env.DB.prepare;
+  w.env.DB.prepare = (sql) => {
+    const statement = original(sql);
+    if (sql.includes("SELECT id,post_id,execution_key,attempt_count,max_attempts,last_error")) {
+      const all = statement.all;
+      statement.all = async () => {
+        const rows = await all.call(statement);
+        assert.equal((await claimPublishJob(w.env, job.jobId)).claimed, true);
+        return rows;
+      };
+    }
+    return statement;
+  };
+  await recoverStaleWork(w.env);
+  assert.equal(w.row("SELECT status FROM publish_jobs WHERE id=?", job.jobId).status, "publishing");
+  assert.equal(w.published.length, 0);
+});

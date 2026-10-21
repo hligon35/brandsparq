@@ -140,7 +140,7 @@ export async function readiness(env: OperationsEnv) {
 export async function recoverStaleWork(env: OperationsEnv) {
   await recoverRevisionJobs(env);
   const stalePublish = await env.DB.prepare(
-    `SELECT id,post_id,execution_key,attempt_count,max_attempts,last_error,status,claimed_at
+    `SELECT id,post_id,execution_key,attempt_count,max_attempts,last_error,status,claimed_at,updated_at
      FROM publish_jobs
      WHERE (
        (status='publishing' AND datetime(claimed_at) < datetime('now','-15 minutes'))
@@ -178,14 +178,15 @@ export async function recoverStaleWork(env: OperationsEnv) {
     }
     if (Number(job.attempt_count) >= Number(job.max_attempts)) {
       const now = new Date().toISOString();
-      await env.DB.batch([
+      const [failed] = await env.DB.batch([
         env.DB.prepare(
-          `UPDATE publish_jobs SET status='failed',completed_at=?,last_error=COALESCE(last_error,'Publishing worker timed out.'),updated_at=? WHERE id=?`,
-        ).bind(now, now, job.id),
+          `UPDATE publish_jobs SET status='failed',completed_at=?,last_error=COALESCE(last_error,'Publishing worker timed out.'),updated_at=? WHERE id=? AND status=? AND updated_at=?`,
+        ).bind(now, now, job.id, job.status, job.updated_at),
         env.DB.prepare(
-          `UPDATE posts SET status='failed',failure_code='WORKER_TIMEOUT',failure_message='Publishing worker timed out.',updated_at=? WHERE id=? AND status IN ('publishing','publish_queued')`,
-        ).bind(now, job.post_id),
+          `UPDATE posts SET status='failed',failure_code='WORKER_TIMEOUT',failure_message='Publishing worker timed out.',updated_at=? WHERE id=? AND status IN ('publishing','publish_queued') AND EXISTS (SELECT 1 FROM publish_jobs WHERE id=? AND status='failed')`,
+        ).bind(now, job.post_id, job.id),
       ]);
+      if (!failed.meta.changes) continue;
       await recordSystemEvent(env, {
         severity: "error",
         category: "publishing",
@@ -196,11 +197,12 @@ export async function recoverStaleWork(env: OperationsEnv) {
         metadata: { postId: job.post_id },
       });
     } else {
-      await env.DB.prepare(
-        `UPDATE publish_jobs SET status='retrying',claimed_at=NULL,last_error=COALESCE(last_error,'Recovered stale publishing claim.'),updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+      const recovered = await env.DB.prepare(
+        `UPDATE publish_jobs SET status='retrying',claimed_at=NULL,last_error=COALESCE(last_error,'Recovered stale publishing claim.'),updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=? AND updated_at=?`,
       )
-        .bind(job.id)
+        .bind(job.id, job.status, job.updated_at)
         .run();
+      if (!recovered.meta.changes) continue;
       await env.PUBLISH_QUEUE.send(
         {
           kind: "publish",

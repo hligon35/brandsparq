@@ -87,7 +87,7 @@ export async function claimPublishJob(
          attempt_count = attempt_count + 1,
          claimed_at = ?,
          updated_at = ?
-     WHERE id = ? AND status IN ('queued','retrying') AND EXISTS (
+     WHERE id = ? AND status IN ('queued','retrying') AND attempt_count < max_attempts AND EXISTS (
        SELECT 1 FROM posts p JOIN clients c ON c.id=p.client_id
        WHERE p.id=publish_jobs.post_id AND c.status='active'
          AND publish_jobs.execution_key='post:' || p.id || ':publish:v' || p.publish_version
