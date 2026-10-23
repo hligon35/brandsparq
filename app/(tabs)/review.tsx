@@ -191,7 +191,13 @@ export default function ReviewScreen() {
 }
 
 const styles = StyleSheet.create({
-  refresh: { color: colors.primary, fontWeight: "800", paddingVertical: 8 },
+  refresh: {
+    color: colors.primary,
+    fontWeight: "800",
+    minHeight: 44,
+    paddingHorizontal: 8,
+    textAlignVertical: "center",
+  },
   loading: { paddingVertical: 60 },
   search: {
     minHeight: 48,
@@ -226,7 +232,8 @@ const styles = StyleSheet.create({
   },
   selector: {
     paddingHorizontal: 10,
-    paddingVertical: 7,
+    minHeight: 44,
+    paddingVertical: 10,
     borderRadius: radius.pill,
     backgroundColor: colors.surface2,
     borderWidth: 1,
@@ -240,7 +247,7 @@ const styles = StyleSheet.create({
   platform: { color: colors.primary, fontSize: 11, fontWeight: "900", letterSpacing: 1.1 },
   cardTitle: { color: colors.textSoft, fontSize: 16, lineHeight: 23, fontWeight: "700" },
   time: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: "auto" },
-  openButton: { marginTop: spacing.sm },
+  openButton: { marginTop: spacing.sm, minHeight: 44, justifyContent: "center" },
   openText: { color: colors.primary, fontWeight: "800" },
   emptyTitle: { color: colors.text, fontSize: 20, fontWeight: "900" },
   emptyBody: { color: colors.muted },

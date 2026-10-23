@@ -8,6 +8,8 @@ Images → AI analysis → graphics/captions → strategic slot suggestion → r
 ## Stack
 Expo + React Native + Expo Router + TypeScript; Cloudflare Workers, D1, R2 and Queues.
 
+The web client and iOS/Android apps share the Expo Router application and React Native screens, with platform-native navigation and capabilities. Native build profiles and device acceptance steps are in [Sprint 9](docs/SPRINT9.md).
+
 ## Current production capabilities
 - Google OAuth and RBAC
 - Multi-client Brand Brain

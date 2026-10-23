@@ -30,6 +30,64 @@ test("login is accessible, fits the viewport, and restores a signed-in session a
   expect(errors).toEqual([]);
 });
 
+test("workspace routes stay inside narrow phone viewports", async ({ page }) => {
+  await signIn(page);
+
+  const routes = [
+    "/",
+    "/review",
+    "/create",
+    "/calendar",
+    "/more",
+    "/clients",
+    "/clients/client-a/brand",
+    "/campaigns",
+    "/social",
+    "/analytics",
+    "/notifications",
+    "/settings",
+    "/access",
+    "/system",
+    "/posts/fixture-post",
+    "/posts/fixture-post/publish",
+    "/posts/fixture-post/reschedule",
+  ];
+
+  for (const viewport of [
+    { width: 320, height: 640 },
+    { width: 360, height: 780 },
+  ]) {
+    await page.setViewportSize(viewport);
+    for (const route of routes) {
+      await page.goto(route);
+      await expect(page.getByRole("heading").first()).toBeVisible();
+      const layout = await page.evaluate(() => ({
+        viewport: window.innerWidth,
+        document: document.documentElement.scrollWidth,
+        body: document.body.scrollWidth,
+        undersizedControls: [...document.querySelectorAll('button,[role="button"]')]
+          .filter((element) => {
+            const box = element.getBoundingClientRect();
+            return box.width > 0 && box.height > 0 && (box.width < 44 || box.height < 44);
+          })
+          .map((element) => ({
+            label: element.getAttribute("aria-label") || element.textContent?.trim().slice(0, 40),
+            width: Math.round(element.getBoundingClientRect().width),
+            height: Math.round(element.getBoundingClientRect().height),
+          })),
+      }));
+      expect(
+        layout.document <= layout.viewport && layout.body <= layout.viewport,
+        `${route} overflows at ${viewport.width}px: ${JSON.stringify(layout)}`,
+      ).toBe(true);
+      expect(
+        layout.undersizedControls,
+        `${route} has undersized controls at ${viewport.width}px: ${JSON.stringify(layout.undersizedControls)}`,
+      ).toEqual([]);
+    }
+  }
+});
+
 test("Brand Brain persists edits through the real authenticated API", async ({ page, request }) => {
   await signIn(page);
   await page.goto("/clients/client-a/brand");

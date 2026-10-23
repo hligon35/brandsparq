@@ -5,16 +5,18 @@ import {
   ActivityIndicator,
   Image,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/auth/context";
 import { colors, radius, spacing } from "@/theme/tokens";
 
 export default function LoginScreen() {
+  const { width } = useWindowDimensions();
   const { user, signInWithGoogle, completeGoogleSignIn } = useAuth();
   const { handoff, auth_error: authError } = useLocalSearchParams<{
     handoff?: string;
@@ -65,7 +67,7 @@ export default function LoginScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top", "right", "bottom", "left"]}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.wrapper}>
           <View style={styles.logoWrap}>
@@ -78,7 +80,7 @@ export default function LoginScreen() {
             <Text style={styles.appName}>BrandSparQ</Text>
           </View>
 
-          <View style={styles.card}>
+          <View style={[styles.card, width < 360 && styles.cardCompact]}>
             <Text style={styles.title}>Sign in</Text>
             <Text style={styles.subtitle}>Continue with your authorized Google account.</Text>
 
@@ -90,6 +92,7 @@ export default function LoginScreen() {
               onPress={working ? undefined : startGoogleSignIn}
               style={({ pressed }) => [
                 styles.googleButton,
+                width < 360 && styles.googleButtonCompact,
                 working && styles.disabled,
                 pressed && !working && styles.pressed,
               ]}
@@ -170,6 +173,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 3,
   },
+  cardCompact: { paddingHorizontal: 18, paddingVertical: 22 },
   title: {
     color: colors.text,
     fontSize: 25,
@@ -186,7 +190,7 @@ const styles = StyleSheet.create({
   },
   googleButton: {
     width: "100%",
-    minHeight: 50,
+    minHeight: 52,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#D5DEEA",
@@ -197,6 +201,7 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 16,
   },
+  googleButtonCompact: { paddingHorizontal: 10, gap: 8 },
   googleMark: {
     width: 22,
     height: 22,
