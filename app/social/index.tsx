@@ -136,6 +136,7 @@ export default function SocialConnectionsScreen() {
             accessibilityRole="button"
             accessibilityLabel="Refresh social connections"
             onPress={load}
+            style={styles.refreshButton}
           >
             <Text style={styles.refresh}>Refresh</Text>
           </Pressable>
@@ -247,12 +248,15 @@ export default function SocialConnectionsScreen() {
 }
 
 const styles = StyleSheet.create({
+  refreshButton: { minHeight: 44, paddingHorizontal: 8, justifyContent: "center" },
   refresh: { color: colors.primary, fontWeight: "800" },
   label: { color: colors.muted, fontSize: 12, fontWeight: "800", textTransform: "uppercase" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: {
     paddingHorizontal: 14,
-    paddingVertical: 9,
+    minHeight: 44,
+    paddingVertical: 11,
+    justifyContent: "center",
     borderRadius: 999,
     backgroundColor: colors.surface2,
   },

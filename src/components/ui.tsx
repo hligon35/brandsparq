@@ -1,5 +1,7 @@
 import type { PropsWithChildren, ReactNode } from "react";
+import { useSegments } from "expo-router";
 import {
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,11 +11,13 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useResponsive } from "@/hooks/useResponsive";
 import { colors, radius, shadows, spacing } from "@/theme/tokens";
 
 export function Screen({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
   const responsive = useResponsive();
+  const insets = useSafeAreaInsets();
 
   return (
     <View style={styles.screen}>
@@ -23,7 +27,8 @@ export function Screen({ children, style }: PropsWithChildren<{ style?: StylePro
           {
             maxWidth: responsive.maxContentWidth,
             paddingHorizontal: responsive.gutter,
-            paddingVertical: responsive.compact ? spacing.md : spacing.lg,
+            paddingTop: Math.max(responsive.compact ? spacing.md : spacing.lg, insets.top),
+            paddingBottom: Math.max(responsive.compact ? spacing.md : spacing.lg, insets.bottom),
           },
           style,
         ]}
@@ -40,6 +45,11 @@ export function PageScroll({
   ...props
 }: PropsWithChildren<ScrollViewProps & { contentStyle?: StyleProp<ViewStyle> }>) {
   const responsive = useResponsive();
+  const insets = useSafeAreaInsets();
+  const segments = useSegments();
+  const firstSegment = String(segments[0] ?? "");
+  const headerlessNativeScreen =
+    Platform.OS !== "web" && ["(tabs)", "invite", "review"].includes(firstSegment);
 
   return (
     <ScrollView
@@ -48,11 +58,23 @@ export function PageScroll({
         styles.scrollContent,
         {
           paddingHorizontal: responsive.gutter,
-          paddingVertical: responsive.compact ? spacing.md : spacing.lg,
+          paddingTop: headerlessNativeScreen
+            ? Math.max(responsive.compact ? spacing.md : spacing.lg, insets.top)
+            : responsive.compact
+              ? spacing.md
+              : spacing.lg,
+          paddingBottom:
+            headerlessNativeScreen && firstSegment !== "(tabs)"
+              ? Math.max(responsive.compact ? spacing.md : spacing.lg, insets.bottom)
+              : responsive.compact
+                ? spacing.md
+                : spacing.lg,
         },
         contentStyle,
       ]}
       keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
+      contentInsetAdjustmentBehavior="automatic"
       {...props}
     >
       <View style={[styles.scrollInner, { maxWidth: responsive.maxContentWidth }]}>{children}</View>
@@ -203,7 +225,7 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   button: {
-    minHeight: 50,
+    minHeight: 48,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primary,
@@ -215,6 +237,7 @@ const styles = StyleSheet.create({
   },
   buttonSmall: {
     minHeight: 44,
+    minWidth: 44,
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
   },

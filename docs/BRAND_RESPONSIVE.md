@@ -15,6 +15,8 @@ The application UI now follows the visual language of the approved BrandSparQ lo
   - Mobile-first stacked layouts
   - Bottom tab navigation
   - Full-width cards and controls
+  - Calendar week and month views use an agenda layout so dates, post details, and actions stay readable without horizontal panning
+  - Core actions and selection controls keep at least a 44px touch area
 
 - Medium: 640px–1023px
   - Wider gutters
@@ -33,3 +35,9 @@ Core responsive primitives live in:
 - `src/components/ui.tsx`
 - `src/components/brand.tsx`
 - `src/theme/tokens.ts`
+
+## Hybrid Expo app
+
+The web and native clients use the same Expo Router screens and shared React Native components. The web target is exported with React Native Web; iOS and Android use native navigation, secure session storage, image picker permissions, deep-link scheme handling, and Expo notification registration. Do not wrap the web client in a WebView for the native release.
+
+Phone layout checks cover 320px and 360px widths across the primary workspace routes. Browser coverage is not a substitute for installing and exercising an EAS build on a physical device or simulator; native acceptance steps are in [Sprint 9](SPRINT9.md).

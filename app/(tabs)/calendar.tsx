@@ -369,9 +369,43 @@ export default function CalendarScreen() {
         </View>
       )}
 
-      {!error && mode === "week" && (
-        <ScrollView horizontal={compact} showsHorizontalScrollIndicator={false}>
-          <View style={[styles.weekGrid, compact && styles.weekGridCompact]}>
+      {!error &&
+        mode === "week" &&
+        (compact ? (
+          <View style={styles.agenda}>
+            {range.days.map((day) => {
+              const dayPosts = filtered.filter((post) => sameDay(post.scheduledPublishAt, day));
+              return (
+                <View key={day.toISOString()} style={styles.agendaDay}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Show ${day.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`}
+                    onPress={() => {
+                      setAnchor(day);
+                      setMode("day");
+                    }}
+                    style={styles.agendaHeading}
+                  >
+                    <Text style={styles.agendaDate}>
+                      {day.toLocaleDateString(undefined, {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </Text>
+                    <Text style={styles.agendaCount}>
+                      {dayPosts.length
+                        ? `${dayPosts.length} post${dayPosts.length === 1 ? "" : "s"}`
+                        : "Open"}
+                    </Text>
+                  </Pressable>
+                  {dayPosts.map(postCard)}
+                </View>
+              );
+            })}
+          </View>
+        ) : (
+          <View style={styles.weekGrid}>
             {range.days.map((day) => {
               const dayPosts = filtered.filter((post) => sameDay(post.scheduledPublishAt, day));
               return (
@@ -395,10 +429,56 @@ export default function CalendarScreen() {
               );
             })}
           </View>
-        </ScrollView>
+        ))}
+
+      {!error && mode === "month" && compact && (
+        <View style={styles.agenda}>
+          {range.days
+            .filter((day) => day.getMonth() === anchor.getMonth())
+            .map((day) => ({
+              day,
+              posts: filtered.filter((post) => sameDay(post.scheduledPublishAt, day)),
+            }))
+            .filter(({ posts }) => posts.length > 0)
+            .map(({ day, posts }) => (
+              <View key={day.toISOString()} style={styles.agendaDay}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Show ${day.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`}
+                  onPress={() => {
+                    setAnchor(day);
+                    setMode("day");
+                  }}
+                  style={styles.agendaHeading}
+                >
+                  <Text style={styles.agendaDate}>
+                    {day.toLocaleDateString(undefined, {
+                      weekday: "long",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </Text>
+                  <Text style={styles.agendaCount}>
+                    {posts.length} post{posts.length === 1 ? "" : "s"}
+                  </Text>
+                </Pressable>
+                {posts.map(postCard)}
+              </View>
+            ))}
+          {!range.days.some(
+            (day) =>
+              day.getMonth() === anchor.getMonth() &&
+              filtered.some((post) => sameDay(post.scheduledPublishAt, day)),
+          ) && (
+            <Card subtle>
+              <Text style={styles.emptyTitle}>No posts this month</Text>
+              <Text style={styles.sub}>Approved posts will appear here when scheduled.</Text>
+            </Card>
+          )}
+        </View>
       )}
 
-      {!error && mode === "month" && (
+      {!error && mode === "month" && !compact && (
         <View>
           <View style={styles.weekdayHeader}>
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
@@ -454,11 +534,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
   },
-  modeRow: { flexDirection: "row", gap: 8 },
+  modeRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   navRow: { flexDirection: "row", gap: 8 },
   modeButton: {
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    minHeight: 44,
+    paddingVertical: 11,
+    justifyContent: "center",
     borderRadius: radius.pill,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -487,7 +569,9 @@ const styles = StyleSheet.create({
   chips: { flexDirection: "row", gap: 8, paddingVertical: 5 },
   chip: {
     paddingHorizontal: 13,
-    paddingVertical: 8,
+    minHeight: 44,
+    paddingVertical: 11,
+    justifyContent: "center",
     borderRadius: radius.pill,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -518,7 +602,9 @@ const styles = StyleSheet.create({
   },
   selector: {
     paddingHorizontal: 8,
-    paddingVertical: 6,
+    minHeight: 44,
+    paddingVertical: 11,
+    justifyContent: "center",
     borderRadius: radius.pill,
     backgroundColor: colors.surface2,
   },
@@ -537,10 +623,23 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   time: { color: colors.primaryDark, fontWeight: "900" },
-  openLink: { paddingVertical: 6 },
+  openLink: { paddingVertical: 10, minHeight: 44, justifyContent: "center" },
   openText: { color: colors.primary, fontWeight: "800" },
   weekGrid: { flexDirection: "row", gap: 8, width: "100%" },
-  weekGridCompact: { minWidth: 1540 },
+  agenda: { gap: spacing.md },
+  agendaDay: { gap: spacing.sm },
+  agendaHeading: {
+    minHeight: 44,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  agendaDate: { color: colors.text, fontSize: 15, fontWeight: "900", flexShrink: 1 },
+  agendaCount: { color: colors.muted, fontSize: 12, fontWeight: "800" },
   weekColumn: {
     flex: 1,
     minWidth: 0,
