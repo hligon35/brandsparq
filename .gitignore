@@ -18,3 +18,4 @@ test-results/
 .env.production
 cloudflare/wrangler.staging.toml
 backups/
+.dev.vars
