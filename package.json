@@ -35,7 +35,19 @@
     "deploy:staging": "node --env-file-if-exists=.env.sandbox scripts/deploy-staging.mjs",
     "migrate:staging": "npm run configure:staging && npm --prefix cloudflare run migrate:staging",
     "verify:restore": "node scripts/verify-restore.mjs",
-    "smoke:routing": "node scripts/check-access-routing.mjs"
+    "smoke:routing": "node scripts/check-access-routing.mjs",
+    "dev:mobile": "expo start --dev-client --clear",
+    "dev:tunnel": "expo start --dev-client --clear --tunnel",
+    "build:dev:ios": "npx eas-cli@latest build --platform ios --profile development",
+    "build:dev:android": "npx eas-cli@latest build --platform android --profile development",
+    "build:preview:ios": "npx eas-cli@latest build --platform ios --profile preview",
+    "build:preview:android": "npx eas-cli@latest build --platform android --profile preview",
+    "build:prod:ios": "npx eas-cli@latest build --platform ios --profile production",
+    "build:prod:android": "npx eas-cli@latest build --platform android --profile production",
+    "ota:dev": "npx eas-cli@latest update --channel development --environment development",
+    "ota:preview": "npx eas-cli@latest update --channel preview --environment preview",
+    "ota:production": "npx eas-cli@latest update --channel production --environment production",
+    "ota:configure": "npx eas-cli@latest update:configure"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
