@@ -1,15 +1,23 @@
 import type { PilotConfiguration, PilotOverview } from "@/shared/pilot";
+import Constants from "expo-constants";
 import { Platform } from "react-native";
 import type { Asset, Client, MarketingPost, PrePublishDecision } from "@/types/domain";
 
+const PRODUCTION_API_URL = "https://brandsparq.getsparqd.com";
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
+const isNativeDevice = Platform.OS !== "web" && Constants.isDevice;
+const configuredUrlIsLoopback =
+  configuredApiUrl != null &&
+  /^https?:\/\/(localhost|127(?:\.\d{1,3}){3})(:\d+)?$/i.test(configuredApiUrl);
+
+// A phone's localhost is the phone itself. Use the hosted API on physical devices
+// when no URL is configured or the copied example still points to loopback.
+// Developers can explicitly use a LAN IP to test a local Worker from a phone.
 const API_URL =
-  configuredApiUrl ??
-  (Platform.OS === "web"
-    ? ""
-    : __DEV__
-      ? "http://localhost:8787"
-      : "https://brandsparq.getsparqd.com");
+  isNativeDevice && (!configuredApiUrl || configuredUrlIsLoopback)
+    ? PRODUCTION_API_URL
+    : (configuredApiUrl ??
+      (Platform.OS === "web" ? "" : __DEV__ ? "http://localhost:8787" : PRODUCTION_API_URL));
 
 let sessionToken: string | null = null;
 let unauthorizedHandler: (() => void | Promise<void>) | null = null;
