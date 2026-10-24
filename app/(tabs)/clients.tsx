@@ -63,7 +63,7 @@ export default function ClientsScreen() {
     <PageScroll>
       <PageHeader
         eyebrow="Brand intelligence"
-        title="Clients & Brand Brain"
+        title="Your clients"
         subtitle="Create clients and manage the rules BrandSparQ uses to create, caption, and schedule their content."
       />
 
@@ -119,7 +119,15 @@ export default function ClientsScreen() {
             <View
               style={[styles.clientColor, { backgroundColor: client.color || colors.primary }]}
             />
-            <Text style={styles.cardTitle}>{client.name}</Text>
+            <Link href={`/clients/${client.id}`} asChild>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${client.name} workspace`}
+                style={{ minHeight: 48, justifyContent: "center" }}
+              >
+                <Text style={styles.cardTitle}>{client.name} →</Text>
+              </Pressable>
+            </Link>
             <StatusBadge label={client.status || "active"} />
             <Text style={styles.sub}>{client.timezone || "Timezone not set"}</Text>
             <Text style={styles.sub}>
@@ -197,11 +205,12 @@ const styles = StyleSheet.create({
   actions: {
     marginTop: "auto",
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "space-between",
     alignItems: "center",
     gap: spacing.sm,
   },
-  edit: { color: colors.primary, fontWeight: "800" },
-  archive: { color: colors.warning, fontWeight: "800" },
+  edit: { minHeight: 44, textAlignVertical: "center", color: colors.primary, fontWeight: "800" },
+  archive: { minHeight: 44, textAlignVertical: "center", color: colors.warning, fontWeight: "800" },
   errorTitle: { color: colors.text, fontSize: 20, fontWeight: "900" },
 });

@@ -10,6 +10,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/auth/context";
 import { BrandLogo } from "@/components/brand";
 import { breakpoints } from "@/hooks/useResponsive";
@@ -17,7 +18,7 @@ import { colors, radius, spacing } from "@/theme/tokens";
 
 const navItems = [
   { label: "Home", href: "/" as const },
-  { label: "Review", href: "/review" as const },
+  { label: "Clients", href: "/clients" as const },
   { label: "Create", href: "/create" as const },
   { label: "Calendar", href: "/calendar" as const },
   { label: "More", href: "/more" as const },
@@ -30,7 +31,7 @@ function DesktopHeader() {
   return (
     <View style={styles.desktopHeader}>
       <View style={styles.desktopHeaderInner}>
-        <BrandLogo compact showTagline={false} />
+        <BrandLogo compact />
         <View style={styles.desktopNav}>
           {navItems
             .filter((item) => item.href !== "/create" || can("generate"))
@@ -60,10 +61,29 @@ function DesktopHeader() {
   );
 }
 
+function MobileHeader() {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.mobileHeader, { paddingTop: insets.top + 8 }]}>
+      <BrandLogo compact />
+      <Link href="/notifications" asChild>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Notifications"
+          style={styles.bell}
+        >
+          <Ionicons name="notifications-outline" size={24} color={colors.text} />
+        </Pressable>
+      </Link>
+    </View>
+  );
+}
+
 export default function TabsLayout() {
   const can = useCapabilities();
   const { ready, user } = useAuth();
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const desktopWeb = Platform.OS === "web" && width >= breakpoints.wide;
 
   if (!ready) {
@@ -79,10 +99,15 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerShown: desktopWeb,
-        header: desktopWeb ? () => <DesktopHeader /> : undefined,
+        headerShown: true,
+        header: () => (desktopWeb ? <DesktopHeader /> : <MobileHeader />),
         sceneStyle: { backgroundColor: colors.bg },
-        tabBarStyle: desktopWeb ? { display: "none" } : styles.tabBar,
+        tabBarStyle: desktopWeb
+          ? { display: "none" }
+          : [
+              styles.tabBar,
+              { height: 64 + insets.bottom, paddingBottom: Math.max(8, insets.bottom) },
+            ],
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         tabBarLabelStyle: styles.tabLabel,
@@ -93,7 +118,11 @@ export default function TabsLayout() {
         options={{
           title: "Home",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home-outline" color={color} size={size} />
+            <Ionicons
+              name="home-outline"
+              color={typeof color === "string" ? color : colors.muted}
+              size={size}
+            />
           ),
         }}
       />
@@ -101,8 +130,13 @@ export default function TabsLayout() {
         name="review"
         options={{
           title: "Review",
+          href: null,
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="checkmark-circle-outline" color={color} size={size} />
+            <Ionicons
+              name="checkmark-circle-outline"
+              color={typeof color === "string" ? color : colors.muted}
+              size={size}
+            />
           ),
         }}
       />
@@ -112,7 +146,11 @@ export default function TabsLayout() {
           title: "Create",
           href: can("generate") ? "/create" : null,
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="add-circle-outline" color={color} size={size} />
+            <Ionicons
+              name="add-circle-outline"
+              color={typeof color === "string" ? color : colors.muted}
+              size={size}
+            />
           ),
         }}
       />
@@ -121,7 +159,24 @@ export default function TabsLayout() {
         options={{
           title: "Calendar",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar-outline" color={color} size={size} />
+            <Ionicons
+              name="calendar-outline"
+              color={typeof color === "string" ? color : colors.muted}
+              size={size}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="clients"
+        options={{
+          title: "Clients",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons
+              name="people-outline"
+              color={typeof color === "string" ? color : colors.muted}
+              size={size}
+            />
           ),
         }}
       />
@@ -130,7 +185,11 @@ export default function TabsLayout() {
         options={{
           title: "More",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="grid-outline" color={color} size={size} />
+            <Ionicons
+              name="grid-outline"
+              color={typeof color === "string" ? color : colors.muted}
+              size={size}
+            />
           ),
         }}
       />
@@ -139,6 +198,18 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
+  mobileHeader: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  bell: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center" },
   loading: {
     flex: 1,
     alignItems: "center",

@@ -1,9 +1,11 @@
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
-import { Link, useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { Link, useRouter, useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { ClientPicker } from "@/components/client-picker";
+import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/api/client";
 import { prepareCampaignAsset } from "@/media/prepareUpload";
 import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";
@@ -15,11 +17,13 @@ const objectives = ["Auto", "Promote", "Awareness", "Announce"];
 
 export default function CreateScreen() {
   const router = useRouter();
+  const { clientId: requestedClientId } = useLocalSearchParams<{ clientId?: string }>();
   const can = useCapabilities();
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState("");
   const [clientError, setClientError] = useState("");
   const [objective, setObjective] = useState("Auto");
+  const [creationMode, setCreationMode] = useState<"social" | "campaign">("campaign");
   const [assets, setAssets] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
@@ -31,7 +35,11 @@ export default function CreateScreen() {
       const data = await api.getClients();
       const visible = data.filter((client) => can("generate", client.id));
       setClients(visible);
-      setClientId((current) => current || visible[0]?.id || "");
+      setClientId((current) =>
+        visible.some((client) => client.id === requestedClientId)
+          ? requestedClientId!
+          : current || visible[0]?.id || "",
+      );
     } catch (err) {
       setClients([]);
       setClientError(err instanceof Error ? err.message : "Unable to load clients.");
@@ -40,9 +48,7 @@ export default function CreateScreen() {
 
   useEffect(() => {
     void loadClients();
-  }, []);
-
-  const selectedClient = useMemo(() => clients.find((c) => c.id === clientId), [clientId, clients]);
+  }, [requestedClientId]);
 
   async function chooseImages() {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -116,11 +122,25 @@ export default function CreateScreen() {
 
   return (
     <PageScroll>
-      <PageHeader
-        eyebrow="Create"
-        title="Turn images into a campaign"
-        subtitle="Choose the brand and objective, add your raw images, and let BrandSparQ build platform-ready creative and captions."
-      />
+      <PageHeader eyebrow="Create" title="What are we making?" subtitle="Turn your ideas into content." />
+      <View style={styles.modeRow}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Create a social post"
+          accessibilityState={{ selected: creationMode === "social" }}
+          onPress={() => { setCreationMode("social"); setObjective("Auto"); }}
+          style={[styles.modeCard, creationMode === "social" && styles.modeCardSelected]}>
+          <Ionicons name="image-outline" size={30} color={colors.primary} />
+          <Text style={styles.modeTitle}>Social post</Text>
+          <Text style={styles.modeDescription}>Image + caption</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Create a campaign"
+          accessibilityState={{ selected: creationMode === "campaign" }}
+          onPress={() => setCreationMode("campaign")}
+          style={[styles.modeCard, creationMode === "campaign" && styles.modeCardSelected]}>
+          <Ionicons name="sparkles-outline" size={30} color={colors.primary} />
+          <Text style={styles.modeTitle}>Campaign</Text>
+          <Text style={styles.modeDescription}>Plan a series</Text>
+        </Pressable>
+      </View>
 
       {clientError ? (
         <Card subtle>
@@ -150,26 +170,11 @@ export default function CreateScreen() {
                 title="1. Choose client"
                 subtitle="Brand Brain rules will shape the creative."
               />
-              <View style={styles.chips}>
-                {clients.map((client) => {
-                  const active = client.id === clientId;
-                  return (
-                    <Pressable
-                      key={client.id}
-                      onPress={() => setClientId(client.id)}
-                      style={[styles.chip, active && styles.chipActive]}
-                    >
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                        {client.name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <ClientPicker clients={clients} value={clientId} onChange={setClientId} />
             </Card>
             <Card>
               <SectionTitle
-                title="2. Set objective"
+                title={creationMode === "social" ? "2. Social post goal" : "2. Campaign objective"}
                 subtitle="Or leave it on Auto and let BrandSparQ decide."
               />
               <View style={styles.chips}>
@@ -191,14 +196,22 @@ export default function CreateScreen() {
           <View style={styles.column}>
             <Card style={styles.assetCard}>
               <SectionTitle
-                title="3. Add source images"
+                title="3. Start with a photo"
                 subtitle="Select up to 20 images from your phone, tablet, or browser."
               />
-              <Button
-                label={assets.length ? "Change images" : "Choose images"}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={assets.length ? "Change images" : "Choose images"}
+                disabled={uploading}
                 onPress={chooseImages}
-                secondary={!!assets.length}
-              />
+                style={styles.uploadTarget}
+              >
+                <Ionicons name="images-outline" size={36} color={colors.primary} />
+                <Text style={styles.uploadTitle}>
+                  {assets.length ? "Change images" : "Start with a photo"}
+                </Text>
+                <Text style={styles.errorBody}>Choose up to 20 brand images</Text>
+              </Pressable>
               {!!assets.length && (
                 <View style={styles.previewGrid}>
                   {assets.map((asset) => (
@@ -234,6 +247,24 @@ export default function CreateScreen() {
 }
 
 const styles = StyleSheet.create({
+  modeRow: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
+  modeCard: { flexGrow: 1, flexBasis: 135, minWidth: 0, minHeight: 152, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.md, gap: 8, alignItems: "flex-start" },
+  modeCardSelected: { borderColor: colors.primary, backgroundColor: colors.surface2 },
+  modeTitle: { fontSize: 18, fontWeight: "800", color: colors.text },
+  modeDescription: { color: colors.muted, fontSize: 13 },
+  uploadTarget: {
+    padding: 24,
+    minHeight: 170,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.primary,
+    backgroundColor: colors.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  uploadTitle: { color: colors.text, fontSize: 20, fontWeight: "800" },
   columns: { gap: spacing.md },
   columnsWide: { flexDirection: "row", alignItems: "flex-start" },
   column: { flex: 1, gap: spacing.md, minWidth: 0 },

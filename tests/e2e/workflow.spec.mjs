@@ -7,9 +7,7 @@ test.beforeEach(async ({ request, page }) => {
 
 async function signIn(page) {
   await page.goto("/login?handoff=fixture-handoff");
-  await expect(
-    page.getByRole("heading", { name: "Marketing moves faster with a system." }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your workspace" })).toBeVisible();
 }
 
 test("login is accessible, fits the viewport, and restores a signed-in session after refresh", async ({
@@ -24,9 +22,7 @@ test("login is accessible, fits the viewport, and restores a signed-in session a
   );
   await signIn(page);
   await page.reload();
-  await expect(
-    page.getByRole("heading", { name: "Marketing moves faster with a system." }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your workspace" })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -40,6 +36,7 @@ test("workspace routes stay inside narrow phone viewports", async ({ page }) => 
     "/calendar",
     "/more",
     "/clients",
+    "/clients/client-a",
     "/clients/client-a/brand",
     "/campaigns",
     "/social",
@@ -297,9 +294,7 @@ test("reviewer controls send email and revoke replaced review links", async ({ p
 
 test("viewers see read-only client screens and no creation navigation", async ({ page }) => {
   await page.goto("/login?handoff=viewer-handoff");
-  await expect(
-    page.getByRole("heading", { name: "Marketing moves faster with a system." }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your workspace" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Create", exact: true })).toHaveCount(0);
   await page.goto("/clients");
   await expect(page.getByRole("button", { name: "Create client", exact: true })).toHaveCount(0);
@@ -335,4 +330,20 @@ test("owner can persist a publishing hold and pilot controls fit narrow screens"
     true,
   );
   await page.screenshot({ path: test.info().outputPath("pilot-controls.png"), fullPage: true });
+});
+
+test("client hub opens the selected client in the creation workflow", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/clients");
+  await page
+    .getByRole("link", { name: /Open .+ workspace/ })
+    .first()
+    .click();
+  await expect(page.getByRole("heading", { name: "Client workspace", exact: true })).toBeVisible();
+  await expect(page.getByText("Connected channels", { exact: true })).toBeVisible();
+  const clientId = new URL(page.url()).pathname.split("/").pop();
+  await page.getByRole("button", { name: "Create content", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`clientId=${clientId}`));
+  await expect(page.getByRole("button", { name: /Select client:/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Choose images", exact: true })).toBeVisible();
 });
