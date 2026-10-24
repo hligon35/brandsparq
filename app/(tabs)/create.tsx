@@ -23,6 +23,7 @@ export default function CreateScreen() {
   const [clientId, setClientId] = useState("");
   const [clientError, setClientError] = useState("");
   const [objective, setObjective] = useState("Auto");
+  const [creationMode, setCreationMode] = useState<"social" | "campaign">("campaign");
   const [assets, setAssets] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
@@ -121,11 +122,25 @@ export default function CreateScreen() {
 
   return (
     <PageScroll>
-      <PageHeader
-        eyebrow="Create"
-        title="What are we making?"
-        subtitle="Turn your images into a branded campaign. Choose a client, set your goal, and add photos."
-      />
+      <PageHeader eyebrow="Create" title="What are we making?" subtitle="Turn your ideas into content." />
+      <View style={styles.modeRow}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Create a social post"
+          accessibilityState={{ selected: creationMode === "social" }}
+          onPress={() => { setCreationMode("social"); setObjective("Auto"); }}
+          style={[styles.modeCard, creationMode === "social" && styles.modeCardSelected]}>
+          <Ionicons name="image-outline" size={30} color={colors.primary} />
+          <Text style={styles.modeTitle}>Social post</Text>
+          <Text style={styles.modeDescription}>Image + caption</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Create a campaign"
+          accessibilityState={{ selected: creationMode === "campaign" }}
+          onPress={() => setCreationMode("campaign")}
+          style={[styles.modeCard, creationMode === "campaign" && styles.modeCardSelected]}>
+          <Ionicons name="sparkles-outline" size={30} color={colors.primary} />
+          <Text style={styles.modeTitle}>Campaign</Text>
+          <Text style={styles.modeDescription}>Plan a series</Text>
+        </Pressable>
+      </View>
 
       {clientError ? (
         <Card subtle>
@@ -159,7 +174,7 @@ export default function CreateScreen() {
             </Card>
             <Card>
               <SectionTitle
-                title="2. Set objective"
+                title={creationMode === "social" ? "2. Social post goal" : "2. Campaign objective"}
                 subtitle="Or leave it on Auto and let BrandSparQ decide."
               />
               <View style={styles.chips}>
@@ -181,7 +196,7 @@ export default function CreateScreen() {
           <View style={styles.column}>
             <Card style={styles.assetCard}>
               <SectionTitle
-                title="3. Add source images"
+                title="3. Start with a photo"
                 subtitle="Select up to 20 images from your phone, tablet, or browser."
               />
               <Pressable
@@ -232,6 +247,11 @@ export default function CreateScreen() {
 }
 
 const styles = StyleSheet.create({
+  modeRow: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
+  modeCard: { flexGrow: 1, flexBasis: 135, minWidth: 0, minHeight: 152, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.md, gap: 8, alignItems: "flex-start" },
+  modeCardSelected: { borderColor: colors.primary, backgroundColor: colors.surface2 },
+  modeTitle: { fontSize: 18, fontWeight: "800", color: colors.text },
+  modeDescription: { color: colors.muted, fontSize: 13 },
   uploadTarget: {
     padding: 24,
     minHeight: 170,
