@@ -1,3 +1,4 @@
+import { IconButton } from "@/components/icon-button";
 import { Link } from "expo-router";
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
@@ -42,7 +43,7 @@ export default function PausedScreen() {
         title="Paused content"
         eyebrow="Calendar recovery"
         subtitle="Resume approved content at a new valid slot, or return unfinished content to review."
-        action={<Button label="Refresh" small onPress={load} />}
+        action={<IconButton label="Refresh paused content" onPress={load} />}
       />
       {!!error && (
         <Card>

@@ -1,3 +1,4 @@
+import { IconButton } from "@/components/icon-button";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { Link } from "expo-router";
@@ -91,11 +92,7 @@ export default function ReviewScreen() {
         eyebrow="Approval inbox"
         title="Review"
         subtitle="Search, select, approve, or request changes before anything enters the marketing calendar."
-        action={
-          <Pressable onPress={load}>
-            <Text style={styles.refresh}>Refresh</Text>
-          </Pressable>
-        }
+        action={<IconButton label="Refresh review" onPress={load} />}
       />
 
       <Card subtle>

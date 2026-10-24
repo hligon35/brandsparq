@@ -361,14 +361,40 @@ export async function handleManagementRoute(
       (?='owner' OR EXISTS (SELECT 1 FROM user_client_access a WHERE a.client_id=p.client_id AND a.user_id=?))))`;
   const notificationBindings = [user.id, user.role, user.id];
 
+  if (request.method === "POST" && url.pathname === "/v1/notifications/delete") {
+    const denied = await authorize(env, user, "read");
+    if (denied) return { body: { error: denied }, status: 403 };
+    const payload = await request.json<any>().catch(() => ({}));
+    if (
+      !Array.isArray(payload.ids) ||
+      !payload.ids.length ||
+      payload.ids.length > 100 ||
+      payload.ids.some((id: unknown) => typeof id !== "string" || !id || id.length > 128)
+    )
+      return { body: { error: "Select between 1 and 100 notifications." }, status: 400 };
+    const ids = [...new Set<string>(payload.ids)];
+    await env.DB.batch(
+      ids.map((id) =>
+        env.DB.prepare(`INSERT INTO notification_inbox(user_id,notification_id,dismissed_at)
+      SELECT ?,n.id,CURRENT_TIMESTAMP FROM notifications n WHERE n.id=? AND ${notificationScope}
+      ON CONFLICT(user_id,notification_id) DO UPDATE SET dismissed_at=CURRENT_TIMESTAMP`).bind(
+          user.id,
+          id,
+          ...notificationBindings,
+        ),
+      ),
+    );
+    return { body: { ok: true } };
+  }
+
   if (request.method === "GET" && url.pathname === "/v1/notifications") {
     const denied = await authorize(env, user, "read");
     if (denied) return { body: { error: denied }, status: 403 };
 
     const rows = await env.DB.prepare(
-      `SELECT n.* FROM notifications n WHERE ${notificationScope} ORDER BY n.created_at DESC LIMIT 100`,
+      `SELECT n.*, (SELECT i.read_at FROM notification_inbox i WHERE i.notification_id=n.id AND i.user_id=?) AS user_read_at FROM notifications n WHERE ${notificationScope} AND NOT EXISTS (SELECT 1 FROM notification_inbox i WHERE i.notification_id=n.id AND i.user_id=? AND i.dismissed_at IS NOT NULL) ORDER BY n.created_at DESC LIMIT 100`,
     )
-      .bind(...notificationBindings)
+      .bind(user.id, ...notificationBindings, user.id)
       .all<any>();
 
     const ids = rows.results.map((row: any) => row.id);
@@ -395,6 +421,7 @@ export async function handleManagementRoute(
 
     const data = rows.results.map((row: any) => ({
       ...row,
+      read_at: row.user_read_at || row.read_at,
       deliveries: byNotification.get(row.id) || [],
     }));
     const unreadCount = data.filter((row: any) => !row.read_at).length;
@@ -408,10 +435,9 @@ export async function handleManagementRoute(
     if (denied) return { body: { error: denied }, status: 403 };
 
     await env.DB.prepare(
-      `UPDATE notifications AS n SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP)
-       WHERE id=? AND ${notificationScope}`,
+      `INSERT INTO notification_inbox(user_id,notification_id,read_at) SELECT ?,n.id,CURRENT_TIMESTAMP FROM notifications n WHERE n.id=? AND ${notificationScope} ON CONFLICT(user_id,notification_id) DO UPDATE SET read_at=COALESCE(notification_inbox.read_at,CURRENT_TIMESTAMP)`,
     )
-      .bind(readNotificationMatch[1], ...notificationBindings)
+      .bind(user.id, readNotificationMatch[1], ...notificationBindings)
       .run();
     return { body: { ok: true } };
   }
@@ -421,10 +447,9 @@ export async function handleManagementRoute(
     if (denied) return { body: { error: denied }, status: 403 };
 
     await env.DB.prepare(
-      `UPDATE notifications AS n SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP)
-       WHERE ${notificationScope} AND read_at IS NULL`,
+      `INSERT INTO notification_inbox(user_id,notification_id,read_at) SELECT ?,n.id,CURRENT_TIMESTAMP FROM notifications n WHERE ${notificationScope} ON CONFLICT(user_id,notification_id) DO UPDATE SET read_at=COALESCE(notification_inbox.read_at,CURRENT_TIMESTAMP)`,
     )
-      .bind(...notificationBindings)
+      .bind(user.id, ...notificationBindings)
       .run();
     return { body: { ok: true } };
   }

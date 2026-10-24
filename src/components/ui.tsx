@@ -164,7 +164,7 @@ export function PageHeader({
   const { compact } = useResponsive();
 
   return (
-    <View style={[styles.pageHeader, !compact && styles.pageHeaderWide]}>
+    <View style={[styles.pageHeader, styles.pageHeaderWide]}>
       <View style={styles.pageHeaderCopy}>
         {!!eyebrow && <Text style={styles.eyebrow}>{eyebrow}</Text>}
         <Text
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
   },
   pageHeaderWide: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "flex-start",
     justifyContent: "space-between",
   },
   pageHeaderCopy: {

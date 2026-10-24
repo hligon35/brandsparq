@@ -289,6 +289,12 @@ export const api = {
 
   getNotifications: () => jsonRequest<{ data: any[]; unreadCount: number }>("/v1/notifications"),
 
+  deleteNotifications: (ids: string[]) =>
+    jsonRequest<{ ok: true }>("/v1/notifications/delete", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }),
+
   markNotificationRead: (notificationId: string) =>
     jsonRequest<{ ok: true }>(`/v1/notifications/${notificationId}/read`, {
       method: "POST",

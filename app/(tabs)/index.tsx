@@ -85,7 +85,7 @@ export default function HomeScreen() {
             ].map(([value, label]) => (
               <Card key={label} style={styles.metric}>
                 <Text style={styles.number}>{value}</Text>
-                <Text style={styles.body}>{label}</Text>
+                <Text style={styles.metricLabel}>{label}</Text>
               </Card>
             ))}
           </View>
@@ -130,14 +130,14 @@ export default function HomeScreen() {
       </View>
       <View style={styles.actions}>
         <Link href="/clients" style={styles.action}>
-          Client workspaces →
+          Client workspaces
         </Link>
         <Link href="/review" style={styles.action}>
-          Review content →
+          Review content
         </Link>
         {can("generate") && (
           <Link href="/create" style={styles.action}>
-            Create campaign →
+            Create campaign
           </Link>
         )}
       </View>
@@ -161,8 +161,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   heroButtonText: { color: colors.text, fontWeight: "800", fontSize: 15 },
-  metrics: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  metric: { flexGrow: 1, flexBasis: 120, minWidth: 0, padding: 16 },
+  metrics: { flexDirection: "row", flexWrap: "nowrap", gap: 8 },
+  metric: { flexGrow: 1, flexBasis: 0, minWidth: 0, padding: 10 },
   number: { color: colors.text, fontSize: 30, fontWeight: "900" },
   section: {
     flexDirection: "row",
@@ -172,13 +172,18 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   link: { color: colors.primary, fontWeight: "700", paddingVertical: 14, minHeight: 48 },
-  actions: { gap: 10 },
+  metricLabel: { color: colors.muted, fontSize: 12, textAlign: "center", lineHeight: 18 },
+  actions: { flexDirection: "row", gap: 8 },
   action: {
     backgroundColor: colors.surface,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 18,
+    flex: 1,
+    minWidth: 0,
+    textAlign: "center",
+    fontSize: 13,
+    padding: 12,
     color: colors.primary,
     fontWeight: "800",
     minHeight: 52,

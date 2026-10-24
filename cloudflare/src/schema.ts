@@ -1530,6 +1530,32 @@ export const REQUIRED_SCHEMA = {
       pk: 0,
     },
   ],
+  notification_inbox: [
+    {
+      name: "user_id",
+      type: "TEXT",
+      notnull: 1,
+      pk: 1,
+    },
+    {
+      name: "notification_id",
+      type: "TEXT",
+      notnull: 1,
+      pk: 2,
+    },
+    {
+      name: "read_at",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "dismissed_at",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+  ],
   notification_preferences: [
     {
       name: "user_id",
@@ -3428,19 +3454,19 @@ export const REQUIRED_INDEXES = [
   },
   {
     name: "idx_analytics_daily_client_day",
-    sql: "CREATE INDEX idx_analytics_daily_client_day\r\n  ON analytics_daily(client_id, day)",
+    sql: "CREATE INDEX idx_analytics_daily_client_day\n  ON analytics_daily(client_id, day)",
   },
   {
     name: "idx_analytics_snapshots_client",
-    sql: "CREATE INDEX idx_analytics_snapshots_client\r\n  ON analytics_snapshots(client_id, captured_at)",
+    sql: "CREATE INDEX idx_analytics_snapshots_client\n  ON analytics_snapshots(client_id, captured_at)",
   },
   {
     name: "idx_analytics_sync_account",
-    sql: "CREATE INDEX idx_analytics_sync_account\r\n  ON analytics_sync_runs(social_account_id, started_at)",
+    sql: "CREATE INDEX idx_analytics_sync_account\n  ON analytics_sync_runs(social_account_id, started_at)",
   },
   {
     name: "idx_asset_derivatives_asset",
-    sql: "CREATE INDEX idx_asset_derivatives_asset\r\n  ON asset_derivatives(asset_id, kind)",
+    sql: "CREATE INDEX idx_asset_derivatives_asset\n  ON asset_derivatives(asset_id, kind)",
   },
   {
     name: "idx_assets_client",
@@ -3456,7 +3482,7 @@ export const REQUIRED_INDEXES = [
   },
   {
     name: "idx_brand_assets_client",
-    sql: "CREATE INDEX idx_brand_assets_client\r\n  ON brand_assets(client_id, role, created_at)",
+    sql: "CREATE INDEX idx_brand_assets_client\n  ON brand_assets(client_id, role, created_at)",
   },
   {
     name: "idx_campaigns_client",
@@ -3464,15 +3490,15 @@ export const REQUIRED_INDEXES = [
   },
   {
     name: "idx_clients_status",
-    sql: "CREATE INDEX idx_clients_status\r\n  ON clients(status, name)",
+    sql: "CREATE INDEX idx_clients_status\n  ON clients(status, name)",
   },
   {
     name: "idx_creative_variants_post",
-    sql: "CREATE INDEX idx_creative_variants_post\r\n  ON creative_variants(post_id, is_primary, created_at)",
+    sql: "CREATE INDEX idx_creative_variants_post\n  ON creative_variants(post_id, is_primary, created_at)",
   },
   {
     name: "idx_device_push_user",
-    sql: "CREATE INDEX idx_device_push_user\r\n  ON device_push_tokens(user_id, enabled)",
+    sql: "CREATE INDEX idx_device_push_user\n  ON device_push_tokens(user_id, enabled)",
   },
   {
     name: "idx_generation_jobs_client",
@@ -3480,35 +3506,35 @@ export const REQUIRED_INDEXES = [
   },
   {
     name: "idx_generation_jobs_recovery",
-    sql: "CREATE INDEX idx_generation_jobs_recovery\r\n  ON generation_jobs(status, stage_updated_at)",
+    sql: "CREATE INDEX idx_generation_jobs_recovery\n  ON generation_jobs(status, stage_updated_at)",
   },
   {
     name: "idx_google_auth_handoffs_hash",
-    sql: "CREATE INDEX idx_google_auth_handoffs_hash\r\n  ON google_auth_handoffs(handoff_hash, expires_at)",
+    sql: "CREATE INDEX idx_google_auth_handoffs_hash\n  ON google_auth_handoffs(handoff_hash, expires_at)",
   },
   {
     name: "idx_google_oauth_states_hash",
-    sql: "CREATE INDEX idx_google_oauth_states_hash\r\n  ON google_oauth_states(state_hash, expires_at)",
+    sql: "CREATE INDEX idx_google_oauth_states_hash\n  ON google_oauth_states(state_hash, expires_at)",
   },
   {
     name: "idx_graphic_jobs_generation",
-    sql: "CREATE INDEX idx_graphic_jobs_generation\r\n  ON graphic_jobs(generation_job_id, status)",
+    sql: "CREATE INDEX idx_graphic_jobs_generation\n  ON graphic_jobs(generation_job_id, status)",
   },
   {
     name: "idx_launch_certification_runs_created",
-    sql: "CREATE INDEX idx_launch_certification_runs_created\r\n  ON launch_certification_runs(created_at DESC)",
+    sql: "CREATE INDEX idx_launch_certification_runs_created\n  ON launch_certification_runs(created_at DESC)",
   },
   {
     name: "idx_media_access_tokens_hash",
-    sql: "CREATE INDEX idx_media_access_tokens_hash\r\n  ON media_access_tokens(token_hash, expires_at)",
+    sql: "CREATE INDEX idx_media_access_tokens_hash\n  ON media_access_tokens(token_hash, expires_at)",
   },
   {
     name: "idx_notification_deliveries_notification",
-    sql: "CREATE INDEX idx_notification_deliveries_notification\r\n  ON notification_deliveries(notification_id, channel, status)",
+    sql: "CREATE INDEX idx_notification_deliveries_notification\n  ON notification_deliveries(notification_id, channel, status)",
   },
   {
     name: "idx_notification_deliveries_receipts",
-    sql: "CREATE INDEX idx_notification_deliveries_receipts\r\n  ON notification_deliveries(channel, status, receipt_checked_at, sent_at)",
+    sql: "CREATE INDEX idx_notification_deliveries_receipts\n  ON notification_deliveries(channel, status, receipt_checked_at, sent_at)",
   },
   {
     name: "idx_notification_deliveries_retry",
@@ -3520,19 +3546,19 @@ export const REQUIRED_INDEXES = [
   },
   {
     name: "idx_notifications_user_status",
-    sql: "CREATE INDEX idx_notifications_user_status\r\n  ON notifications(user_id, status, created_at)",
+    sql: "CREATE INDEX idx_notifications_user_status\n  ON notifications(user_id, status, created_at)",
   },
   {
     name: "idx_post_metrics_latest",
-    sql: "CREATE INDEX idx_post_metrics_latest\r\n  ON post_metrics(post_id, measured_at DESC)",
+    sql: "CREATE INDEX idx_post_metrics_latest\n  ON post_metrics(post_id, measured_at DESC)",
   },
   {
     name: "idx_post_metrics_post",
-    sql: "CREATE INDEX idx_post_metrics_post\r\n  ON post_metrics(post_id, measured_at)",
+    sql: "CREATE INDEX idx_post_metrics_post\n  ON post_metrics(post_id, measured_at)",
   },
   {
     name: "idx_posts_calendar_filter",
-    sql: "CREATE INDEX idx_posts_calendar_filter\r\n  ON posts(status, client_id, platform, scheduled_publish_at)",
+    sql: "CREATE INDEX idx_posts_calendar_filter\n  ON posts(status, client_id, platform, scheduled_publish_at)",
   },
   {
     name: "idx_posts_client",
@@ -3544,15 +3570,15 @@ export const REQUIRED_INDEXES = [
   },
   {
     name: "idx_posts_generation_slot",
-    sql: "CREATE UNIQUE INDEX idx_posts_generation_slot\r\n  ON posts(generation_job_id, generation_index)\r\n  WHERE generation_job_id IS NOT NULL AND generation_index IS NOT NULL",
+    sql: "CREATE UNIQUE INDEX idx_posts_generation_slot\n  ON posts(generation_job_id, generation_index)\n  WHERE generation_job_id IS NOT NULL AND generation_index IS NOT NULL",
   },
   {
     name: "idx_posts_publish_version",
-    sql: "CREATE INDEX idx_posts_publish_version\r\n  ON posts(id, publish_version)",
+    sql: "CREATE INDEX idx_posts_publish_version\n  ON posts(id, publish_version)",
   },
   {
     name: "idx_posts_review_filter",
-    sql: "CREATE INDEX idx_posts_review_filter\r\n  ON posts(status, client_id, platform, created_at)",
+    sql: "CREATE INDEX idx_posts_review_filter\n  ON posts(status, client_id, platform, created_at)",
   },
   {
     name: "idx_posts_schedule",
@@ -3560,7 +3586,7 @@ export const REQUIRED_INDEXES = [
   },
   {
     name: "idx_publish_attempts_job",
-    sql: "CREATE INDEX idx_publish_attempts_job\r\n  ON publish_attempts(publish_job_id, created_at)",
+    sql: "CREATE INDEX idx_publish_attempts_job\n  ON publish_attempts(publish_job_id, created_at)",
   },
   {
     name: "idx_publish_jobs_first_claim",
@@ -3568,31 +3594,31 @@ export const REQUIRED_INDEXES = [
   },
   {
     name: "idx_publish_jobs_post",
-    sql: "CREATE INDEX idx_publish_jobs_post\r\n  ON publish_jobs(post_id, created_at)",
+    sql: "CREATE INDEX idx_publish_jobs_post\n  ON publish_jobs(post_id, created_at)",
   },
   {
     name: "idx_publish_jobs_post_status",
-    sql: "CREATE INDEX idx_publish_jobs_post_status\r\n  ON publish_jobs(post_id, status, created_at)",
+    sql: "CREATE INDEX idx_publish_jobs_post_status\n  ON publish_jobs(post_id, status, created_at)",
   },
   {
     name: "idx_publish_jobs_recovery",
-    sql: "CREATE INDEX idx_publish_jobs_recovery\r\n  ON publish_jobs(status, claimed_at, updated_at)",
+    sql: "CREATE INDEX idx_publish_jobs_recovery\n  ON publish_jobs(status, claimed_at, updated_at)",
   },
   {
     name: "idx_publish_jobs_status",
-    sql: "CREATE INDEX idx_publish_jobs_status\r\n  ON publish_jobs(status, scheduled_for)",
+    sql: "CREATE INDEX idx_publish_jobs_status\n  ON publish_jobs(status, scheduled_for)",
   },
   {
     name: "idx_publish_media_tokens",
-    sql: "CREATE INDEX idx_publish_media_tokens\r\n  ON publish_media_tokens(token_hash, expires_at)",
+    sql: "CREATE INDEX idx_publish_media_tokens\n  ON publish_media_tokens(token_hash, expires_at)",
   },
   {
     name: "idx_recovery_actions_entity",
-    sql: "CREATE INDEX idx_recovery_actions_entity\r\n  ON recovery_actions(entity_type, entity_id, created_at DESC)",
+    sql: "CREATE INDEX idx_recovery_actions_entity\n  ON recovery_actions(entity_type, entity_id, created_at DESC)",
   },
   {
     name: "idx_review_comments_post",
-    sql: "CREATE INDEX idx_review_comments_post\r\n  ON review_comments(post_id, created_at)",
+    sql: "CREATE INDEX idx_review_comments_post\n  ON review_comments(post_id, created_at)",
   },
   {
     name: "idx_review_tokens_post",
@@ -3612,43 +3638,43 @@ export const REQUIRED_INDEXES = [
   },
   {
     name: "idx_social_accounts_default",
-    sql: "CREATE INDEX idx_social_accounts_default\r\n  ON social_accounts(client_id, platform, is_default, status)",
+    sql: "CREATE INDEX idx_social_accounts_default\n  ON social_accounts(client_id, platform, is_default, status)",
   },
   {
     name: "idx_social_accounts_health",
-    sql: "CREATE INDEX idx_social_accounts_health\r\n  ON social_accounts(status, health_status, token_expires_at)",
+    sql: "CREATE INDEX idx_social_accounts_health\n  ON social_accounts(status, health_status, token_expires_at)",
   },
   {
     name: "idx_social_accounts_unique_external",
-    sql: "CREATE UNIQUE INDEX idx_social_accounts_unique_external\r\n  ON social_accounts(client_id, platform, external_account_id)\r\n  WHERE external_account_id IS NOT NULL",
+    sql: "CREATE UNIQUE INDEX idx_social_accounts_unique_external\n  ON social_accounts(client_id, platform, external_account_id)\n  WHERE external_account_id IS NOT NULL",
   },
   {
     name: "idx_social_oauth_state",
-    sql: "CREATE INDEX idx_social_oauth_state\r\n  ON social_oauth_states(state_hash, expires_at)",
+    sql: "CREATE INDEX idx_social_oauth_state\n  ON social_oauth_states(state_hash, expires_at)",
   },
   {
     name: "idx_social_publish_receipts_post",
-    sql: "CREATE INDEX idx_social_publish_receipts_post\r\n  ON social_publish_receipts(post_id, created_at)",
+    sql: "CREATE INDEX idx_social_publish_receipts_post\n  ON social_publish_receipts(post_id, created_at)",
   },
   {
     name: "idx_social_receipts_status",
-    sql: "CREATE INDEX idx_social_receipts_status\r\n  ON social_publish_receipts(status, provider_status, last_checked_at)",
+    sql: "CREATE INDEX idx_social_receipts_status\n  ON social_publish_receipts(status, provider_status, last_checked_at)",
   },
   {
     name: "idx_social_status_checks_receipt",
-    sql: "CREATE INDEX idx_social_status_checks_receipt\r\n  ON social_status_checks(receipt_id, checked_at)",
+    sql: "CREATE INDEX idx_social_status_checks_receipt\n  ON social_status_checks(receipt_id, checked_at)",
   },
   {
     name: "idx_social_webhook_events_provider",
-    sql: "CREATE INDEX idx_social_webhook_events_provider\r\n  ON social_webhook_events(provider, created_at)",
+    sql: "CREATE INDEX idx_social_webhook_events_provider\n  ON social_webhook_events(provider, created_at)",
   },
   {
     name: "idx_system_events_active",
-    sql: "CREATE INDEX idx_system_events_active\r\n  ON system_events(resolved_at, severity, created_at DESC)",
+    sql: "CREATE INDEX idx_system_events_active\n  ON system_events(resolved_at, severity, created_at DESC)",
   },
   {
     name: "idx_system_events_entity",
-    sql: "CREATE INDEX idx_system_events_entity\r\n  ON system_events(entity_type, entity_id, created_at DESC)",
+    sql: "CREATE INDEX idx_system_events_entity\n  ON system_events(entity_type, entity_id, created_at DESC)",
   },
   {
     name: "idx_team_invitations_email",
@@ -3656,7 +3682,7 @@ export const REQUIRED_INDEXES = [
   },
   {
     name: "idx_user_client_access_client",
-    sql: "CREATE INDEX idx_user_client_access_client\r\n  ON user_client_access(client_id, user_id)",
+    sql: "CREATE INDEX idx_user_client_access_client\n  ON user_client_access(client_id, user_id)",
   },
   {
     name: "idx_users_google_sub",

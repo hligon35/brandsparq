@@ -2,6 +2,7 @@ import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { useEffect, useState } from "react";
 import { StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { registerThisDeviceForPush } from "@/notifications/register";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";
@@ -10,6 +11,27 @@ export default function SettingsScreen() {
   const can = useCapabilities();
   const [workspace, setWorkspace] = useState<any>({});
   const [notifications, setNotifications] = useState<any>({});
+  const [notificationBusy, setNotificationBusy] = useState(false);
+  async function notificationAction(push: boolean) {
+    setNotificationBusy(true);
+    try {
+      if (push) await registerThisDeviceForPush();
+      else await api.testNotifications();
+      Alert.alert(
+        push ? "Push enabled" : "Test sent",
+        push
+          ? "This device can receive BrandSparQ alerts."
+          : "A test was sent through your enabled channels.",
+      );
+    } catch (error) {
+      Alert.alert(
+        "Unable to complete request",
+        error instanceof Error ? error.message : "Try again.",
+      );
+    } finally {
+      setNotificationBusy(false);
+    }
+  }
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -92,6 +114,26 @@ export default function SettingsScreen() {
         title="Settings"
         subtitle="Control scheduling rules, alert timing, analytics refresh, and what BrandSparQ should do if you do not respond before publication."
       />
+      <Card>
+        <SectionTitle
+          title="Notification devices"
+          subtitle="Register this device or send a test through your enabled channels."
+        />
+        <Button
+          label="Enable push"
+          secondary
+          onPress={notificationBusy ? undefined : () => notificationAction(true)}
+        />
+        <Button
+          label="Send test"
+          secondary
+          onPress={
+            notificationBusy || !can("notifications_manage")
+              ? undefined
+              : () => notificationAction(false)
+          }
+        />
+      </Card>
       <Card>
         <SectionTitle
           title="Scheduling"

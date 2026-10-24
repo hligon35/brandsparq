@@ -1,3 +1,4 @@
+import { HeaderActions } from "@/components/header-actions";
 import { NotificationRouter } from "@/notifications/router";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -26,6 +27,8 @@ function RootNavigator() {
           headerTintColor: colors.text,
           headerTitleStyle: { fontWeight: "800" },
           headerShadowVisible: false,
+          headerRight: () => <HeaderActions />,
+          headerBackButtonDisplayMode: "minimal",
           contentStyle: { backgroundColor: colors.bg },
         }}
       >
@@ -33,6 +36,7 @@ function RootNavigator() {
           <Stack.Screen name="login" options={{ headerShown: false }} />
         </Stack.Protected>
         <Stack.Protected guard={!!user}>
+          <Stack.Screen name="profile/index" options={{ title: "Profile" }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 
           <Stack.Screen name="generation/index" options={{ title: "Generation progress" }} />
