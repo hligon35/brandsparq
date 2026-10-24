@@ -1,3 +1,4 @@
+import { IconButton } from "@/components/icon-button";
 import { Link, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { Text, View } from "react-native";
@@ -48,7 +49,7 @@ export default function GenerationScreen() {
         eyebrow="Creative production"
         title="Generation progress"
         subtitle="Follow campaign planning, graphics and review readiness. Updates every five seconds."
-        action={<Button small label="Refresh" onPress={load} />}
+        action={<IconButton label="Refresh generation" onPress={load} />}
       />
       {!!error && (
         <Card>

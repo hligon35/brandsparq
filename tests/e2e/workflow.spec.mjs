@@ -191,6 +191,7 @@ test("social connection authenticates its API request before navigating to the p
     authenticated = true;
     await route.fulfill({ json: { authorizationUrl: "https://www.facebook.com/brandsparq-test" } });
   });
+  await page.getByRole("button", { name: "Manage facebook accounts", exact: true }).click();
   await page.getByRole("button", { name: "Connect another", exact: true }).click();
   await page.waitForURL("https://www.facebook.com/brandsparq-test");
   expect(authenticated).toBe(true);
@@ -346,4 +347,37 @@ test("client hub opens the selected client in the creation workflow", async ({ p
   await expect(page).toHaveURL(new RegExp(`clientId=${clientId}`));
   await expect(page.getByRole("button", { name: /Select client:/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Choose images", exact: true })).toBeVisible();
+});
+
+test("profile menu dismisses outside and provides profile and settings", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("button", { name: "Open profile menu" }).click();
+  await expect(page.getByRole("button", { name: "Profile", exact: true })).toBeVisible();
+  await page.getByLabel("Close profile menu").click({ position: { x: 5, y: 300 } });
+  await expect(page.getByRole("button", { name: "Sign out", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Open profile menu" }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Enable push", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send test", exact: true })).toBeVisible();
+});
+test("inbox notices navigate, lose new state and can be selected and deleted", async ({
+  page,
+  request,
+}) => {
+  await signIn(page);
+  await request.post("/__test/inbox");
+  await page.goto("/notifications");
+  await page.getByRole("button", { name: "Open Review your campaign", exact: true }).click();
+  await expect(page).toHaveURL(/\/posts\/fixture-post$/);
+  await page.goto("/notifications");
+  await expect(page.getByText("NEW", { exact: true })).toHaveCount(1);
+  await page.getByRole("checkbox", { name: "Select Workspace update", exact: true }).click();
+  await page.getByRole("button", { name: "Delete (1)", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Open Workspace update", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Select all", exact: true }).click();
+  await page.getByRole("button", { name: "Delete (1)", exact: true }).click();
+  await page.reload();
+  await expect(page.getByText("No notifications in this view.", { exact: true })).toBeVisible();
 });

@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/auth/context";
+import { HeaderActions } from "@/components/header-actions";
 import { BrandLogo } from "@/components/brand";
 import { breakpoints } from "@/hooks/useResponsive";
 import { colors, radius, spacing } from "@/theme/tokens";
@@ -56,6 +57,7 @@ function DesktopHeader() {
               );
             })}
         </View>
+        <HeaderActions />
       </View>
     </View>
   );
@@ -66,15 +68,7 @@ function MobileHeader() {
   return (
     <View style={[styles.mobileHeader, { paddingTop: insets.top + 8 }]}>
       <BrandLogo compact />
-      <Link href="/notifications" asChild>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Notifications"
-          style={styles.bell}
-        >
-          <Ionicons name="notifications-outline" size={24} color={colors.text} />
-        </Pressable>
-      </Link>
+      <HeaderActions />
     </View>
   );
 }

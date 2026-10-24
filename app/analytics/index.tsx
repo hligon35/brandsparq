@@ -2,8 +2,9 @@ import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { IconButton } from "@/components/icon-button";
 import { api } from "@/api/client";
-import { Button, Card, PageHeader, PageScroll, SectionTitle, StatusBadge } from "@/components/ui";
+import { Card, PageHeader, PageScroll, SectionTitle, StatusBadge } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";
 import type { Client } from "@/types/domain";
 
@@ -77,9 +78,9 @@ export default function AnalyticsScreen() {
         title="Analytics"
         subtitle="Track performance over time, compare platforms, find top posts, and verify provider sync health."
         action={
-          <Button
-            label={syncing ? "Syncing…" : "Sync now"}
-            small
+          <IconButton
+            label="Sync analytics"
+            busy={syncing}
             onPress={
               syncing || !can("analytics_manage", clientId === "all" ? undefined : clientId)
                 ? undefined
@@ -138,7 +139,9 @@ export default function AnalyticsScreen() {
       <View style={styles.grid}>
         {metrics.map(([label, key]) => (
           <Card key={key} style={styles.metricCard}>
-            <Text style={styles.value}>{Number(overview[key] || 0).toLocaleString()}</Text>
+            <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
+              {Number(overview[key] || 0).toLocaleString()}
+            </Text>
             <Text style={styles.label}>{label}</Text>
           </Card>
         ))}
@@ -300,8 +303,8 @@ const styles = StyleSheet.create({
   rangeActive: { backgroundColor: colors.primary },
   rangeText: { color: colors.textSoft, fontWeight: "800" },
   rangeTextActive: { color: colors.white },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
-  metricCard: { flexGrow: 1, flexBasis: 180, maxWidth: "100%" },
+  grid: { flexDirection: "row", flexWrap: "wrap", columnGap: "4%", rowGap: 12 },
+  metricCard: { width: "48%", minWidth: 0, padding: 14 },
   value: { color: colors.text, fontSize: 30, fontWeight: "900" },
   label: { color: colors.muted, fontWeight: "700" },
   chart: {
@@ -335,7 +338,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   platform: { color: colors.text, fontSize: 16, fontWeight: "900", textTransform: "capitalize" },
-  platformMetrics: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  platformMetrics: { flexDirection: "row", flexWrap: "wrap", columnGap: "4%", rowGap: 12 },
   platformMetric: { color: colors.primaryDark, fontWeight: "800", fontSize: 12 },
   muted: { color: colors.muted, lineHeight: 20 },
   topRow: {

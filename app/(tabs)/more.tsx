@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Link, type Href } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useAuth } from "@/auth/context";
-import { Button, Card, PageHeader, PageScroll } from "@/components/ui";
+import { Card, PageHeader, PageScroll } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";
 
 const items: {
@@ -11,12 +11,6 @@ const items: {
   icon: keyof typeof Ionicons.glyphMap;
   href: Href;
 }[] = [
-  {
-    label: "Clients & Brand Brain",
-    description: "Voice, audience, colors, CTAs, and brand rules.",
-    icon: "color-palette-outline",
-    href: "/clients" as Href,
-  },
   {
     label: "Generation progress",
     description: "Planning, graphics, errors and recovery.",
@@ -42,27 +36,15 @@ const items: {
     href: "/social" as Href,
   },
   {
-    label: "Notifications",
-    description: "Control review and pre-publish alerts.",
-    icon: "notifications-outline",
-    href: "/notifications" as Href,
-  },
-  {
     label: "Analytics",
     description: "Measure published content and campaign results.",
     icon: "analytics-outline",
     href: "/analytics" as Href,
   },
-  {
-    label: "Settings",
-    description: "Workspace, account, and publishing preferences.",
-    icon: "settings-outline",
-    href: "/settings" as Href,
-  },
 ];
 
 export default function MoreScreen() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const visibleItems =
     user?.role === "owner"
       ? [
@@ -109,16 +91,6 @@ export default function MoreScreen() {
           );
         })}
       </View>
-
-      <Card subtle style={styles.accountCard}>
-        <View style={styles.accountCopy}>
-          <Text style={styles.accountTitle}>Account</Text>
-          <Text style={styles.description}>{user?.email}</Text>
-        </View>
-        <View style={styles.signOut}>
-          <Button label="Sign out" secondary onPress={signOut} />
-        </View>
-      </Card>
     </PageScroll>
   );
 }
@@ -127,15 +99,16 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.md,
+    columnGap: "4%",
+    rowGap: 12,
   },
   gridItem: {
-    flexGrow: 1,
-    flexBasis: 300,
-    maxWidth: "100%",
+    width: "48%",
+    flexGrow: 0,
   },
   itemCard: {
     minHeight: 205,
+    padding: 14,
   },
   iconWrap: {
     width: 44,

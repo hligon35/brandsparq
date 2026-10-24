@@ -1,3 +1,4 @@
+import { IconButton } from "@/components/icon-button";
 import { PilotControls } from "@/components/PilotControls";
 import { Alert } from "@/components/feedback";
 import { useEffect, useState } from "react";
@@ -100,23 +101,22 @@ export default function SystemHealthScreen() {
         title="System Health"
         subtitle="Production readiness, queue recovery, active incidents, and failed publishing."
         action={
-          <View style={styles.actions}>
-            <Button
-              label={loading ? "Refreshing…" : "Refresh"}
-              small
-              secondary
-              onPress={loading ? undefined : load}
-            />
-            <Button
-              label={certifying ? "Checking…" : "Run launch check"}
-              small
-              secondary
-              onPress={certifying ? undefined : certify}
-            />
-            <Button label="Recover stuck work" small onPress={recover} />
-          </View>
+          <IconButton
+            label="Refresh system health"
+            busy={loading}
+            onPress={loading ? undefined : load}
+          />
         }
       />
+      <View style={styles.actions}>
+        <Button
+          label={certifying ? "Checking…" : "Run launch check"}
+          small
+          secondary
+          onPress={certifying ? undefined : certify}
+        />
+        <Button label="Recover stuck work" small onPress={recover} />
+      </View>
 
       <PilotControls />
 

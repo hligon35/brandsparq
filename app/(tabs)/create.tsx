@@ -122,20 +122,33 @@ export default function CreateScreen() {
 
   return (
     <PageScroll>
-      <PageHeader eyebrow="Create" title="What are we making?" subtitle="Turn your ideas into content." />
+      <PageHeader
+        eyebrow="Create"
+        title="What are we making?"
+        subtitle="Turn your ideas into content."
+      />
       <View style={styles.modeRow}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Create a social post"
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Create a social post"
           accessibilityState={{ selected: creationMode === "social" }}
-          onPress={() => { setCreationMode("social"); setObjective("Auto"); }}
-          style={[styles.modeCard, creationMode === "social" && styles.modeCardSelected]}>
+          onPress={() => {
+            setCreationMode("social");
+            setObjective("Auto");
+          }}
+          style={[styles.modeCard, creationMode === "social" && styles.modeCardSelected]}
+        >
           <Ionicons name="image-outline" size={30} color={colors.primary} />
           <Text style={styles.modeTitle}>Social post</Text>
           <Text style={styles.modeDescription}>Image + caption</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Create a campaign"
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Create a campaign"
           accessibilityState={{ selected: creationMode === "campaign" }}
           onPress={() => setCreationMode("campaign")}
-          style={[styles.modeCard, creationMode === "campaign" && styles.modeCardSelected]}>
+          style={[styles.modeCard, creationMode === "campaign" && styles.modeCardSelected]}
+        >
           <Ionicons name="sparkles-outline" size={30} color={colors.primary} />
           <Text style={styles.modeTitle}>Campaign</Text>
           <Text style={styles.modeDescription}>Plan a series</Text>
@@ -248,7 +261,19 @@ export default function CreateScreen() {
 
 const styles = StyleSheet.create({
   modeRow: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
-  modeCard: { flexGrow: 1, flexBasis: 135, minWidth: 0, minHeight: 152, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.md, gap: 8, alignItems: "flex-start" },
+  modeCard: {
+    flexGrow: 1,
+    flexBasis: 135,
+    minWidth: 0,
+    minHeight: 152,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: 8,
+    alignItems: "flex-start",
+  },
   modeCardSelected: { borderColor: colors.primary, backgroundColor: colors.surface2 },
   modeTitle: { fontSize: 18, fontWeight: "800", color: colors.text },
   modeDescription: { color: colors.muted, fontSize: 13 },

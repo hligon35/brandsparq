@@ -115,7 +115,11 @@ const server = http.createServer(async (incoming, outgoing) => {
         return;
       }
       if (url.pathname === "/__test/reset") await reset();
-      else if (url.pathname === "/__test/expire") w.exec("UPDATE sessions SET expires_at=0");
+      else if (url.pathname === "/__test/inbox") {
+        w.exec(
+          "INSERT INTO notifications(id,user_id,post_id,type,channel,status,title,deep_link) VALUES ('inbox-one','owner','fixture-post','review_ready','in_app','sent','Review your campaign','/posts/fixture-post'),('inbox-two','owner',NULL,'test','in_app','sent','Workspace update',NULL)",
+        );
+      } else if (url.pathname === "/__test/expire") w.exec("UPDATE sessions SET expires_at=0");
       else if (url.pathname === "/__test/drain") {
         const messages = w.published.splice(0).map((body) => ({
           body,

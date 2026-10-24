@@ -3,6 +3,7 @@ import { Alert } from "@/components/feedback";
 import { Link } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { IconButton } from "@/components/icon-button";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
 import { useResponsive } from "@/hooks/useResponsive";
@@ -239,29 +240,28 @@ export default function CalendarScreen() {
         subtitle="Navigate true day, week, and month views. Search, filter, select, shift, pause, or open approved posts."
       />
 
-      <View style={styles.toolbar}>
-        <View style={styles.modeRow}>
-          {(["day", "week", "month"] as CalendarMode[]).map((item) => (
-            <Pressable
-              key={item}
-              onPress={() => {
-                setMode(item);
-                setSelected([]);
-              }}
-              style={[styles.modeButton, mode === item && styles.modeButtonActive]}
-            >
-              <Text style={[styles.modeText, mode === item && styles.modeTextActive]}>{item}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <View style={styles.navRow}>
-          <Button label="‹" secondary small onPress={() => navigate(-1)} />
-          <Button label="Today" secondary small onPress={() => setAnchor(startOfDay(new Date()))} />
-          <Button label="›" secondary small onPress={() => navigate(1)} />
-        </View>
+      <View style={styles.navRow}>
+        <IconButton label="Previous period" icon="chevron-back" onPress={() => navigate(-1)} />
+        <Button label="Today" secondary small onPress={() => setAnchor(startOfDay(new Date()))} />
+        <Text style={styles.rangeTitle}>{titleFor(mode, anchor)}</Text>
+        <IconButton label="Next period" icon="chevron-forward" onPress={() => navigate(1)} />
       </View>
-
-      <Text style={styles.rangeTitle}>{titleFor(mode, anchor)}</Text>
+      <View style={styles.modeRow}>
+        {(["day", "week", "month"] as CalendarMode[]).map((item) => (
+          <Pressable
+            key={item}
+            accessibilityRole="button"
+            accessibilityState={{ selected: mode === item }}
+            onPress={() => {
+              setMode(item);
+              setSelected([]);
+            }}
+            style={[styles.modeButton, mode === item && styles.modeButtonActive]}
+          >
+            <Text style={[styles.modeText, mode === item && styles.modeTextActive]}>{item}</Text>
+          </Pressable>
+        ))}
+      </View>
 
       <Card subtle>
         <TextInput
@@ -534,10 +534,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
   },
-  modeRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  navRow: { flexDirection: "row", gap: 8 },
+  modeRow: { flexDirection: "row", gap: 8 },
+  navRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   modeButton: {
-    paddingHorizontal: 16,
+    flex: 1,
+    alignItems: "center",
+    paddingHorizontal: 12,
     minHeight: 44,
     paddingVertical: 11,
     justifyContent: "center",
@@ -549,7 +551,14 @@ const styles = StyleSheet.create({
   modeButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   modeText: { color: colors.textSoft, fontWeight: "800", textTransform: "capitalize" },
   modeTextActive: { color: colors.white },
-  rangeTitle: { color: colors.text, fontSize: 22, fontWeight: "900" },
+  rangeTitle: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.text,
+    fontSize: 14,
+    textAlign: "center",
+    fontWeight: "800",
+  },
   search: {
     minHeight: 48,
     color: colors.text,
