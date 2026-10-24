@@ -49,7 +49,7 @@ export function PageScroll({
   const segments = useSegments();
   const firstSegment = String(segments[0] ?? "");
   const headerlessNativeScreen =
-    Platform.OS !== "web" && ["(tabs)", "invite", "review"].includes(firstSegment);
+    Platform.OS !== "web" && ["invite", "review"].includes(firstSegment);
 
   return (
     <ScrollView

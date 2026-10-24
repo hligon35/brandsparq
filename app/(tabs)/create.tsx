@@ -1,9 +1,11 @@
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
-import { Link, useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { Link, useRouter, useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { ClientPicker } from "@/components/client-picker";
+import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/api/client";
 import { prepareCampaignAsset } from "@/media/prepareUpload";
 import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";
@@ -15,6 +17,7 @@ const objectives = ["Auto", "Promote", "Awareness", "Announce"];
 
 export default function CreateScreen() {
   const router = useRouter();
+  const { clientId: requestedClientId } = useLocalSearchParams<{ clientId?: string }>();
   const can = useCapabilities();
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState("");
@@ -31,7 +34,11 @@ export default function CreateScreen() {
       const data = await api.getClients();
       const visible = data.filter((client) => can("generate", client.id));
       setClients(visible);
-      setClientId((current) => current || visible[0]?.id || "");
+      setClientId((current) =>
+        visible.some((client) => client.id === requestedClientId)
+          ? requestedClientId!
+          : current || visible[0]?.id || "",
+      );
     } catch (err) {
       setClients([]);
       setClientError(err instanceof Error ? err.message : "Unable to load clients.");
@@ -40,9 +47,7 @@ export default function CreateScreen() {
 
   useEffect(() => {
     void loadClients();
-  }, []);
-
-  const selectedClient = useMemo(() => clients.find((c) => c.id === clientId), [clientId, clients]);
+  }, [requestedClientId]);
 
   async function chooseImages() {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -118,8 +123,8 @@ export default function CreateScreen() {
     <PageScroll>
       <PageHeader
         eyebrow="Create"
-        title="Turn images into a campaign"
-        subtitle="Choose the brand and objective, add your raw images, and let BrandSparQ build platform-ready creative and captions."
+        title="What are we making?"
+        subtitle="Turn your images into a branded campaign. Choose a client, set your goal, and add photos."
       />
 
       {clientError ? (
@@ -150,22 +155,7 @@ export default function CreateScreen() {
                 title="1. Choose client"
                 subtitle="Brand Brain rules will shape the creative."
               />
-              <View style={styles.chips}>
-                {clients.map((client) => {
-                  const active = client.id === clientId;
-                  return (
-                    <Pressable
-                      key={client.id}
-                      onPress={() => setClientId(client.id)}
-                      style={[styles.chip, active && styles.chipActive]}
-                    >
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                        {client.name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <ClientPicker clients={clients} value={clientId} onChange={setClientId} />
             </Card>
             <Card>
               <SectionTitle
@@ -194,11 +184,19 @@ export default function CreateScreen() {
                 title="3. Add source images"
                 subtitle="Select up to 20 images from your phone, tablet, or browser."
               />
-              <Button
-                label={assets.length ? "Change images" : "Choose images"}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={assets.length ? "Change images" : "Choose images"}
+                disabled={uploading}
                 onPress={chooseImages}
-                secondary={!!assets.length}
-              />
+                style={styles.uploadTarget}
+              >
+                <Ionicons name="images-outline" size={36} color={colors.primary} />
+                <Text style={styles.uploadTitle}>
+                  {assets.length ? "Change images" : "Start with a photo"}
+                </Text>
+                <Text style={styles.errorBody}>Choose up to 20 brand images</Text>
+              </Pressable>
               {!!assets.length && (
                 <View style={styles.previewGrid}>
                   {assets.map((asset) => (
@@ -234,6 +232,19 @@ export default function CreateScreen() {
 }
 
 const styles = StyleSheet.create({
+  uploadTarget: {
+    padding: 24,
+    minHeight: 170,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.primary,
+    backgroundColor: colors.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  uploadTitle: { color: colors.text, fontSize: 20, fontWeight: "800" },
   columns: { gap: spacing.md },
   columnsWide: { flexDirection: "row", alignItems: "flex-start" },
   column: { flex: 1, gap: spacing.md, minWidth: 0 },
