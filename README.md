@@ -30,6 +30,8 @@ The web client and iOS/Android apps share the Expo Router application and React 
 5. `npm start` or `npm run web`
 6. In another terminal: `npm --prefix cloudflare run dev`
 
+For native testing on a physical phone, the app uses the hosted HTTPS API by default. A phone's `localhost` points to the phone, not your development computer. To use a local Worker from a phone, set `EXPO_PUBLIC_API_URL` to the computer's LAN IP and configure the Worker and Google OAuth callback for that reachable URL. Restart Expo with `npx expo start --clear` after changing the variable.
+
 Production data comes from the Cloudflare API; demo fallbacks are not used.
 
 ## Quality gate
