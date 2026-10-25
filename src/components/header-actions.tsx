@@ -70,7 +70,11 @@ export function HeaderActions() {
                   accessibilityRole="button"
                   onPress={() => {
                     setPosition(null);
-                    if (item.path) router.push(item.path as "/settings" | "/profile");
+                    if (item.path === "/settings") {
+                      router.push("/settings");
+                    } else if (item.path === "/profile") {
+                      router.push("/settings");
+                    }
                     else
                       void signOut().catch((error) =>
                         Alert.alert(

@@ -7,7 +7,6 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "backgroundColor": "#F4F8FF",
-    "newArchEnabled": true,
     "icon": "./assets/brandsparqIcon.png",
     "ios": {
       "supportsTablet": true,
