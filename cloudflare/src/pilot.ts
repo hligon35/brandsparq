@@ -187,6 +187,11 @@ export async function configurePilot(env: Env, user: SessionUser, inputValue: un
   ];
   if (input.mode === "supervised") {
     statements.push(
+      env.DB.prepare(
+        `UPDATE workspace_settings SET default_no_response_policy='hold' WHERE id='default' AND ${fence}`,
+      ).bind(revision, mutationToken),
+    );
+    statements.push(
       env.DB.prepare(`DELETE FROM pilot_destinations WHERE ${fence}`).bind(revision, mutationToken),
     );
     for (const d of destinations!)
@@ -196,6 +201,15 @@ export async function configurePilot(env: Env, user: SessionUser, inputValue: un
         ).bind(d.clientId, d.socialAccountId, revision, mutationToken),
       );
   }
+  if (input.mode === "supervised")
+    statements.push(
+      env.DB.prepare(`INSERT INTO client_settings(client_id,no_response_policy)
+        SELECT client_id,'hold' FROM pilot_destinations WHERE ${fence}
+        ON CONFLICT(client_id) DO UPDATE SET no_response_policy='hold'`).bind(
+        revision,
+        mutationToken,
+      ),
+    );
   statements.push(
     env.DB.prepare(`INSERT INTO recovery_actions(id,actor_user_id,action,entity_type,entity_id,metadata_json)
     SELECT ?,?,'configure_pilot','system','brandsparq',? WHERE ${fence}`).bind(

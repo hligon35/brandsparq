@@ -1,6 +1,6 @@
 # BrandSparQ release and supervised pilot
 
-Evidence date: October 20, 2026. Branch: `fix/pilot-readiness`.
+Historical evidence date: October 20, 2026. See [RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) for the October 25 fixes, current probes and remaining blockers.
 
 ## Status and release conditions
 
@@ -72,6 +72,7 @@ Create the ignored `.env.sandbox` with:
 BRANDSPARQ_STAGING_ORIGIN=https://brandsparq-staging.ACCOUNT.workers.dev
 BRANDSPARQ_STAGING_DATABASE_ID=the-new-staging-D1-UUID
 BRANDSPARQ_STAGING_GOOGLE_CLIENT_ID=the-separate-staging-OAuth-client-ID
+BRANDSPARQ_STAGING_ALLOWED_EMAILS=the-explicit-staging-operator-email
 ```
 
 The values above describe required inputs, not usable credentials. Then:

@@ -1,0 +1,74 @@
+{
+  "releaseCommit": "",
+  "operator": "",
+  "recordedAt": "",
+  "stagingOrigin": "",
+  "gates": {
+    "ci": {
+      "status": "blocked",
+      "releaseCommit": "",
+      "evidenceUrl": "",
+      "summary": "",
+      "conclusion": "pending"
+    },
+    "staging": {
+      "status": "blocked",
+      "releaseCommit": "",
+      "evidenceUrl": "",
+      "summary": ""
+    },
+    "routing": {
+      "status": "blocked",
+      "releaseCommit": "",
+      "evidenceUrl": "",
+      "summary": "",
+      "anonymous": true
+    },
+    "providers": {
+      "status": "blocked",
+      "releaseCommit": "",
+      "evidenceUrl": "",
+      "summary": "",
+      "accepted": []
+    },
+    "restore": {
+      "status": "blocked",
+      "releaseCommit": "",
+      "evidenceUrl": "",
+      "summary": "",
+      "backupId": "",
+      "restoreDatabaseId": "",
+      "restoreBucket": "",
+      "elapsedSeconds": 0,
+      "mediaChecksumsVerified": false,
+      "tokenDecryptionVerified": false
+    },
+    "android": {
+      "status": "blocked",
+      "releaseCommit": "",
+      "evidenceUrl": "",
+      "summary": "",
+      "physicalDevice": false,
+      "device": "",
+      "osVersion": "",
+      "buildId": ""
+    },
+    "ios": {
+      "status": "blocked",
+      "releaseCommit": "",
+      "evidenceUrl": "",
+      "summary": "",
+      "physicalDevice": false,
+      "device": "",
+      "osVersion": "",
+      "buildId": ""
+    },
+    "advisories": {
+      "status": "blocked",
+      "releaseCommit": "",
+      "evidenceUrl": "",
+      "summary": "",
+      "ownerAccepted": false
+    }
+  }
+}

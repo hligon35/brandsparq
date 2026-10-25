@@ -42,7 +42,7 @@ import {
   syncAccountAnalytics,
   verifySocialAccount,
 } from "./social";
-import { findNextAvailableSlot } from "./scheduling";
+import { reserveSchedule } from "./scheduling";
 import {
   editPostGraphicWithAI,
   hashReviewToken,
@@ -624,7 +624,7 @@ export default {
       const tokenHash = await hashReviewToken(publicApproveMatch[1], env);
       const row = await env.DB.prepare(
         `SELECT rt.id AS review_token_id, rt.post_id, rt.expires_at, rt.used_at,
-                p.status, p.client_id, p.platform, p.social_account_id, p.suggested_publish_at
+                p.status, p.publish_version, p.client_id, p.platform, p.social_account_id, p.suggested_publish_at
          FROM review_tokens rt
          JOIN posts p ON p.id = rt.post_id
          WHERE rt.token_hash = ? AND rt.revoked_at IS NULL`,
@@ -672,33 +672,15 @@ export default {
         );
       }
 
-      const now = new Date().toISOString();
-      const scheduledAt = await findNextAvailableSlot(
-        env,
-        row.client_id,
-        row.suggested_publish_at,
-        row.post_id,
-      );
-      const approved = await env.DB.batch([
-        env.DB.prepare(
-          `UPDATE posts SET
-             status = 'calendar_scheduled',
-             approved_at = ?,
-             calendar_added_at = ?,
-             scheduled_publish_at = ?,
-             updated_at = ?
-           WHERE id = ? AND status='awaiting_approval'`,
-        ).bind(now, now, scheduledAt, now, row.post_id),
-        env.DB.prepare(
-          "UPDATE review_tokens SET used_at = ? WHERE id = ? AND EXISTS (SELECT 1 FROM posts WHERE id=? AND approved_at=? AND status='calendar_scheduled')",
-        ).bind(Date.now(), row.review_token_id, row.post_id, now),
-        env.DB.prepare(
-          `INSERT INTO approvals
-             (id, post_id, decision, previous_status)
-           SELECT ?, ?, 'approved_via_review_link', ? WHERE EXISTS (SELECT 1 FROM posts WHERE id=? AND approved_at=? AND status='calendar_scheduled')`,
-        ).bind(crypto.randomUUID(), row.post_id, row.status, row.post_id, now),
-      ]);
-      if (!approved[0].meta.changes)
+      const scheduledAt = await reserveSchedule(env, row.post_id, {
+        clientId: row.client_id,
+        status: row.status,
+        publishVersion: row.publish_version,
+        desiredAt: row.suggested_publish_at,
+        decision: "approved_via_review_link",
+        reviewTokenId: row.review_token_id,
+      });
+      if (!scheduledAt)
         return response(
           request,
           env,
@@ -1560,7 +1542,7 @@ export default {
       const results = [];
       for (const postId of postIds) {
         const post = await env.DB.prepare(
-          "SELECT id,status,client_id,platform,social_account_id,suggested_publish_at FROM posts WHERE id=?",
+          "SELECT id,status,publish_version,client_id,platform,social_account_id,suggested_publish_at FROM posts WHERE id=?",
         )
           .bind(postId)
           .first<any>();
@@ -1586,32 +1568,14 @@ export default {
           continue;
         }
 
-        const scheduledAt = await findNextAvailableSlot(
-          env,
-          post.client_id,
-          post.suggested_publish_at,
-          postId,
-        );
-        const now = new Date().toISOString();
-
-        const approved = await env.DB.batch([
-          env.DB.prepare(
-            `UPDATE posts SET
-             status='calendar_scheduled',
-             approved_at=?,
-             calendar_added_at=?,
-             scheduled_publish_at=?,
-             updated_at=?
-             WHERE id=? AND status='awaiting_approval'`,
-          ).bind(now, now, scheduledAt, now, postId),
-          env.DB.prepare(
-            `INSERT INTO approvals
-             (id,post_id,decision,previous_status)
-             SELECT ?,?,'approved_bulk',? WHERE EXISTS (SELECT 1 FROM posts WHERE id=? AND approved_at=? AND status='calendar_scheduled')`,
-          ).bind(crypto.randomUUID(), postId, post.status, postId, now),
-        ]);
-
-        if (!approved[0].meta.changes) {
+        const scheduledAt = await reserveSchedule(env, postId, {
+          clientId: post.client_id,
+          status: post.status,
+          publishVersion: post.publish_version,
+          desiredAt: post.suggested_publish_at,
+          decision: "approved_bulk",
+        });
+        if (!scheduledAt) {
           results.push({ postId, ok: false, error: "Post changed during approval." });
           continue;
         }
@@ -1699,7 +1663,7 @@ export default {
       const results = [];
       for (const postId of postIds) {
         const post = await env.DB.prepare(
-          "SELECT client_id,status,scheduled_publish_at FROM posts WHERE id=?",
+          "SELECT client_id,status,publish_version,scheduled_publish_at FROM posts WHERE id=?",
         )
           .bind(postId)
           .first<any>();
@@ -1726,28 +1690,19 @@ export default {
           Date.parse(post.scheduled_publish_at) + shiftMinutes * 60 * 1000,
         ).toISOString();
 
-        const scheduledAt = await findNextAvailableSlot(env, post.client_id, requested, postId);
-        const now = new Date().toISOString();
-
-        await env.DB.batch([
-          env.DB.prepare(
-            `UPDATE publish_jobs SET
-             status='canceled',completed_at=?,updated_at=?
-             WHERE post_id=? AND status IN ('queued','retrying')`,
-          ).bind(now, now, postId),
-          env.DB.prepare(
-            `UPDATE posts SET
-             scheduled_publish_at=?,
-             prepublish_response='reschedule',
-             prepublish_alert_at=NULL,
-             publish_version=publish_version+1,
-             status='rescheduled',
-             updated_at=?
-             WHERE id=?`,
-          ).bind(scheduledAt, now, postId),
-        ]);
-
-        results.push({ postId, ok: true, scheduledPublishAt: scheduledAt });
+        const scheduledAt = await reserveSchedule(env, postId, {
+          clientId: post.client_id,
+          status: post.status,
+          publishVersion: post.publish_version,
+          desiredAt: requested,
+        });
+        results.push({
+          postId,
+          ok: !!scheduledAt,
+          ...(scheduledAt
+            ? { scheduledPublishAt: scheduledAt }
+            : { error: "Post changed or publishing has started. Reload before rescheduling." }),
+        });
       }
 
       return response(request, env, { ok: true, results });
@@ -1843,6 +1798,7 @@ export default {
            caption=COALESCE(NULLIF(?,''),caption),
            reviewer_comment=COALESCE(NULLIF(?,''),reviewer_comment),
            status='awaiting_approval',
+           revision_job_id=NULL,
            updated_at=CURRENT_TIMESTAMP
            WHERE id=? AND status IN ('awaiting_approval','edit_requested')`,
         ).bind(
@@ -1918,9 +1874,8 @@ export default {
     const approvalMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/approve$/);
     if (request.method === "POST" && approvalMatch) {
       const postId = approvalMatch[1];
-      const now = new Date().toISOString();
       const post = await env.DB.prepare(
-        "SELECT id, status, client_id, platform, social_account_id, suggested_publish_at FROM posts WHERE id = ?",
+        "SELECT id, status, publish_version, client_id, platform, social_account_id, suggested_publish_at FROM posts WHERE id = ?",
       )
         .bind(postId)
         .first<any>();
@@ -1958,28 +1913,14 @@ export default {
         );
       }
 
-      const scheduledAt = await findNextAvailableSlot(
-        env,
-        post.client_id,
-        post.suggested_publish_at,
-        postId,
-      );
-      const approved = await env.DB.batch([
-        env.DB.prepare(
-          `UPDATE posts SET
-           status = 'calendar_scheduled',
-           approved_at = ?,
-           calendar_added_at = ?,
-           scheduled_publish_at = ?,
-           updated_at = ?
-           WHERE id = ? AND status='awaiting_approval'`,
-        ).bind(now, now, scheduledAt, now, postId),
-        env.DB.prepare(
-          `INSERT INTO approvals (id, post_id, decision, previous_status)
-           SELECT ?, ?, 'approved', ? WHERE EXISTS (SELECT 1 FROM posts WHERE id=? AND approved_at=? AND status='calendar_scheduled')`,
-        ).bind(crypto.randomUUID(), postId, post.status, postId, now),
-      ]);
-      if (!approved[0].meta.changes)
+      const scheduledAt = await reserveSchedule(env, postId, {
+        clientId: post.client_id,
+        status: post.status,
+        publishVersion: post.publish_version,
+        desiredAt: post.suggested_publish_at,
+        decision: "approved",
+      });
+      if (!scheduledAt)
         return response(
           request,
           env,
@@ -2036,9 +1977,11 @@ export default {
         );
       }
 
-      const post = await env.DB.prepare("SELECT client_id, status FROM posts WHERE id = ?")
+      const post = await env.DB.prepare(
+        "SELECT client_id, status, publish_version FROM posts WHERE id = ?",
+      )
         .bind(postId)
-        .first<{ client_id: string; status: string }>();
+        .first<{ client_id: string; status: string; publish_version: number }>();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
       const denied = await authorize(env, sessionUser!, "calendar_manage", post.client_id);
@@ -2053,33 +1996,19 @@ export default {
         );
       }
 
-      const scheduledAt = await findNextAvailableSlot(
-        env,
-        post.client_id,
-        payload.scheduledPublishAt,
-        postId,
-      );
-
-      const now = new Date().toISOString();
-      await env.DB.batch([
-        env.DB.prepare(
-          `UPDATE publish_jobs SET
-           status = 'canceled',
-           completed_at = ?,
-           updated_at = ?
-           WHERE post_id = ? AND status IN ('queued','retrying')`,
-        ).bind(now, now, postId),
-        env.DB.prepare(
-          `UPDATE posts SET
-           scheduled_publish_at = ?,
-           prepublish_response = 'reschedule',
-           prepublish_alert_at = NULL,
-           publish_version = publish_version + 1,
-           status = 'rescheduled',
-           updated_at = ?
-           WHERE id = ?`,
-        ).bind(scheduledAt, now, postId),
-      ]);
+      const scheduledAt = await reserveSchedule(env, postId, {
+        clientId: post.client_id,
+        status: post.status,
+        publishVersion: post.publish_version,
+        desiredAt: payload.scheduledPublishAt,
+      });
+      if (!scheduledAt)
+        return response(
+          request,
+          env,
+          { error: "Post changed or publishing has started. Reload before rescheduling." },
+          { status: 409 },
+        );
 
       await audit(env, postId, "post.rescheduled", {
         requestedPublishAt: payload.scheduledPublishAt,

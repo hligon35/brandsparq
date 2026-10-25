@@ -73,9 +73,8 @@ export function HeaderActions() {
                     if (item.path === "/settings") {
                       router.push("/settings");
                     } else if (item.path === "/profile") {
-                      router.push("/settings");
-                    }
-                    else
+                      router.push("/profile");
+                    } else
                       void signOut().catch((error) =>
                         Alert.alert(
                           "Unable to sign out",

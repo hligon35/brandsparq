@@ -953,6 +953,12 @@ export const REQUIRED_SCHEMA = {
       notnull: 0,
       pk: 0,
     },
+    {
+      name: "schedule_revision",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
   ],
   creative_variants: [
     {
@@ -2159,6 +2165,12 @@ export const REQUIRED_SCHEMA = {
     },
     {
       name: "revision_job_id",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "schedule_token",
       type: "TEXT",
       notnull: 0,
       pk: 0,

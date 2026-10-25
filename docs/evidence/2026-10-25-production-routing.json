@@ -1,0 +1,85 @@
+{
+  "origin": "https://brandsparq.getsparqd.com",
+  "checkedAt": "2026-10-25T20:18:07.435Z",
+  "anonymous": true,
+  "passed": false,
+  "checks": [
+    {
+      "path": "/v1/dashboard",
+      "method": "GET",
+      "expected": 401,
+      "status": 401,
+      "passed": true
+    },
+    {
+      "path": "/v1/public/review/invalid-acceptance-token",
+      "method": "GET",
+      "expected": 404,
+      "status": 404,
+      "passed": true
+    },
+    {
+      "path": "/v1/public/invitations/invalid-acceptance-token",
+      "method": "GET",
+      "expected": 404,
+      "status": 404,
+      "passed": true
+    },
+    {
+      "path": "/v1/public/publish-media/invalid-acceptance-token",
+      "method": "GET",
+      "expected": 404,
+      "status": 404,
+      "passed": true
+    },
+    {
+      "path": "/v1/auth/google/callback",
+      "method": "GET",
+      "expected": 400,
+      "status": 400,
+      "passed": true
+    },
+    {
+      "path": "/v1/social/meta/callback",
+      "method": "GET",
+      "expected": 400,
+      "status": 400,
+      "passed": true
+    },
+    {
+      "path": "/v1/social/linkedin/callback",
+      "method": "GET",
+      "expected": 400,
+      "status": 400,
+      "passed": true
+    },
+    {
+      "path": "/v1/social/tiktok/callback",
+      "method": "GET",
+      "expected": 400,
+      "status": 400,
+      "passed": true
+    },
+    {
+      "path": "/v1/social/x/callback",
+      "method": "GET",
+      "expected": 400,
+      "status": 400,
+      "passed": true
+    },
+    {
+      "path": "/v1/social/webhooks/meta",
+      "method": "GET",
+      "expected": 403,
+      "status": 403,
+      "passed": true
+    },
+    {
+      "path": "/v1/social/webhooks/meta",
+      "method": "POST",
+      "expected": 401,
+      "status": 405,
+      "passed": false
+    }
+  ]
+}

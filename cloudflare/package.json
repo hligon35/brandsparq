@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "npm --prefix .. run deploy:production",
     "typecheck": "tsc --noEmit",
     "build": "npm ci --prefix .. && npm --prefix .. run build:web",
     "deploy:staging": "wrangler deploy --config wrangler.staging.toml",
@@ -13,5 +13,10 @@
     "@cloudflare/workers-types": "^4.20260702.1",
     "typescript": "~5.9.2",
     "wrangler": "^4.40.0"
+  },
+  "overrides": {
+    "miniflare": {
+      "undici": "^7.30.1"
+    }
   }
 }
