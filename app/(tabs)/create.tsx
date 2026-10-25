@@ -3,7 +3,7 @@ import { Alert } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
 import { Link, useRouter, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ClientPicker } from "@/components/client-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/api/client";
@@ -194,20 +194,32 @@ export default function CreateScreen() {
                 title={creationMode === "social" ? "2. Social post goal" : "2. Campaign objective"}
                 subtitle="Or leave it on Auto and let BrandSparQ decide."
               />
-              <View style={styles.chips}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.chips}
+              >
                 {objectives.map((item) => {
                   const active = item === objective;
                   return (
                     <Pressable
                       key={item}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
                       onPress={() => setObjective(item)}
                       style={[styles.chip, active && styles.chipActive]}
                     >
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{item}</Text>
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.chipText, active && styles.chipTextActive]}
+                      >
+                        {item}
+                      </Text>
                     </Pressable>
                   );
                 })}
-              </View>
+              </ScrollView>
             </Card>
           </View>
           <View style={styles.column}>
@@ -297,15 +309,15 @@ const styles = StyleSheet.create({
   columns: { gap: spacing.md },
   columnsWide: { flexDirection: "row", alignItems: "flex-start" },
   column: { flex: 1, gap: spacing.md, minWidth: 0 },
-  chips: { flexDirection: "row", gap: 4 },
+  chips: { flexDirection: "row", gap: spacing.sm },
   chip: {
     backgroundColor: colors.surface2,
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: radius.pill,
-    flex: 1,
+    flexShrink: 0,
     alignItems: "center",
-    paddingHorizontal: 4,
+    paddingHorizontal: spacing.md,
     minHeight: 44,
     paddingVertical: 11,
     justifyContent: "center",
