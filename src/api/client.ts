@@ -1,3 +1,5 @@
+import * as ImageManipulator from "expo-image-manipulator";
+import { imageUploadType } from "@/shared/image-upload";
 import type { PilotConfiguration, PilotOverview } from "@/shared/pilot";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
@@ -140,6 +142,31 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getProfile: () =>
+    jsonRequest<{
+      data: { id: string; name: string; email: string; role: string; avatar_url: string | null };
+    }>("/v1/profile"),
+  saveProfile: (name: string, avatar?: string | null) =>
+    jsonRequest<{ data: unknown }>("/v1/profile", {
+      method: "PATCH",
+      body: JSON.stringify({ name, ...(avatar !== undefined ? { avatar } : {}) }),
+    }),
+  requestProfileEmail: (email: string) =>
+    jsonRequest<{ ok: true }>("/v1/profile/email/request", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  verifyProfileEmail: (code: string) =>
+    jsonRequest<{ data: unknown }>("/v1/profile/email/verify", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  deleteAccount: () =>
+    jsonRequest<{ ok: true }>("/v1/profile", {
+      method: "DELETE",
+      body: JSON.stringify({ confirmation: "DELETE" }),
+    }),
+
   getGenerationJobs: () => jsonRequest<{ data: any[] }>("/v1/generation-jobs"),
   getGenerationJob: (id: string) => jsonRequest<{ data: any }>(`/v1/generation-jobs/${id}`),
   generationAction: (id: string, action: "retry" | "cancel") =>
@@ -593,7 +620,7 @@ export const api = {
     const source = await fetchWithTimeout(uri);
     const blob = await source.blob();
     const headers = authHeaders({
-      "content-type": blob.type || contentType,
+      "content-type": imageUploadType(blob.type, contentType),
       "x-client-id": clientId,
       "x-file-name": filename,
       "x-derivative-kind": kind,
@@ -626,10 +653,19 @@ export const api = {
     width?: number,
     height?: number,
   ): Promise<Asset> {
+    if (/hei[cf]/i.test(contentType + filename)) {
+      const converted = await ImageManipulator.manipulateAsync(uri, [], {
+        format: ImageManipulator.SaveFormat.JPEG,
+        compress: 0.92,
+      });
+      uri = converted.uri;
+      contentType = "image/jpeg";
+      filename = filename.replace(/\.[^.]+$/, "") + ".jpg";
+    }
     const source = await fetchWithTimeout(uri);
     const blob = await source.blob();
     const headers = authHeaders({
-      "content-type": blob.type || contentType,
+      "content-type": imageUploadType(blob.type, contentType),
       "x-client-id": clientId,
       "x-file-name": filename,
       ...(width ? { "x-image-width": String(width) } : {}),

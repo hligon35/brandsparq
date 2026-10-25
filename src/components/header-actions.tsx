@@ -1,5 +1,5 @@
 import { type ComponentRef, useRef, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { usePathname, useRouter } from "expo-router";
 import { useEffect } from "react";
 import { useAuth } from "@/auth/context";
@@ -7,7 +7,7 @@ import { Alert } from "@/components/feedback";
 import { IconButton } from "./icon-button";
 import { colors } from "@/theme/tokens";
 export function HeaderActions() {
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const anchor = useRef<ComponentRef<typeof View>>(null);
@@ -25,7 +25,21 @@ export function HeaderActions() {
   return (
     <View style={styles.actions}>
       <View ref={anchor} collapsable={false}>
-        <IconButton label="Open profile menu" icon="person-circle-outline" onPress={open} />
+        {user?.avatarUrl ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open profile menu"
+            onPress={open}
+            style={{ width: 48, height: 48, alignItems: "center", justifyContent: "center" }}
+          >
+            <Image
+              source={{ uri: user.avatarUrl }}
+              style={{ width: 32, height: 32, borderRadius: 16 }}
+            />
+          </Pressable>
+        ) : (
+          <IconButton label="Open profile menu" icon="person-circle-outline" onPress={open} />
+        )}
       </View>
       <IconButton
         label="Notifications"

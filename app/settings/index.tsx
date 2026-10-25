@@ -1,3 +1,4 @@
+import { TimezonePicker, TimeWindows } from "@/components/pickers";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { useEffect, useState } from "react";
@@ -119,20 +120,27 @@ export default function SettingsScreen() {
           title="Notification devices"
           subtitle="Register this device or send a test through your enabled channels."
         />
-        <Button
-          label="Enable push"
-          secondary
-          onPress={notificationBusy ? undefined : () => notificationAction(true)}
-        />
-        <Button
-          label="Send test"
-          secondary
-          onPress={
-            notificationBusy || !can("notifications_manage")
-              ? undefined
-              : () => notificationAction(false)
-          }
-        />
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <View style={{ flex: 1 }}>
+            {" "}
+            <Button
+              label="Enable push"
+              secondary
+              onPress={notificationBusy ? undefined : () => notificationAction(true)}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Button
+              label="Send test"
+              secondary
+              onPress={
+                notificationBusy || !can("notifications_manage")
+                  ? undefined
+                  : () => notificationAction(false)
+              }
+            />
+          </View>
+        </View>
       </Card>
       <Card>
         <SectionTitle
@@ -141,11 +149,9 @@ export default function SettingsScreen() {
         />
         <View style={styles.grid}>
           <View style={styles.field}>
-            <Text style={styles.label}>Timezone</Text>
-            <TextInput
-              style={styles.input}
+            <TimezonePicker
               value={workspace.timezone || ""}
-              onChangeText={(v) => setWorkspace({ ...workspace, timezone: v })}
+              onChange={(v) => setWorkspace({ ...workspace, timezone: v })}
             />
           </View>
           {numberField(
@@ -164,42 +170,16 @@ export default function SettingsScreen() {
             (v) => setWorkspace({ ...workspace, analyticsRefreshHours: v }),
           )}
         </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>Preferred windows</Text>
-          <TextInput
-            style={styles.input}
-            value={(workspace.preferredWindows || []).join(", ")}
-            onChangeText={(v) =>
-              setWorkspace({
-                ...workspace,
-                preferredWindows: v
-                  .split(",")
-                  .map((x: string) => x.trim())
-                  .filter(Boolean),
-              })
-            }
-            placeholder="09:00-11:00, 17:00-20:00"
-            placeholderTextColor={colors.muted}
-          />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>Blackout windows</Text>
-          <TextInput
-            style={styles.input}
-            value={(workspace.blackoutWindows || []).join(", ")}
-            onChangeText={(v) =>
-              setWorkspace({
-                ...workspace,
-                blackoutWindows: v
-                  .split(",")
-                  .map((x: string) => x.trim())
-                  .filter(Boolean),
-              })
-            }
-            placeholder="12:00-14:00"
-            placeholderTextColor={colors.muted}
-          />
-        </View>
+        <TimeWindows
+          label="Preferred windows"
+          values={workspace.preferredWindows || []}
+          onChange={(preferredWindows) => setWorkspace({ ...workspace, preferredWindows })}
+        />
+        <TimeWindows
+          label="Blackout windows"
+          values={workspace.blackoutWindows || []}
+          onChange={(blackoutWindows) => setWorkspace({ ...workspace, blackoutWindows })}
+        />
       </Card>
 
       <Card>

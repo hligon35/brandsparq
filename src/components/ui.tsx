@@ -99,12 +99,14 @@ export function Button({
   secondary = false,
   danger = false,
   small = false,
+  style,
 }: {
   label: string;
   onPress?: () => void;
   secondary?: boolean;
   danger?: boolean;
   small?: boolean;
+  style?: StyleProp<ViewStyle>;
 }) {
   return (
     <Pressable
@@ -120,9 +122,12 @@ export function Button({
         danger && styles.danger,
         !onPress && styles.disabled,
         pressed && !!onPress && styles.pressed,
+        style,
       ]}
     >
-      <Text style={[styles.buttonText, secondary && styles.secondaryText]}>{label}</Text>
+      <Text style={[styles.buttonText, secondary && styles.secondaryText, { textAlign: "center" }]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }

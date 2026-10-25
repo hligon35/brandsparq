@@ -1,6 +1,7 @@
 import { Link } from "expo-router";
 import { useCapabilities } from "@/auth/capabilities";
-import { Choices } from "@/components/forms";
+import { TimezonePicker, ColorPicker } from "@/components/pickers";
+import { logoColors } from "@/media/logoColors";
 import { Alert } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams } from "expo-router";
@@ -102,14 +103,14 @@ export default function BrandBrainScreen() {
 
   async function addAsset(role: "logo" | "alternate_logo" | "reference") {
     if (!clientId) return;
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      selectionLimit: 1,
-      quality: 1,
-    });
-    if (result.canceled || !result.assets[0]) return;
     setSaving(true);
     try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        selectionLimit: 1,
+        quality: 1,
+      });
+      if (result.canceled || !result.assets[0]) return;
       const file = result.assets[0];
       const uploaded = await api.uploadAsset(
         clientId,
@@ -118,7 +119,16 @@ export default function BrandBrainScreen() {
         file.mimeType || "image/png",
       );
       await api.attachBrandAsset(clientId, uploaded.id, role, file.fileName || undefined);
-      await load();
+      const extracted = role !== "reference" ? await logoColors(file.uri).catch(() => []) : [];
+      setAssets((await api.getBrandAssets(clientId)).data);
+      if (role !== "reference" && !extracted.length)
+        Alert.alert("Logo uploaded", "Choose the brand colors manually for this image.");
+      if (extracted.length)
+        setBrand((current) => ({
+          ...current,
+          primaryColor: extracted[0],
+          secondaryColor: extracted[1] || extracted[0],
+        }));
     } catch (err) {
       Alert.alert("Unable to add brand asset", err instanceof Error ? err.message : "Try again.");
     } finally {
@@ -165,13 +175,7 @@ export default function BrandBrainScreen() {
             />
           </View>
           <View style={styles.colorField}>
-            <Text style={styles.label}>Timezone</Text>
-            <TextInput
-              editable={editable}
-              style={styles.input}
-              value={timezone}
-              onChangeText={setTimezone}
-            />
+            <TimezonePicker value={timezone} disabled={!editable} onChange={setTimezone} />
           </View>
         </View>
       </Card>
@@ -183,29 +187,38 @@ export default function BrandBrainScreen() {
         />
         {editable && (
           <View style={styles.assetActions}>
-            <Button
-              label="Upload logo"
-              onPress={saving ? undefined : () => addAsset("logo")}
-              secondary
-            />
-            <Button
-              label="Upload alternate logo"
-              onPress={saving ? undefined : () => addAsset("alternate_logo")}
-              secondary
-            />
-            <Button
-              label="Add reference image"
-              onPress={saving ? undefined : () => addAsset("reference")}
-              secondary
-            />
+            {[
+              { label: "Upload\nlogo", role: "logo" },
+              { label: "Upload\nalternate logo", role: "alternate_logo" },
+              { label: "Add reference\nimage", role: "reference" },
+            ].map((item) => (
+              <View key={item.role} style={styles.assetCell}>
+                <Button
+                  label={item.label}
+                  secondary
+                  onPress={
+                    saving
+                      ? undefined
+                      : () => addAsset(item.role as "logo" | "alternate_logo" | "reference")
+                  }
+                />
+              </View>
+            ))}
+            <View style={[styles.assetCell, { gap: 8 }]}>
+              {["primary", "alternate"].map((value) => (
+                <Button
+                  key={value}
+                  label={value}
+                  secondary={brand.logoPreference !== value}
+                  onPress={
+                    saving
+                      ? undefined
+                      : () => setBrand((current) => ({ ...current, logoPreference: value }))
+                  }
+                />
+              ))}
+            </View>
           </View>
-        )}
-        {editable && (
-          <Choices
-            values={["primary", "alternate"]}
-            value={brand.logoPreference || "primary"}
-            onChange={(logoPreference) => setBrand((b) => ({ ...b, logoPreference }))}
-          />
         )}
         {!!assets.length && (
           <View style={styles.assetList}>
@@ -247,31 +260,19 @@ export default function BrandBrainScreen() {
       <Card>
         <SectionTitle
           title="Brand colors"
-          subtitle="Use hex values to keep generated creative aligned."
+          subtitle="Logo uploads select prominent colors. Tap a color to adjust it, then save Brand Brain."
         />
-        <View style={[styles.colorRow, wide && styles.colorRowWide]}>
-          <View style={styles.colorField}>
-            <Text style={styles.label}>Primary</Text>
-            <TextInput
-              editable={editable}
-              style={styles.input}
-              value={brand.primaryColor || ""}
-              onChangeText={(v) => setBrand({ ...brand, primaryColor: v })}
-              placeholder="#0B78F6"
-              placeholderTextColor={colors.muted}
-            />
-          </View>
-          <View style={styles.colorField}>
-            <Text style={styles.label}>Secondary</Text>
-            <TextInput
-              editable={editable}
-              style={styles.input}
-              value={brand.secondaryColor || ""}
-              onChangeText={(v) => setBrand({ ...brand, secondaryColor: v })}
-              placeholder="#00C9D7"
-              placeholderTextColor={colors.muted}
-            />
-          </View>
+        <View style={{ flexDirection: "row", gap: 12 }}>
+          {["primaryColor", "secondaryColor"].map((key, i) => (
+            <View key={key} style={{ flex: 1 }}>
+              <ColorPicker
+                label={i === 0 ? "Primary" : "Secondary"}
+                value={brand[key] || ""}
+                disabled={!editable}
+                onChange={(value) => setBrand((current) => ({ ...current, [key]: value }))}
+              />
+            </View>
+          ))}
         </View>
       </Card>
 
@@ -312,9 +313,9 @@ const styles = StyleSheet.create({
   colorRowWide: { flexDirection: "row" },
   colorField: { flex: 1, gap: 7 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
-  gridItem: { flexGrow: 1, flexBasis: 330, maxWidth: "100%" },
+  gridItem: { alignSelf: "flex-start", flexGrow: 1, flexBasis: 330, maxWidth: "100%" },
   gridItemWide: { flexBasis: 520 },
-  fieldCard: { height: "100%" },
+  fieldCard: { alignSelf: "stretch" },
   label: {
     color: colors.textSoft,
     fontSize: 12,
@@ -335,7 +336,8 @@ const styles = StyleSheet.create({
   },
   multiline: { minHeight: 118, textAlignVertical: "top" },
   saveWrap: { alignSelf: "flex-end", minWidth: 220 },
-  assetActions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  assetActions: { flexDirection: "row", flexWrap: "wrap", columnGap: "4%", rowGap: 12 },
+  assetCell: { width: "48%", justifyContent: "center" },
   assetList: { gap: 8 },
   assetRow: {
     flexDirection: "row",

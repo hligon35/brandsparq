@@ -1,3 +1,5 @@
+import { zonedTime, zonedParts } from "@/shared/zoned-time";
+import { TimePicker } from "@/components/pickers";
 import { Alert } from "@/components/feedback";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -61,12 +63,16 @@ export default function RescheduleScreen() {
       .then(([p, clients]) => {
         setPost(p);
         const client = clients.find((c) => c.id === p.clientId);
-        setTimezone(client?.timezone || "Workspace timezone");
+        setTimezone(client?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
         const base = p.scheduledPublishAt
           ? new Date(p.scheduledPublishAt)
           : new Date(Date.now() + 2 * 60 * 60 * 1000);
-        setDateText(localDateValue(base));
-        setTimeText(localTimeValue(base));
+        const parts = zonedParts(
+          base,
+          client?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+        );
+        setDateText(parts.date);
+        setTimeText(parts.time);
       })
       .catch(() => {});
   }, [postId]);
@@ -94,9 +100,16 @@ export default function RescheduleScreen() {
   }
 
   async function submitCustom() {
-    const parsed = new Date(`${dateText}T${timeText}:00`);
+    const parsed = zonedTime(
+      dateText,
+      timeText,
+      timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
     if (Number.isNaN(parsed.getTime())) {
-      Alert.alert("Invalid date or time", "Use YYYY-MM-DD and HH:MM.");
+      Alert.alert(
+        "Invalid date or time",
+        "Choose a valid date and time. Some times do not exist when daylight saving time changes.",
+      );
       return;
     }
     await apply(parsed);
@@ -104,7 +117,11 @@ export default function RescheduleScreen() {
 
   async function recommend() {
     if (!post?.clientId) return;
-    const parsed = new Date(`${dateText}T${timeText}:00`);
+    const parsed = zonedTime(
+      dateText,
+      timeText,
+      timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
     setWorking(true);
     try {
       const result = await api.recommendSchedule(
@@ -113,8 +130,9 @@ export default function RescheduleScreen() {
       );
       setSuggested(result.data.scheduledAt);
       const date = new Date(result.data.scheduledAt);
-      setDateText(localDateValue(date));
-      setTimeText(localTimeValue(date));
+      const parts = zonedParts(date, timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
+      setDateText(parts.date);
+      setTimeText(parts.time);
     } catch (error) {
       Alert.alert(
         "Unable to recommend a slot",
@@ -162,14 +180,7 @@ export default function RescheduleScreen() {
             />
           </View>
           <View style={styles.field}>
-            <Text style={styles.label}>Time</Text>
-            <TextInput
-              value={timeText}
-              onChangeText={setTimeText}
-              placeholder="HH:MM"
-              placeholderTextColor={colors.muted}
-              style={styles.input}
-            />
+            <TimePicker value={timeText} onChange={setTimeText} />
           </View>
         </View>
         {!!suggested && (

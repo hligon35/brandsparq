@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     flexGrow: 0,
   },
   itemCard: {
-    minHeight: 205,
+    height: 238,
     padding: 14,
   },
   iconWrap: {

@@ -381,3 +381,56 @@ test("inbox notices navigate, lose new state and can be selected and deleted", a
   await page.reload();
   await expect(page.getByText("No notifications in this view.", { exact: true })).toBeVisible();
 });
+
+test("logo upload selects prominent colors and persists them", async ({ page }) => {
+  const { encode } = await import("fast-png");
+  const pixels = new Uint8Array(10 * 10 * 4);
+  for (let i = 0; i < 100; i++) {
+    pixels[i * 4 + (i < 80 ? 0 : 2)] = 255;
+    pixels[i * 4 + 3] = 255;
+  }
+  await signIn(page);
+  await page.goto("/clients/client-a/brand");
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Upload logo", exact: true }).click();
+  await (await chooser).setFiles({
+    name: "logo.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(encode({ width: 10, height: 10, data: pixels, channels: 4 })),
+  });
+  await expect(page.getByRole("button", { name: "Primary color", exact: true })).toContainText(
+    "#FF0000",
+  );
+  await expect(page.getByRole("button", { name: "Secondary color", exact: true })).toContainText(
+    "#0000FF",
+  );
+  await page.getByRole("button", { name: "Save Brand Brain", exact: true }).click();
+  await expect(page.getByRole("alert", { name: "Brand Brain saved" })).toBeVisible();
+  await page.getByRole("button", { name: "Close message" }).click();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Primary color", exact: true })).toContainText(
+    "#FF0000",
+  );
+});
+test("profile name saves and timezone and time pickers support selection", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/profile");
+  await page.getByLabel("Profile name", { exact: true }).fill("Harold Test");
+  await page.getByRole("button", { name: "Save profile", exact: true }).click();
+  await page.getByRole("button", { name: "Close message" }).click();
+  await page.reload();
+  await expect(page.getByLabel("Profile name", { exact: true })).toHaveValue("Harold Test");
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Timezone", exact: true }).click();
+  await page.getByLabel("Search Timezone", { exact: true }).fill("UTC");
+  await page.getByRole("button", { name: "UTC", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Timezone", exact: true })).toContainText("UTC");
+  await page
+    .getByRole("button", { name: /^From:/ })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "Hour 10", exact: true }).click();
+  await page.getByRole("button", { name: "Minute 30", exact: true }).click();
+  await page.getByRole("button", { name: "Use time", exact: true }).click();
+  await expect(page.getByRole("button", { name: "From: 10:30", exact: true })).toBeVisible();
+});

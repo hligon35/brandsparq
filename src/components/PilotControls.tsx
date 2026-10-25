@@ -1,3 +1,4 @@
+import { TimePicker } from "./pickers";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
@@ -180,15 +181,29 @@ export function PilotControls() {
                     editable={!saving}
                     placeholder="40-character Git commit"
                   />
-                  <Text style={styles.label}>Pilot end (ISO timestamp)</Text>
+                  <Text style={styles.label}>Pilot end date (UTC)</Text>
                   <TextInput
-                    accessibilityLabel="Pilot end (ISO timestamp)"
+                    accessibilityLabel="Pilot end date (UTC)"
                     style={styles.input}
-                    value={end}
-                    onChangeText={setEnd}
-                    autoCapitalize="none"
+                    value={end.slice(0, 10)}
+                    placeholder="YYYY-MM-DD"
+                    onChangeText={(date) =>
+                      setEnd(date + "T" + (end.slice(11, 16) || "12:00") + ":00Z")
+                    }
                     editable={!saving}
-                    placeholder="YYYY-MM-DDTHH:mm:ssZ"
+                  />
+                  <TimePicker
+                    label="Pilot end time (UTC)"
+                    value={end.slice(11, 16) || "12:00"}
+                    disabled={saving}
+                    onChange={(time) =>
+                      setEnd(
+                        (end.slice(0, 10) || new Date().toISOString().slice(0, 10)) +
+                          "T" +
+                          time +
+                          ":00Z",
+                      )
+                    }
                   />
                   <Text style={styles.muted}>
                     Choose a future end within seven days. Required evidence records your completed

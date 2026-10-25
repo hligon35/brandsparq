@@ -185,21 +185,24 @@ export default function SocialConnectionsScreen() {
           );
           return (
             <Card key={platformName} style={styles.card}>
-              <View
+              <Image
+                source={icons[platformName]}
+                resizeMode="contain"
+                accessibilityLabel={platformName}
                 style={[
-                  styles.iconGlow,
-                  {
-                    boxShadow: `0px 0px 24px ${connected ? "rgba(13,175,122,0.55)" : "rgba(228,82,97,0.55)"}`,
-                  },
+                  styles.platformIcon,
+                  Platform.OS === "web"
+                    ? {
+                        filter: `drop-shadow(0px 0px 10px ${connected ? "rgba(13,175,122,0.8)" : "rgba(228,82,97,0.8)"})`,
+                      }
+                    : {
+                        shadowColor: connected ? colors.success : colors.danger,
+                        shadowOpacity: 0.85,
+                        shadowRadius: 16,
+                        shadowOffset: { width: 0, height: 0 },
+                      },
                 ]}
-              >
-                <Image
-                  source={icons[platformName]}
-                  resizeMode="contain"
-                  style={styles.platformIcon}
-                  accessibilityLabel={platformName}
-                />
-              </View>
+              />
               <Text style={styles.title}>
                 {platformName === "x" ? "X" : platformName[0].toUpperCase() + platformName.slice(1)}
               </Text>
@@ -304,12 +307,12 @@ const styles = StyleSheet.create({
   iconGlow: {
     width: 76,
     height: 76,
-    borderRadius: 22,
+    borderRadius: 0,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 10,
   },
-  platformIcon: { width: 64, height: 64 },
+  platformIcon: { width: 64, height: 64, overflow: "visible" },
   connected: {
     color: colors.success,
     fontWeight: "800",
