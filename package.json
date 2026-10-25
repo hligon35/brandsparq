@@ -10,11 +10,11 @@
     "web": "expo start --web",
     "build": "expo export --platform web",
     "build:web": "expo export --platform web",
-    "deploy:worker": "npm run validate && npm --prefix cloudflare run deploy",
+    "deploy:worker": "npm run deploy:production",
     "deploy:cloudflare": "npm run deploy:worker",
     "typecheck": "tsc --noEmit",
-    "validate": "npm run schema:check && npx expo install --check && npm run audit:launch && npm run lint && npm run format:check && npm test && npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web && npm run test:e2e",
-    "deploy:production": "npm run validate && npm --prefix cloudflare run deploy",
+    "validate": "npm run schema:check && npx expo install --check && npm run audit:launch && npm run audit:dependencies && npm run lint && npm run format:check && npm test && npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web && npm run test:e2e",
+    "deploy:production": "node scripts/deploy-production.mjs",
     "audit:launch": "node scripts/launch-audit.mjs",
     "smoke:production": "node scripts/smoke-production.mjs",
     "test": "node --import ./tests/register.mjs --test tests/*.test.mjs",
@@ -47,7 +47,11 @@
     "ota:dev": "npx eas-cli@latest update --channel development --environment development",
     "ota:preview": "npx eas-cli@latest update --channel preview --environment preview",
     "ota:production": "npx eas-cli@latest update --channel production --environment production",
-    "ota:configure": "npx eas-cli@latest update:configure"
+    "ota:configure": "npx eas-cli@latest update:configure",
+    "build:staging:ios": "npx eas-cli@latest build --platform ios --profile staging",
+    "build:staging:android": "npx eas-cli@latest build --platform android --profile staging",
+    "audit:dependencies": "node scripts/audit-dependencies.mjs",
+    "preflight:production": "node scripts/preflight-production.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

@@ -237,13 +237,14 @@ test("campaign metadata saves and persists after reload", async ({ page }) => {
 test("archived clients can be found and restored explicitly", async ({ page }) => {
   await signIn(page);
   await page.goto("/clients");
-  const card = page.getByText("Client A", { exact: true }).locator("..");
+  const clientLink = page.getByRole("link", { name: "Open Client A workspace", exact: true });
+  const card = clientLink.locator("..");
   await card.getByText("Archive", { exact: true }).click();
-  await expect(page.getByText("Client A", { exact: true })).toHaveCount(0);
+  await expect(clientLink).toHaveCount(0);
   await page.getByRole("button", { name: "Show archived clients", exact: true }).click();
   await page.getByRole("button", { name: "Restore client", exact: true }).click();
   await expect(page.getByRole("button", { name: "Restore client", exact: true })).toHaveCount(0);
-  await expect(page.getByText("Client A", { exact: true })).toBeVisible();
+  await expect(clientLink).toBeVisible();
 });
 
 test("paused approved posts resume through the scheduler", async ({ page, request }) => {

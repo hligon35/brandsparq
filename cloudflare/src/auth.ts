@@ -64,7 +64,7 @@ function allowedEmailList(env: AuthEnv) {
 function emailAllowedForNewUser(email: string, env: AuthEnv) {
   const list = allowedEmailList(env);
   if (list.includes(email)) return true;
-  return env.ENVIRONMENT !== "production" && list.length === 0;
+  return env.ENVIRONMENT === "development" && list.length === 0;
 }
 
 async function sessionHash(token: string, env: AuthEnv) {
@@ -110,7 +110,8 @@ function validReturnTo(returnTo: string, requestOrigin: string, env: AuthEnv) {
   try {
     const target = new URL(returnTo);
 
-    if (target.protocol === "brandsparq:") return true;
+    if (target.protocol === (env.ENVIRONMENT === "staging" ? "brandsparq-staging:" : "brandsparq:"))
+      return true;
 
     if (
       (target.protocol === "https:" || target.protocol === "http:") &&
@@ -120,7 +121,7 @@ function validReturnTo(returnTo: string, requestOrigin: string, env: AuthEnv) {
     }
 
     if (
-      env.ENVIRONMENT !== "production" &&
+      env.ENVIRONMENT === "development" &&
       target.protocol === "http:" &&
       ["localhost", "127.0.0.1"].includes(target.hostname)
     ) {
@@ -453,32 +454,24 @@ export async function handleAuthRoute(
         };
       }
 
-      const existingUsers = await env.DB.prepare("SELECT COUNT(*) AS count FROM users").first<{
-        count: number;
-      }>();
-      const role = Number(existingUsers?.count || 0) === 0 ? "owner" : "viewer";
       const userId = crypto.randomUUID();
 
       await env.DB.prepare(
         `INSERT INTO users
          (id, email, name, role, google_sub, avatar_url)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+         SELECT ?, ?, ?, CASE WHEN EXISTS(SELECT 1 FROM users) THEN 'viewer' ELSE 'owner' END, ?, ?`,
       )
-        .bind(
-          userId,
-          email,
-          profile.name || null,
-          role,
-          profile.sub || null,
-          profile.picture || null,
-        )
+        .bind(userId, email, profile.name || null, profile.sub || null, profile.picture || null)
         .run();
 
+      const created = await env.DB.prepare("SELECT role FROM users WHERE id=?")
+        .bind(userId)
+        .first<{ role: string }>();
       user = {
         id: userId,
         email,
         name: profile.name || undefined,
-        role,
+        role: created!.role,
         status: "active",
       };
     } else {

@@ -159,9 +159,9 @@ function validReturnTo(value: string, requestOrigin: string, env: SocialEnv) {
   try {
     const target = new URL(value);
     return (
-      target.protocol === "brandsparq:" ||
+      target.protocol === (env.ENVIRONMENT === "staging" ? "brandsparq-staging:" : "brandsparq:") ||
       target.origin === requestOrigin ||
-      (env.ENVIRONMENT !== "production" &&
+      (env.ENVIRONMENT === "development" &&
         target.protocol === "http:" &&
         ["localhost", "127.0.0.1"].includes(target.hostname))
     );

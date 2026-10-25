@@ -1,6 +1,14 @@
 import { readFileSync, writeFileSync } from "node:fs";
 const origin = process.env.BRANDSPARQ_STAGING_ORIGIN || "";
 const database = (process.env.BRANDSPARQ_STAGING_DATABASE_ID || "").trim().toLowerCase();
+const admission = (process.env.BRANDSPARQ_STAGING_ALLOWED_EMAILS || "")
+  .split(",")
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
+if (!admission.length || admission.some((email) => !/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(email)))
+  throw new Error(
+    "Set BRANDSPARQ_STAGING_ALLOWED_EMAILS to the explicit staging operator emails. Empty admission is forbidden.",
+  );
 const googleClient = process.env.BRANDSPARQ_STAGING_GOOGLE_CLIENT_ID || "";
 if (!/^https:\/\/brandsparq-staging\.[a-z0-9-]+\.workers\.dev$/.test(origin))
   throw new Error(
@@ -50,6 +58,12 @@ let config = source
   .replace(/routes = \[[\s\S]*?\]/, "workers_dev = true")
   .replace('ENVIRONMENT = "production"', 'ENVIRONMENT = "staging"')
   .replace(/https:\/\/brandsparq\.getsparqd\.com/g, origin)
+  .replace(/^AUTH_ALLOWED_EMAILS\s*=.*$/gm, "")
+  .replace(/^ALLOWED_ORIGINS\s*=.*$/gm, "")
+  .replace(
+    "[vars]",
+    `[vars]\nAUTH_ALLOWED_EMAILS = ${JSON.stringify(admission.join(","))}\nALLOWED_ORIGINS = ${JSON.stringify(origin)}`,
+  )
   .replace(/GOOGLE_CLIENT_ID = "[^"]+"/, `GOOGLE_CLIENT_ID = "${googleClient}"`)
   .replace(/database_id = "[^"]+"/, `database_id = "${database}"`)
   .replace('database_name = "brandsparq"', 'database_name = "brandsparq-staging"')

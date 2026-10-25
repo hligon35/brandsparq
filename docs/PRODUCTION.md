@@ -189,9 +189,9 @@ npm run deploy:production
 npm run smoke:production
 ```
 
-Production deployment now fails fast unless the app TypeScript check, Worker TypeScript check, and Expo web export all succeed.
+Production deployment runs the complete quality gate and the acceptance safeguards in [RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md). Complete that runbook before using the deployment commands above.
 
-The deploy script exports Expo web to `dist/` and deploys the Worker plus static assets.
+The deploy script exports Expo web to `dist/` and deploys the Worker plus static assets. It now also requires exact-commit acceptance evidence and a live publishing-hold/migration preflight; see [RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md).
 
 ## Production verification
 

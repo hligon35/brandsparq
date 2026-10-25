@@ -182,3 +182,115 @@ export async function validateSchedule(
     conflict: suggested !== requested,
   };
 }
+
+// D1 batches are transactional. Reserve against the calendar epoch read BEFORE
+// selecting a slot; a concurrent winner forces a fresh selection. Post state and
+// publish version are checked independently so a publisher or another edit wins.
+export async function reserveSchedule(
+  env: SchedulingEnv,
+  postId: string,
+  input: {
+    clientId: string;
+    status: string;
+    publishVersion: number;
+    desiredAt: string;
+    decision?: string;
+    reviewTokenId?: string;
+  },
+): Promise<string | null> {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const calendar = await env.DB.prepare(
+      "SELECT schedule_revision FROM clients WHERE id=? AND status='active'",
+    )
+      .bind(input.clientId)
+      .first<{ schedule_revision: number }>();
+    if (!calendar) return null;
+    const scheduledAt = await findNextAvailableSlot(env, input.clientId, input.desiredAt, postId);
+    const token = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const approving = !!input.decision;
+    const [changed] = await env.DB.batch([
+      env.DB.prepare(`UPDATE posts SET scheduled_publish_at=?,schedule_token=?,
+        status=?,prepublish_alert_at=NULL,prepublish_response=?,
+        approved_at=CASE WHEN ? THEN ? ELSE approved_at END,
+        calendar_added_at=CASE WHEN ? THEN ? ELSE calendar_added_at END,
+        publish_version=publish_version+1,updated_at=?
+        WHERE id=? AND client_id=? AND status=? AND publish_version=?
+          AND EXISTS (SELECT 1 FROM clients c WHERE c.id=posts.client_id AND c.status='active' AND c.schedule_revision=?)
+          AND NOT EXISTS (SELECT 1 FROM publish_jobs j WHERE j.post_id=posts.id AND j.status='publishing')
+          AND (? IS NULL OR EXISTS (SELECT 1 FROM review_tokens rt WHERE rt.id=? AND rt.post_id=posts.id
+            AND rt.revoked_at IS NULL AND rt.used_at IS NULL AND rt.expires_at>?))`).bind(
+        scheduledAt,
+        token,
+        approving ? "calendar_scheduled" : "rescheduled",
+        approving ? null : "reschedule",
+        approving ? 1 : 0,
+        now,
+        approving ? 1 : 0,
+        now,
+        now,
+        postId,
+        input.clientId,
+        input.status,
+        input.publishVersion,
+        calendar.schedule_revision,
+        input.reviewTokenId || null,
+        input.reviewTokenId || null,
+        Date.now(),
+      ),
+      env.DB.prepare(`UPDATE clients SET schedule_revision=schedule_revision+1 WHERE id=?
+        AND EXISTS (SELECT 1 FROM posts p WHERE p.id=? AND p.schedule_token=?)`).bind(
+        input.clientId,
+        postId,
+        token,
+      ),
+      env.DB.prepare(`UPDATE publish_jobs SET status='canceled',completed_at=?,updated_at=?
+        WHERE post_id=? AND status IN ('queued','retrying')
+          AND EXISTS (SELECT 1 FROM posts p WHERE p.id=? AND p.schedule_token=?)`).bind(
+        now,
+        now,
+        postId,
+        postId,
+        token,
+      ),
+      ...(input.decision
+        ? [
+            env.DB.prepare(`INSERT INTO approvals(id,post_id,decision,previous_status)
+        SELECT ?,?,?,? FROM posts WHERE id=? AND schedule_token=?`).bind(
+              crypto.randomUUID(),
+              postId,
+              input.decision,
+              input.status,
+              postId,
+              token,
+            ),
+          ]
+        : []),
+      ...(input.reviewTokenId
+        ? [
+            env.DB.prepare(`UPDATE review_tokens SET used_at=? WHERE id=?
+        AND EXISTS (SELECT 1 FROM posts WHERE id=? AND schedule_token=?)`).bind(
+              Date.now(),
+              input.reviewTokenId,
+              postId,
+              token,
+            ),
+          ]
+        : []),
+    ]);
+    if (changed.meta.changes) return scheduledAt;
+    const current = await env.DB.prepare(`SELECT status,publish_version,
+      EXISTS(SELECT 1 FROM publish_jobs j WHERE j.post_id=posts.id AND j.status='publishing') AS claimed
+      FROM posts WHERE id=?`)
+      .bind(postId)
+      .first<{ status: string; publish_version: number; claimed: number }>();
+    if (
+      !current ||
+      current.claimed ||
+      current.status !== input.status ||
+      current.publish_version !== input.publishVersion
+    )
+      return null;
+  }
+  return null;
+}

@@ -56,6 +56,10 @@ test("notification navigation only opens known app destinations", () => {
     notificationRoute({ deep_link: "https://brandsparq.getsparqd.com/calendar" }),
     "/calendar",
   );
+  assert.equal(
+    notificationRoute({ deep_link: "brandsparq-staging://posts/post-1" }),
+    "/posts/post-1",
+  );
   for (const deep_link of [
     "https://evil.test/posts/post-1",
     "//evil.test",

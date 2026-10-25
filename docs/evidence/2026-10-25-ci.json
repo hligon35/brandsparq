@@ -1,0 +1,9 @@
+{
+  "checkedAt": "2026-10-25T20:27:53Z",
+  "releaseCommit": "d5ad5ce50ec6163c75a46c37d8dc6e4017343cc6",
+  "runUrl": "https://github.com/hligon35/brandsparq/actions/runs/40230879669",
+  "conclusion": "failure",
+  "executedSteps": 0,
+  "annotation": "The job was not started because your account is locked due to a billing issue.",
+  "acceptance": "blocked"
+}

@@ -2,7 +2,7 @@ name: BrandSparQ CI
 
 on:
   push:
-    branches: [main, production-readiness]
+    branches: [main, production-readiness, "fix/**"]
   pull_request:
   workflow_dispatch:
 

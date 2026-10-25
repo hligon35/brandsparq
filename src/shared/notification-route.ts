@@ -9,8 +9,13 @@ export function notificationRoute(item: {
   if (!path.startsWith("/") || path.startsWith("//")) {
     try {
       const url = new URL(path);
-      if (url.protocol === "brandsparq:") path = "/" + url.hostname + url.pathname;
-      else if (url.protocol === "https:" && url.hostname === "brandsparq.getsparqd.com")
+      if (["brandsparq:", "brandsparq-staging:"].includes(url.protocol))
+        path = "/" + url.hostname + url.pathname;
+      else if (
+        url.protocol === "https:" &&
+        (url.hostname === "brandsparq.getsparqd.com" ||
+          /^brandsparq-staging\.[a-z0-9-]+\.workers\.dev$/.test(url.hostname))
+      )
         path = url.pathname;
       else return null;
     } catch {

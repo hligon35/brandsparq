@@ -339,6 +339,7 @@ async function generateGraphic(
   images: Array<{ type: "input_image"; image_url: string }>,
   instruction?: string,
   edit = false,
+  revisionJobId?: string,
 ) {
   const profile = creativeProfile(generated.platform as CreativePlatform);
   const composition = deterministicComposition({
@@ -421,12 +422,13 @@ async function generateGraphic(
   const score = scoreResult.data;
   const now = new Date().toISOString();
 
-  await env.DB.batch([
+  const fence = revisionFence(revisionJobId);
+  const changed = await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO creative_variants
        (id,post_id,platform,variant_key,aspect_ratio,width,height,r2_key,content_type,
         is_primary,composition_json,model,response_id)
-       VALUES (?,?,?,?,?,?,?,?,?,1,?,?,?)
+       SELECT ?,?,?,?,?,?,?,?,?,1,?,?,? FROM posts WHERE id=? AND ${fence.sql}
        ON CONFLICT(post_id,variant_key) DO UPDATE SET
          aspect_ratio=excluded.aspect_ratio,
          width=excluded.width,
@@ -451,12 +453,14 @@ async function generateGraphic(
       JSON.stringify(composition),
       result.imageModel,
       result.responseId || null,
+      post.id,
+      ...fence.values,
     ),
     env.DB.prepare(
       `INSERT INTO sparq_scores
        (post_id,overall,brand_match,readability,platform_fit,cta_strength,
         composition,caption_quality,compliance,rationale,model,response_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+       SELECT ?,?,?,?,?,?,?,?,?,?,?,? FROM posts WHERE id=? AND ${fence.sql}
        ON CONFLICT(post_id) DO UPDATE SET
          overall=excluded.overall,
          brand_match=excluded.brand_match,
@@ -483,6 +487,8 @@ async function generateGraphic(
       score.rationale,
       scoreResult.model,
       scoreResult.responseId || null,
+      post.id,
+      ...fence.values,
     ),
     env.DB.prepare(
       `UPDATE posts SET
@@ -496,7 +502,7 @@ async function generateGraphic(
        ai_last_error=NULL,
        graphic_version=COALESCE(graphic_version,0)+1,
        updated_at=?
-       WHERE id=?`,
+       WHERE id=? AND ${fence.sql}`,
     ).bind(
       key,
       variantId,
@@ -507,8 +513,11 @@ async function generateGraphic(
       result.imageModel,
       now,
       post.id,
+      ...fence.values,
     ),
   ]);
+
+  if (!changed[2].meta.changes) throw new RevisionConflict("AI revision was superseded.");
 
   await logAiRun(env, {
     postId: post.id,
@@ -1340,6 +1349,17 @@ export async function finalizeGenerationReview(env: GenerationEnv, jobId: string
   };
 }
 
+function revisionFence(jobId?: string) {
+  return jobId
+    ? {
+        sql: `status='regenerating' AND revision_job_id=? AND EXISTS
+      (SELECT 1 FROM revision_jobs r WHERE r.id=posts.revision_job_id AND r.status='processing')
+      AND EXISTS (SELECT 1 FROM clients c WHERE c.id=posts.client_id AND c.status='active')`,
+        values: [jobId],
+      }
+    : { sql: "1=1", values: [] };
+}
+
 export class RevisionConflict extends Error {
   status = 409;
 }
@@ -1399,15 +1419,16 @@ export async function runRevisionJob(env: GenerationEnv, jobId: string) {
     .first<any>();
   try {
     if (job.action === "caption")
-      await rewriteCaption(env, job.post_id, job.instruction || undefined);
-    else if (job.action === "image") await editGraphic(env, job.post_id, job.instruction || "");
-    else await regenerate(env, job.post_id, job.instruction || undefined);
+      await rewriteCaption(env, job.post_id, jobId, job.instruction || undefined);
+    else if (job.action === "image")
+      await editGraphic(env, job.post_id, jobId, job.instruction || "");
+    else await regenerate(env, job.post_id, jobId, job.instruction || undefined);
     await env.DB.batch([
       env.DB.prepare(
-        "UPDATE revision_jobs SET status='completed',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='processing'",
+        "UPDATE revision_jobs SET status='completed',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='processing' AND EXISTS (SELECT 1 FROM posts p WHERE p.id=revision_jobs.post_id AND p.status='regenerating' AND p.revision_job_id=revision_jobs.id)",
       ).bind(jobId),
       env.DB.prepare(
-        "UPDATE posts SET status='awaiting_approval',revision_job_id=NULL,rejected_at=NULL,rejection_reason=NULL,ai_last_error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND revision_job_id=? AND status='regenerating'",
+        "UPDATE posts SET status='awaiting_approval',revision_job_id=NULL,rejected_at=NULL,rejection_reason=NULL,ai_last_error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND revision_job_id=? AND status='regenerating' AND EXISTS (SELECT 1 FROM revision_jobs r WHERE r.id=posts.revision_job_id AND r.status='completed')",
       ).bind(job.post_id, jobId),
     ]);
   } catch (error) {
@@ -1429,7 +1450,7 @@ export async function recoverRevisionJobs(env: Pick<GenerationEnv, "DB" | "GENER
   await env.DB.batch([
     env.DB.prepare(`UPDATE revision_jobs SET status='failed',error_message='Revision timed out; inspect the post before retrying.',updated_at=CURRENT_TIMESTAMP
       WHERE status='processing' AND datetime(claimed_at)<datetime('now','-30 minutes')`),
-    env.DB.prepare(`UPDATE posts SET status='edit_requested',ai_last_error='Revision interrupted; inspect the post before retrying.',updated_at=CURRENT_TIMESTAMP
+    env.DB.prepare(`UPDATE posts SET status='edit_requested',revision_job_id=NULL,ai_last_error='Revision interrupted; inspect the post before retrying.',updated_at=CURRENT_TIMESTAMP
       WHERE status='regenerating' AND EXISTS (SELECT 1 FROM revision_jobs r WHERE r.id=posts.revision_job_id AND r.status='failed')`),
   ]);
   const jobs = await env.DB.prepare(
@@ -1439,7 +1460,12 @@ export async function recoverRevisionJobs(env: Pick<GenerationEnv, "DB" | "GENER
     await env.GENERATION_QUEUE.send({ kind: "revision", revisionJobId: job.id });
 }
 
-async function rewriteCaption(env: GenerationEnv, postId: string, instruction?: string) {
+async function rewriteCaption(
+  env: GenerationEnv,
+  postId: string,
+  jobId: string,
+  instruction?: string,
+) {
   const post = await loadPost(env, postId);
   if (!post) throw new Error("Post not found.");
   const images = await toImageInputs(env, await postSourceAssets(env, postId), 2);
@@ -1471,8 +1497,9 @@ async function rewriteCaption(env: GenerationEnv, postId: string, instruction?: 
     reasoningEffort: "low",
   });
 
-  await env.DB.prepare(
-    "UPDATE posts SET title=?,headline=?,caption=?,hashtags=?,ai_caption_response_id=?,ai_last_error=NULL,updated_at=? WHERE id=?",
+  const fence = revisionFence(jobId);
+  const changed = await env.DB.prepare(
+    `UPDATE posts SET title=?,headline=?,caption=?,hashtags=?,ai_caption_response_id=?,ai_last_error=NULL,updated_at=? WHERE id=? AND ${fence.sql}`,
   )
     .bind(
       result.data.headline,
@@ -1482,8 +1509,10 @@ async function rewriteCaption(env: GenerationEnv, postId: string, instruction?: 
       result.responseId || null,
       new Date().toISOString(),
       postId,
+      ...fence.values,
     )
     .run();
+  if (!changed.meta.changes) throw new RevisionConflict("AI revision was superseded.");
 
   await logAiRun(env, {
     postId,
@@ -1498,7 +1527,7 @@ async function rewriteCaption(env: GenerationEnv, postId: string, instruction?: 
   return result.data;
 }
 
-async function editGraphic(env: GenerationEnv, postId: string, instruction: string) {
+async function editGraphic(env: GenerationEnv, postId: string, jobId: string, instruction: string) {
   const post = await loadPost(env, postId);
   if (!post) throw new Error("Post not found.");
   if (!instruction.trim()) throw new Error("An image-edit instruction is required.");
@@ -1530,14 +1559,15 @@ async function editGraphic(env: GenerationEnv, postId: string, instruction: stri
     suggestedPublishAt: post.suggested_publish_at || fallbackSlot(0),
   };
 
-  const result = await generateGraphic(env, post, generated, images, instruction, edit);
+  const result = await generateGraphic(env, post, generated, images, instruction, edit, jobId);
   return { postId, imageModel: result.imageModel, responseId: result.responseId };
 }
 
-async function regenerate(env: GenerationEnv, postId: string, instruction?: string) {
+async function regenerate(env: GenerationEnv, postId: string, jobId: string, instruction?: string) {
   await rewriteCaption(
     env,
     postId,
+    jobId,
     instruction || "Create a distinct fresh variation while preserving all verified facts.",
   );
   const post = await loadPost(env, postId);
@@ -1554,7 +1584,7 @@ async function regenerate(env: GenerationEnv, postId: string, instruction?: stri
       instruction || "Create a fresh, polished on-brand visual variation using the source assets.",
     suggestedPublishAt: post.suggested_publish_at || fallbackSlot(0),
   };
-  const result = await generateGraphic(env, post, generated, images, instruction, false);
+  const result = await generateGraphic(env, post, generated, images, instruction, false, jobId);
   return { postId, imageModel: result.imageModel, responseId: result.responseId };
 }
 

@@ -17,6 +17,7 @@ test("staging configuration rejects production bindings and derives only isolate
   const script = fileURLToPath(new URL("../scripts/staging-config.mjs", import.meta.url));
   const env = {
     ...process.env,
+    BRANDSPARQ_STAGING_ALLOWED_EMAILS: "operator@example.test",
     BRANDSPARQ_STAGING_ORIGIN: "https://brandsparq-staging.fixture.workers.dev",
     BRANDSPARQ_STAGING_DATABASE_ID: "00000000-0000-4000-8000-000000000001",
     BRANDSPARQ_STAGING_GOOGLE_CLIENT_ID: "fixture.apps.googleusercontent.com",
@@ -31,6 +32,7 @@ test("staging configuration rejects production bindings and derives only isolate
   assert.throws(() =>
     run({ BRANDSPARQ_STAGING_DATABASE_ID: "1f6f0d67-1725-4f19-8fd9-0f80f600f5b1" }),
   );
+  assert.throws(() => run({ BRANDSPARQ_STAGING_ALLOWED_EMAILS: "" }));
   run({});
   const config = readFileSync(join(dir, "cloudflare/wrangler.staging.toml"), "utf8");
   assert.ok(!config.includes("brandsparq.getsparqd.com"));
@@ -38,6 +40,7 @@ test("staging configuration rejects production bindings and derives only isolate
   for (const name of ["media", "publish", "generation", "publish-dlq", "generation-dlq"])
     assert.ok(config.includes(`"brandsparq-staging-${name}"`));
   assert.ok(config.includes('ENVIRONMENT = "staging"'));
+  assert.ok(config.includes('AUTH_ALLOWED_EMAILS = "operator@example.test"'));
 });
 
 test("staging rejects case variations of the production database and unmapped resource additions", (t) => {
@@ -49,6 +52,7 @@ test("staging rejects case variations of the production database and unmapped re
   const script = fileURLToPath(new URL("../scripts/staging-config.mjs", import.meta.url));
   const env = {
     ...process.env,
+    BRANDSPARQ_STAGING_ALLOWED_EMAILS: "operator@example.test",
     BRANDSPARQ_STAGING_ORIGIN: "https://brandsparq-staging.fixture.workers.dev",
     BRANDSPARQ_STAGING_DATABASE_ID: "1F6F0D67-1725-4F19-8FD9-0F80F600F5B1",
     BRANDSPARQ_STAGING_GOOGLE_CLIENT_ID: "fixture.apps.googleusercontent.com",
@@ -81,6 +85,7 @@ test("staging deploy forces same-origin API configuration and validates before d
     ...process.env,
     npm_execpath: fakeCli,
     EXPO_PUBLIC_API_URL: "https://brandsparq.getsparqd.com",
+    BRANDSPARQ_STAGING_ALLOWED_EMAILS: "operator@example.test",
     BRANDSPARQ_STAGING_ORIGIN: "https://brandsparq-staging.fixture.workers.dev",
     BRANDSPARQ_STAGING_DATABASE_ID: "00000000-0000-4000-8000-000000000001",
     BRANDSPARQ_STAGING_GOOGLE_CLIENT_ID: "fixture.apps.googleusercontent.com",

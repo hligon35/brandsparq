@@ -42,6 +42,14 @@
         "EXPO_PUBLIC_API_URL": "http://127.0.0.1:8788"
       },
       "channel": "e2e"
+    },
+    "staging": {
+      "distribution": "internal",
+      "channel": "staging",
+      "environment": "preview",
+      "env": {
+        "BRANDSPARQ_APP_ENV": "staging"
+      }
     }
   }
 }
