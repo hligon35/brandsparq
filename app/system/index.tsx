@@ -128,12 +128,18 @@ export default function SystemHealthScreen() {
           <Text style={styles.muted}>Production readiness</Text>
         </Card>
         <Card style={styles.metric}>
-          <Text style={styles.big}>{count(data?.publishJobs || [], "failed")}</Text>
-          <Text style={styles.muted}>Failed publish jobs · 7 days</Text>
+          <View style={styles.statTop}>
+            <Text style={styles.big}>{count(data?.publishJobs || [], "failed")}</Text>
+            <Text style={styles.days}>7 days</Text>
+          </View>
+          <Text style={styles.muted}>Failed publish jobs</Text>
         </Card>
         <Card style={styles.metric}>
-          <Text style={styles.big}>{count(data?.generationJobs || [], "failed")}</Text>
-          <Text style={styles.muted}>Failed generation jobs · 7 days</Text>
+          <View style={styles.statTop}>
+            <Text style={styles.big}>{count(data?.generationJobs || [], "failed")}</Text>
+            <Text style={styles.days}>7 days</Text>
+          </View>
+          <Text style={styles.muted}>Failed generation jobs</Text>
         </Card>
         <Card style={styles.metric}>
           <Text style={styles.big}>{data?.events?.length || 0}</Text>
@@ -271,6 +277,13 @@ export default function SystemHealthScreen() {
 }
 
 const styles = StyleSheet.create({
+  statTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  days: { color: colors.muted, fontSize: 12 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
   metric: { flexGrow: 1, flexBasis: 210 },

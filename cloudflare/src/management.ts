@@ -1,3 +1,4 @@
+import { handleProfile } from "./profile";
 import type { SessionUser } from "./auth";
 import {
   accessibleClientIds,
@@ -85,6 +86,8 @@ export async function handleManagementRoute(
   env: ManagementEnv,
   user: User,
 ): Promise<ManagementResult | null> {
+  const profileResult = await handleProfile(request, url, env, user);
+  if (profileResult) return profileResult;
   if (request.method === "GET" && url.pathname === "/v1/campaigns") {
     const denied = await authorize(env, user, "read");
     if (denied) return { body: { error: denied }, status: 403 };

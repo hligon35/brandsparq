@@ -86,7 +86,13 @@ export default function AccessScreen() {
         />
         <Field label="Teammate email" value={email} onChange={setEmail} />
         <Text style={styles.muted}>Workspace role</Text>
-        <Choices values={roles} value={inviteRole} onChange={setInviteRole} disabled={working} />
+        <Choices
+          singleRow
+          values={roles}
+          value={inviteRole}
+          onChange={setInviteRole}
+          disabled={working}
+        />
         <Text style={styles.muted}>Initial client access</Text>
         {data.clients.map((client) => (
           <View key={client.id} style={{ gap: 8 }}>
@@ -201,12 +207,56 @@ export default function AccessScreen() {
 
       {user && (
         <Card>
-          <SectionTitle title={user.name || user.email} subtitle="Workspace role" />
-          <Text style={styles.muted}>Account: {user.status}</Text>
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: 12,
+            }}
+          >
+            <View style={{ flex: 1, gap: 12 }}>
+              <Text style={{ fontSize: 20, fontWeight: "800", color: colors.text }}>
+                {user.name || user.email}
+              </Text>
+              <Text style={{ color: colors.muted }}>Workspace role</Text>
+            </View>
+            <View style={{ alignItems: "flex-end", gap: 8 }}>
+              <StatusBadge label={user.role} />
+              <View
+                style={{
+                  borderRadius: 20,
+                  padding: 8,
+                  backgroundColor:
+                    user.status === "active"
+                      ? "#E7F8F1"
+                      : user.status === "invited"
+                        ? "#FFF3DE"
+                        : "#FDECEF",
+                }}
+              >
+                <Text
+                  style={{
+                    fontWeight: "800",
+                    fontSize: 11,
+                    color:
+                      user.status === "active"
+                        ? colors.success
+                        : user.status === "invited"
+                          ? colors.warning
+                          : colors.danger,
+                  }}
+                >
+                  {user.status}
+                </Text>
+              </View>
+            </View>
+          </View>
           {user.status !== "invited" && (
-            <View style={styles.roles}>
+            <View style={{ flexDirection: "row", gap: 6 }}>
               <Button
-                label={user.status === "active" ? "Suspend account" : "Reactivate account"}
+                style={{ flex: 1, paddingHorizontal: 4 }}
+                label={user.status === "active" ? "Suspend\naccount" : "Reactivate\naccount"}
                 small
                 secondary
                 onPress={
@@ -223,7 +273,8 @@ export default function AccessScreen() {
                 }
               />
               <Button
-                label="Revoke sessions"
+                label={"Revoke\nsessions"}
+                style={{ flex: 1, paddingHorizontal: 4 }}
                 small
                 secondary
                 onPress={
@@ -234,7 +285,8 @@ export default function AccessScreen() {
               />
               {user.status !== "removed" && (
                 <Button
-                  label="Remove access"
+                  label={"Remove\naccess"}
+                  style={{ flex: 1, paddingHorizontal: 4 }}
                   small
                   secondary
                   onPress={
@@ -247,30 +299,21 @@ export default function AccessScreen() {
             </View>
           )}
 
-          {user.role === "owner" ? (
-            <View style={styles.ownerNote}>
-              <StatusBadge label="owner" />
-              <Text style={styles.muted}>
-                Owners have workspace-wide access to every client and system operation.
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.roles}>
-              {roles.map((value) => (
-                <Pressable
-                  key={value}
-                  onPress={() => role(value)}
-                  style={[styles.role, user.role === value && styles.roleActive]}
-                >
-                  <Text style={[styles.roleText, user.role === value && styles.roleTextActive]}>
-                    {value}
-                  </Text>
-                </Pressable>
-              ))}
-              <Pressable onPress={() => role("owner")} style={styles.promote}>
-                <Text style={styles.promoteText}>Promote to owner</Text>
-              </Pressable>
-            </View>
+          {user.role !== "owner" && (
+            <>
+              <Choices
+                singleRow
+                values={roles}
+                value={user.role}
+                onChange={(next) => void role(next)}
+                disabled={working}
+              />
+              <Button
+                label="Promote to owner"
+                secondary
+                onPress={working ? undefined : () => void role("owner")}
+              />
+            </>
           )}
         </Card>
       )}

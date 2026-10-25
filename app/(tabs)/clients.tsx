@@ -1,3 +1,4 @@
+import { TimezonePicker } from "@/components/pickers";
 import { useAuth } from "@/auth/context";
 import { useCapabilities } from "@/auth/capabilities";
 import { StatusBadge } from "@/components/ui";
@@ -86,13 +87,9 @@ export default function ClientsScreen() {
               placeholderTextColor={colors.muted}
               style={styles.input}
             />
-            <TextInput
-              value={timezone}
-              onChangeText={setTimezone}
-              placeholder="America/Indiana/Indianapolis"
-              placeholderTextColor={colors.muted}
-              style={styles.input}
-            />
+            <View style={{ flexGrow: 1, flexBasis: 240 }}>
+              <TimezonePicker value={timezone} onChange={setTimezone} />
+            </View>
             <View style={styles.createButton}>
               <Button
                 label={working ? "Working…" : "Create client"}

@@ -3,7 +3,7 @@ import { useAuth } from "@/auth/context";
 import { Link } from "expo-router";
 import { useCallback, useState } from "react";
 import { useFocusEffect } from "expo-router";
-import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";
@@ -50,33 +50,6 @@ export default function HomeScreen() {
         </Card>
       ) : dashboard ? (
         <>
-          <View style={styles.hero}>
-            <Text style={styles.heroEyebrow}>YOUR NEXT MOVE</Text>
-            <Text accessibilityRole="header" style={styles.heroTitle}>
-              {dashboard.needsReview
-                ? `${dashboard.needsReview} post${dashboard.needsReview === 1 ? "" : "s"} ready for review`
-                : "Ready for your next idea?"}
-            </Text>
-            <Text style={styles.heroBody}>
-              {dashboard.needsReview
-                ? "Give your content a final look before it goes live."
-                : "Create branded content or explore your client workspaces."}
-            </Text>
-            <Link
-              href={dashboard.needsReview ? "/review" : can("generate") ? "/create" : "/clients"}
-              asChild
-            >
-              <Pressable accessibilityRole="button" style={styles.heroButton}>
-                <Text style={styles.heroButtonText}>
-                  {dashboard.needsReview
-                    ? "Review posts →"
-                    : can("generate")
-                      ? "Create content →"
-                      : "Open clients →"}
-                </Text>
-              </Pressable>
-            </Link>
-          </View>
           <View style={styles.metrics}>
             {[
               [dashboard.scheduled, "Scheduled"],
@@ -162,7 +135,7 @@ const styles = StyleSheet.create({
   },
   heroButtonText: { color: colors.text, fontWeight: "800", fontSize: 15 },
   metrics: { flexDirection: "row", flexWrap: "nowrap", gap: 8 },
-  metric: { flexGrow: 1, flexBasis: 0, minWidth: 0, padding: 10 },
+  metric: { alignItems: "center", flexGrow: 1, flexBasis: 0, minWidth: 0, padding: 10 },
   number: { color: colors.text, fontSize: 30, fontWeight: "900" },
   section: {
     flexDirection: "row",

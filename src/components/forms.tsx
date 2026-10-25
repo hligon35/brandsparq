@@ -1,4 +1,4 @@
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Button } from "./ui";
 import { colors, radius, spacing } from "@/theme/tokens";
 export function Field({
@@ -33,12 +33,48 @@ export function Choices({
   value,
   onChange,
   disabled = false,
+  singleRow = false,
 }: {
   values: string[];
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
+  singleRow?: boolean;
 }) {
+  if (singleRow)
+    return (
+      <View style={{ flexDirection: "row", gap: 4 }}>
+        {values.map((v) => (
+          <Pressable
+            key={v}
+            accessibilityRole="button"
+            accessibilityState={{ selected: v === value, disabled }}
+            disabled={disabled}
+            onPress={() => onChange(v)}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              minHeight: 44,
+              padding: 4,
+              borderRadius: 12,
+              backgroundColor: v === value ? colors.primary : colors.surface2,
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 11,
+                fontWeight: "700",
+                color: v === value ? colors.white : colors.text,
+              }}
+            >
+              {v}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    );
   return (
     <View style={styles.row}>
       {values.map((v) => (

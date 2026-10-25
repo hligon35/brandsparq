@@ -14,6 +14,7 @@ export type SessionUser = {
   id: string;
   email: string;
   name?: string;
+  avatarUrl?: string;
   role: string;
   clientRoles?: Record<string, string>;
 };
@@ -166,7 +167,7 @@ export async function getSessionUser(request: Request, env: AuthEnv): Promise<Se
   const now = Date.now();
 
   const row = await env.DB.prepare(
-    `SELECT u.id, u.email, u.name, u.role, s.id AS session_id, s.last_seen_at
+    `SELECT u.id, u.email, u.name, u.avatar_url AS avatarUrl, u.role, s.id AS session_id, s.last_seen_at
      FROM sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = ?
@@ -194,6 +195,7 @@ export async function getSessionUser(request: Request, env: AuthEnv): Promise<Se
     id: row.id,
     email: row.email,
     name: row.name,
+    avatarUrl: row.avatarUrl,
     role: row.role,
     clientRoles: Object.fromEntries(
       access.results.map((a) => [a.client_id, a.permission_role || row.role]),
@@ -376,9 +378,9 @@ export async function handleAuthRoute(
     }
 
     let user = await env.DB.prepare(
-      "SELECT id, email, name, role, status FROM users WHERE email = ?",
+      "SELECT id, email, name, role, status FROM users WHERE google_sub = ? OR (google_sub IS NULL AND email = ?)",
     )
-      .bind(email)
+      .bind(profile.sub || "", email)
       .first<SessionUser & { status: string }>();
 
     if (user && !["active", "invited"].includes(user.status))
@@ -482,9 +484,9 @@ export async function handleAuthRoute(
     } else {
       await env.DB.prepare(
         `UPDATE users
-         SET name = COALESCE(?, name),
+         SET name = COALESCE(name, ?),
              google_sub = COALESCE(?, google_sub),
-             avatar_url = COALESCE(?, avatar_url),
+             avatar_url = COALESCE(avatar_url, ?),
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
       )

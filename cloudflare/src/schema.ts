@@ -2164,6 +2164,44 @@ export const REQUIRED_SCHEMA = {
       pk: 0,
     },
   ],
+  profile_email_changes: [
+    {
+      name: "user_id",
+      type: "TEXT",
+      notnull: 0,
+      pk: 1,
+    },
+    {
+      name: "email",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "code_hash",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "expires_at",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "attempts",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "requested_at",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+  ],
   publish_attempts: [
     {
       name: "id",

@@ -51,13 +51,17 @@ export default function CreateScreen() {
   }, [requestedClientId]);
 
   async function chooseImages() {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsMultipleSelection: true,
-      selectionLimit: 20,
-      quality: 1,
-    });
-    if (!result.canceled) setAssets(result.assets);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsMultipleSelection: true,
+        selectionLimit: 20,
+        quality: 1,
+      });
+      if (!result.canceled) setAssets(result.assets);
+    } catch (error) {
+      Alert.alert("Unable to open photos", error instanceof Error ? error.message : "Try again.");
+    }
   }
 
   async function upload() {
@@ -293,13 +297,15 @@ const styles = StyleSheet.create({
   columns: { gap: spacing.md },
   columnsWide: { flexDirection: "row", alignItems: "flex-start" },
   column: { flex: 1, gap: spacing.md, minWidth: 0 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chips: { flexDirection: "row", gap: 4 },
   chip: {
     backgroundColor: colors.surface2,
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: radius.pill,
-    paddingHorizontal: 14,
+    flex: 1,
+    alignItems: "center",
+    paddingHorizontal: 4,
     minHeight: 44,
     paddingVertical: 11,
     justifyContent: "center",

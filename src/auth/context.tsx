@@ -22,6 +22,7 @@ export type AuthUser = {
   id: string;
   email: string;
   name?: string;
+  avatarUrl?: string;
   role: string;
   clientRoles?: Record<string, string>;
 };
@@ -32,6 +33,7 @@ type AuthValue = {
   signInWithGoogle(): Promise<void>;
   completeGoogleSignIn(handoff: string): Promise<void>;
   signOut(): Promise<void>;
+  refreshUser(): Promise<void>;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -119,6 +121,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
     () => ({
       ready,
       user,
+      async refreshUser() {
+        setUser((await api.getSession()).user);
+      },
       signInWithGoogle,
       completeGoogleSignIn,
       async signOut() {

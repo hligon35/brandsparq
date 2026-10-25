@@ -1285,14 +1285,6 @@ export default {
       const denied = await authorize(env, sessionUser!, "upload", clientId);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
-      if (!contentType.startsWith("image/")) {
-        return response(
-          request,
-          env,
-          { error: "Only image uploads are supported." },
-          { status: 415 },
-        );
-      }
       if (declaredSize > MAX_IMAGE_BYTES) {
         return response(
           request,
