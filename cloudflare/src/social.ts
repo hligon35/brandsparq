@@ -441,18 +441,17 @@ async function discoverLinkedInOrganizations(
   return connected;
 }
 
-async function hmacHex(secret: string, payload: string) {
+async function validMetaSignature(secret: string, payload: string, signature: string) {
+  if (!/^sha256=[a-f0-9]{64}$/.test(signature)) return false;
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"],
+    ["verify"],
   );
-  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
-  return [...new Uint8Array(signature)]
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
+  const bytes = Uint8Array.from(signature.slice(7).match(/../g)!, (pair) => parseInt(pair, 16));
+  return crypto.subtle.verify("HMAC", key, bytes, new TextEncoder().encode(payload));
 }
 
 export async function handleMetaWebhook(env: SocialEnv, request: Request, url: URL) {
@@ -471,22 +470,36 @@ export async function handleMetaWebhook(env: SocialEnv, request: Request, url: U
     return new Response("Forbidden", { status: 403 });
   }
 
-  if (request.method !== "POST" || !env.META_APP_SECRET) {
+  if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
   }
 
+  if (!env.META_APP_SECRET) return new Response("Meta webhook is not configured.", { status: 503 });
   const raw = await request.text();
   const signature = request.headers.get("x-hub-signature-256") || "";
-  const expected = `sha256=${await hmacHex(env.META_APP_SECRET, raw)}`;
-  if (signature !== expected) {
+  if (!(await validMetaSignature(env.META_APP_SECRET, raw, signature))) {
     return new Response("Invalid signature", { status: 401 });
   }
 
-  const payload = JSON.parse(raw || "{}");
+  let payload: any;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return new Response("Invalid webhook payload", { status: 400 });
+  }
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    Array.isArray(payload) ||
+    !Array.isArray(payload.entry)
+  )
+    return new Response("Invalid webhook payload", { status: 400 });
+  // A delivery can contain several entries. Using just the first entry's id/time
+  // discards distinct batches that happen to share that first entry.
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
   const eventId =
-    payload?.entry?.[0]?.id && payload?.entry?.[0]?.time
-      ? `${payload.entry[0].id}:${payload.entry[0].time}`
-      : null;
+    "payload:" +
+    [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
   await env.DB.prepare(
     `INSERT OR IGNORE INTO social_webhook_events
