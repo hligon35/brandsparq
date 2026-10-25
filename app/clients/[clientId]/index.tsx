@@ -84,7 +84,12 @@ export default function ClientWorkspace() {
           <ClientPicker
             clients={clients}
             value={clientId}
-            onChange={(id) => router.replace(`/clients/${id}`)}
+            onChange={(id) =>
+              router.replace({
+                pathname: "/clients/[clientId]",
+                params: { clientId: id },
+              })
+            }
           />
           <View style={styles.metrics}>
             <Card style={styles.metric}>

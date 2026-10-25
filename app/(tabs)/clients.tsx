@@ -116,7 +116,13 @@ export default function ClientsScreen() {
             <View
               style={[styles.clientColor, { backgroundColor: client.color || colors.primary }]}
             />
-            <Link href={`/clients/${client.id}`} asChild>
+            <Link
+              href={{
+                pathname: "/clients/[clientId]",
+                params: { clientId: client.id },
+              }}
+              asChild
+            >
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Open ${client.name} workspace`}
