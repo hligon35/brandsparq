@@ -1,0 +1,49 @@
+{
+  "checkedAt": "2026-10-25T20:34:19.095707+00:00",
+  "sourceFingerprint": "0ddc239cc9f77b731de5de6d35cb79386202b35da8e092b770bab9880974d933",
+  "fingerprintScope": "Tracked files except docs/ and .gitignore, sorted by git ls-files; path NUL content NUL, SHA-256.",
+  "localValidation": "passed",
+  "backendTests": {
+    "passed": 113,
+    "failed": 0
+  },
+  "browserTests": {
+    "passed": 66,
+    "failed": 0,
+    "projects": [
+      "desktop-chromium",
+      "mobile-chromium",
+      "mobile-webkit"
+    ]
+  },
+  "checks": [
+    "schema manifest",
+    "Expo SDK compatibility",
+    "launch audit",
+    "tracked dependency disposition",
+    "lint",
+    "format",
+    "app TypeScript",
+    "Worker TypeScript",
+    "web export",
+    "browser E2E"
+  ],
+  "workerPackagingDryRun": "passed",
+  "rootAudit": {
+    "highAffectedPackages": 6,
+    "underlyingAdvisories": 2,
+    "releaseDisposition": "owner decision required"
+  },
+  "workerAudit": {
+    "vulnerabilities": 0
+  },
+  "githubCI": "blocked before steps by account billing lock",
+  "physicalDeviceAcceptance": "not performed",
+  "actualProductionRestoration": "not performed",
+  "pilot": "not activated; internal-only scope selected",
+  "nativeJavaScriptExports": {
+    "android": "passed",
+    "ios": "passed",
+    "physicalDeviceAcceptance": false
+  }
+}

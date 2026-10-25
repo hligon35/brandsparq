@@ -1,6 +1,6 @@
 # Release acceptance: October 25, 2026
 
-Branch: `fix/release-acceptance`. Base: `a34bd30`.
+Branch: `fix/release-acceptance`. Initial base: `a34bd30`; integrated main through `233ab73` (campaign objective scrolling).
 Selected pilot scope: **internal test workspace only**, as selected by the owner.
 No external client invitations or public social posts were sent. No production
 migration, deployment, Access policy change, or pilot activation was performed.
@@ -31,6 +31,18 @@ before the fixes; they pass with this change.
 Apply **0023_schedule_reservations.sql** before deploying this Worker. Do not edit
 already applied migrations. Run `npm run schema:check` after any migration change.
 
+## Local verification
+
+The complete `npm run validate` quality gate passes: **113 backend tests and all
+66 browser scenarios**, across desktop Chromium, mobile Chromium and mobile
+WebKit, plus TypeScript, lint, formatting, Expo compatibility, schema manifest and
+web export. Final Android and iOS JavaScript exports and the Worker packaging dry run pass. Local system browser libraries
+were supplied for the test runner; no browser or test assertions were skipped.
+The browser archive selector was updated to the current accessible client link.
+The executable source fingerprint and counts are recorded in
+`docs/evidence/2026-10-25-local-validation.json`. This is local validation, not a
+GitHub CI success or live provider/device acceptance.
+
 ## Live evidence collected here
 
 These results describe the **currently deployed production version**, not the new
@@ -44,7 +56,9 @@ branch, so they cannot certify the branch for activation.
 - Production smoke: login SPA, Google OAuth start and private API guard pass;
   **public health returns 503**. An authenticated owner must inspect System Health
   for the missing configuration/binding. Public health deliberately hides details.
-- Wrangler reports **not authenticated**. No account resources were changed.
+- GitHub Actions [run 40230879669](https://github.com/hligon35/brandsparq/actions/runs/40230879669) failed before any steps. Its annotation is: “The job was not started because your account is locked due to a billing issue.” No code change can resolve that account restriction. GitGuardian's secret scan passed. The configured Workers Builds check also failed; its dashboard logs are not available through this connection.
+- Branch-protection inspection returned **403 Resource not accessible by integration**. Required-review/status policy is unverified; it has not been altered.
+- Wrangler reports **not authenticated** and EAS reports **Not logged in**. No account resources were changed. No Cloudflare/Expo integration was found in the available plugin search.
 - Maestro, adb and iOS device/simulator tools are absent. Native JavaScript exports
   can run here; signed builds, physical OAuth return and push cannot be certified.
 - An actual production backup and R2 archive are not available here. Fixture
