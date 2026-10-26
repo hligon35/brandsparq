@@ -1,10 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
-import { verifyProductionState } from "./lib/production-preflight.mjs";
+import { verifyProductionState, UNRESOLVED_PUBLISHING_SQL } from "./lib/production-preflight.mjs";
 if (!process.env.npm_execpath) throw new Error("Use npm run preflight:production.");
 const sql = `SELECT name FROM d1_migrations;
 SELECT cfg.mode,ws.default_no_response_policy AS no_response_policy FROM pilot_settings cfg JOIN workspace_settings ws ON ws.id=cfg.id WHERE cfg.id='default';
-SELECT COUNT(*) AS in_flight FROM publish_jobs WHERE status='publishing';`;
+${UNRESOLVED_PUBLISHING_SQL};`;
 const result = spawnSync(
   process.execPath,
   [
