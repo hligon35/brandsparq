@@ -1,10 +1,11 @@
+import { useLocalSearchParams } from "expo-router";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { IconButton } from "@/components/icon-button";
 import { api } from "@/api/client";
-import { Card, PageHeader, PageScroll, SectionTitle, StatusBadge } from "@/components/ui";
+import { Button, Card, PageHeader, PageScroll, SectionTitle, StatusBadge } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";
 import type { Client } from "@/types/domain";
 
@@ -21,24 +22,37 @@ const metrics = [
 
 export default function AnalyticsScreen() {
   const can = useCapabilities();
+  const { clientId: requestedClient } = useLocalSearchParams<{ clientId?: string }>();
   const [data, setData] = useState<any>();
   const [clients, setClients] = useState<Client[]>([]);
-  const [clientId, setClientId] = useState("all");
+  const [clientId, setClientId] = useState(requestedClient || "all");
   const [days, setDays] = useState(30);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const loadVersion = useRef(0);
+
+  useEffect(() => {
+    if (requestedClient) setClientId(requestedClient);
+  }, [requestedClient]);
 
   async function load() {
+    const version = ++loadVersion.current;
+    setLoading(true);
     setError("");
     try {
       const [analytics, clientRows] = await Promise.all([
         api.getAnalyticsOverview(clientId === "all" ? undefined : clientId, days),
         api.getClients(),
       ]);
+      if (version !== loadVersion.current) return;
       setData(analytics.data);
       setClients(clientRows);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to load analytics.");
+      if (version === loadVersion.current)
+        setError(e instanceof Error ? e.message : "Unable to load analytics.");
+    } finally {
+      if (version === loadVersion.current) setLoading(false);
     }
   }
 
@@ -95,6 +109,9 @@ export default function AnalyticsScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.chips}>
             <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: clientId === "all" }}
+              aria-pressed={clientId === "all"}
               onPress={() => setClientId("all")}
               style={[styles.chip, clientId === "all" && styles.chipActive]}
             >
@@ -105,6 +122,9 @@ export default function AnalyticsScreen() {
             {clients.map((client) => (
               <Pressable
                 key={client.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: clientId === client.id }}
+                aria-pressed={clientId === client.id}
                 onPress={() => setClientId(client.id)}
                 style={[styles.chip, clientId === client.id && styles.chipActive]}
               >
@@ -119,6 +139,9 @@ export default function AnalyticsScreen() {
           {[7, 30, 90].map((value) => (
             <Pressable
               key={value}
+              accessibilityRole="button"
+              accessibilityState={{ selected: days === value }}
+              aria-pressed={days === value}
               onPress={() => setDays(value)}
               style={[styles.range, days === value && styles.rangeActive]}
             >
@@ -132,143 +155,153 @@ export default function AnalyticsScreen() {
 
       {!!error && (
         <Card subtle>
-          <Text style={styles.error}>{error}</Text>
+          <Text accessibilityRole="alert" style={styles.error}>
+            {error}
+          </Text>
+          <Button label="Try again" onPress={load} />
         </Card>
       )}
 
-      <View style={styles.grid}>
-        {metrics.map(([label, key]) => (
-          <Card key={key} style={styles.metricCard}>
-            <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
-              {Number(overview[key] || 0).toLocaleString()}
-            </Text>
-            <Text style={styles.label}>{label}</Text>
-          </Card>
-        ))}
-      </View>
+      {loading && <Text accessibilityLiveRegion="polite">Loading analytics…</Text>}
+      {!loading && !error && (
+        <>
+          <View style={styles.grid}>
+            {metrics.map(([label, key]) => (
+              <Card key={key} style={styles.metricCard}>
+                <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
+                  {Number(overview[key] || 0).toLocaleString()}
+                </Text>
+                <Text style={styles.label}>{label}</Text>
+              </Card>
+            ))}
+          </View>
 
-      <Card>
-        <SectionTitle
-          title="Performance trend"
-          subtitle={`Latest captured totals across the last ${days} days.`}
-        />
-        {history.length ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.chart}>
-              {history.map((row: any) => (
-                <View key={row.day} style={styles.barColumn}>
-                  <Text style={styles.barValue}>
-                    {Number(row.impressions || 0).toLocaleString()}
+          <Card>
+            <SectionTitle
+              title="Performance trend"
+              subtitle={`Latest captured totals across the last ${days} days.`}
+            />
+            {history.length ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.chart}>
+                  {history.map((row: any) => (
+                    <View key={row.day} style={styles.barColumn}>
+                      <Text style={styles.barValue}>
+                        {Number(row.impressions || 0).toLocaleString()}
+                      </Text>
+                      <View style={styles.barTrack}>
+                        <View
+                          style={[
+                            styles.bar,
+                            {
+                              height:
+                                `${Math.max(5, (Number(row.impressions || 0) / maxImpressions) * 100)}%` as any,
+                            },
+                          ]}
+                        />
+                      </View>
+                      <Text style={styles.barLabel}>
+                        {new Date(`${row.day}T12:00:00`).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+            ) : (
+              <Text style={styles.muted}>
+                Trend data will appear after analytics snapshots are captured.
+              </Text>
+            )}
+          </Card>
+
+          <Card>
+            <SectionTitle
+              title="Platform performance"
+              subtitle="Current lifetime metrics from the latest provider measurements."
+            />
+            {(data?.byPlatform || []).map((row: any) => (
+              <View key={row.platform} style={styles.platformRow}>
+                <View>
+                  <Text style={styles.platform}>{row.platform}</Text>
+                  <Text style={styles.muted}>{row.posts} published</Text>
+                </View>
+                <View style={styles.platformMetrics}>
+                  <Text style={styles.platformMetric}>
+                    {Number(row.impressions || 0).toLocaleString()} imp.
                   </Text>
-                  <View style={styles.barTrack}>
-                    <View
-                      style={[
-                        styles.bar,
-                        {
-                          height:
-                            `${Math.max(5, (Number(row.impressions || 0) / maxImpressions) * 100)}%` as any,
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.barLabel}>
-                    {new Date(`${row.day}T12:00:00`).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                    })}
+                  <Text style={styles.platformMetric}>
+                    {Number(row.reach || 0).toLocaleString()} reach
+                  </Text>
+                  <Text style={styles.platformMetric}>
+                    {Number(row.likes || 0).toLocaleString()} likes
                   </Text>
                 </View>
-              ))}
-            </View>
-          </ScrollView>
-        ) : (
-          <Text style={styles.muted}>
-            Trend data will appear after analytics snapshots are captured.
-          </Text>
-        )}
-      </Card>
+              </View>
+            ))}
+            {!data?.byPlatform?.length && (
+              <Text style={styles.muted}>No published platform data yet.</Text>
+            )}
+          </Card>
 
-      <Card>
-        <SectionTitle
-          title="Platform performance"
-          subtitle="Current lifetime metrics from the latest provider measurements."
-        />
-        {(data?.byPlatform || []).map((row: any) => (
-          <View key={row.platform} style={styles.platformRow}>
-            <View>
-              <Text style={styles.platform}>{row.platform}</Text>
-              <Text style={styles.muted}>{row.posts} published</Text>
-            </View>
-            <View style={styles.platformMetrics}>
-              <Text style={styles.platformMetric}>
-                {Number(row.impressions || 0).toLocaleString()} imp.
-              </Text>
-              <Text style={styles.platformMetric}>
-                {Number(row.reach || 0).toLocaleString()} reach
-              </Text>
-              <Text style={styles.platformMetric}>
-                {Number(row.likes || 0).toLocaleString()} likes
-              </Text>
-            </View>
-          </View>
-        ))}
-        {!data?.byPlatform?.length && (
-          <Text style={styles.muted}>No published platform data yet.</Text>
-        )}
-      </Card>
-
-      <Card>
-        <SectionTitle
-          title="Top content"
-          subtitle="Ranked by meaningful engagement, then impressions."
-        />
-        {(data?.topPosts || []).map((post: any, index: number) => (
-          <View key={post.id} style={styles.topRow}>
-            <Text style={styles.rank}>#{index + 1}</Text>
-            <View style={styles.topCopy}>
-              <Text style={styles.topTitle} numberOfLines={1}>
-                {post.title}
-              </Text>
+          <Card>
+            <SectionTitle
+              title="Top content"
+              subtitle="Ranked by meaningful engagement, then impressions."
+            />
+            {(data?.topPosts || []).map((post: any, index: number) => (
+              <View key={post.id} style={styles.topRow}>
+                <Text style={styles.rank}>#{index + 1}</Text>
+                <View style={styles.topCopy}>
+                  <Text style={styles.topTitle} numberOfLines={1}>
+                    {post.title}
+                  </Text>
+                  <Text style={styles.muted}>
+                    {post.client_name} · {post.platform}
+                  </Text>
+                </View>
+                <View style={styles.topMetric}>
+                  <Text style={styles.topMetricValue}>
+                    {Number(post.impressions || 0).toLocaleString()}
+                  </Text>
+                  <Text style={styles.topMetricLabel}>impressions</Text>
+                </View>
+              </View>
+            ))}
+            {!data?.topPosts?.length && (
               <Text style={styles.muted}>
-                {post.client_name} · {post.platform}
+                Top content will appear after posts are published and measured.
               </Text>
-            </View>
-            <View style={styles.topMetric}>
-              <Text style={styles.topMetricValue}>
-                {Number(post.impressions || 0).toLocaleString()}
-              </Text>
-              <Text style={styles.topMetricLabel}>impressions</Text>
-            </View>
-          </View>
-        ))}
-        {!data?.topPosts?.length && (
-          <Text style={styles.muted}>
-            Top content will appear after posts are published and measured.
-          </Text>
-        )}
-      </Card>
+            )}
+          </Card>
 
-      <Card>
-        <SectionTitle
-          title="Sync health"
-          subtitle="Recent provider analytics refreshes and errors."
-        />
-        {(data?.syncHealth || []).slice(0, 8).map((run: any) => (
-          <View key={run.id} style={styles.healthRow}>
-            <View style={styles.healthCopy}>
-              <Text style={styles.topTitle}>
-                {run.account_name || run.platform || "Social account"}
-              </Text>
-              <Text style={styles.muted}>
-                {run.client_name || "Client"} · {new Date(run.started_at).toLocaleString()}
-              </Text>
-              {!!run.error_message && <Text style={styles.error}>{run.error_message}</Text>}
-            </View>
-            <StatusBadge label={run.status} />
-          </View>
-        ))}
-        {!data?.syncHealth?.length && <Text style={styles.muted}>No analytics sync runs yet.</Text>}
-      </Card>
+          <Card>
+            <SectionTitle
+              title="Sync health"
+              subtitle="Recent provider analytics refreshes and errors."
+            />
+            {(data?.syncHealth || []).slice(0, 8).map((run: any) => (
+              <View key={run.id} style={styles.healthRow}>
+                <View style={styles.healthCopy}>
+                  <Text style={styles.topTitle}>
+                    {run.account_name || run.platform || "Social account"}
+                  </Text>
+                  <Text style={styles.muted}>
+                    {run.client_name || "Client"} · {new Date(run.started_at).toLocaleString()}
+                  </Text>
+                  {!!run.error_message && <Text style={styles.error}>{run.error_message}</Text>}
+                </View>
+                <StatusBadge label={run.status} />
+              </View>
+            ))}
+            {!data?.syncHealth?.length && (
+              <Text style={styles.muted}>No analytics sync runs yet.</Text>
+            )}
+          </Card>
+        </>
+      )}
     </PageScroll>
   );
 }
@@ -283,6 +316,9 @@ const styles = StyleSheet.create({
   },
   chips: { flexDirection: "row", gap: 8, paddingVertical: 5 },
   chip: {
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: "center",
     paddingHorizontal: 13,
     paddingVertical: 8,
     borderRadius: radius.pill,
@@ -295,6 +331,8 @@ const styles = StyleSheet.create({
   chipTextActive: { color: colors.white },
   rangeRow: { flexDirection: "row", gap: 8, marginTop: spacing.sm },
   range: {
+    minHeight: 44,
+    justifyContent: "center",
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: radius.pill,

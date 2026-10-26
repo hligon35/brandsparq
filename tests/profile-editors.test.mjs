@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { workspace } from "./workspace.mjs";
 import worker from "../cloudflare/src/index.ts";
 import { imageUploadType, prominentColors } from "../src/shared/image-upload.ts";
-import { zonedTime } from "../src/shared/zoned-time.ts";
+import { zonedTime, zonedParts, schedulePreset } from "../src/shared/zoned-time.ts";
 const call = (w, path, body, method = "POST", user = "viewer") =>
   w.request(path, { method, user, body });
 test("profile saves own name, verifies email once, and preserves Google identity", async (t) => {
@@ -97,4 +97,26 @@ test("time picker values honor selected timezone and reject nonexistent DST time
     "2026-10-24T13:00:00.000Z",
   );
   assert.equal(Number.isNaN(zonedTime("2026-03-08", "02:30", "America/New_York").getTime()), true);
+});
+
+test("schedule presets use the client calendar day across offsets and daylight saving changes", () => {
+  for (const [now, timezone, expectedDay] of [
+    ["2026-10-26T02:00:00Z", "America/Los_Angeles", "2026-10-26"],
+    ["2026-10-26T22:00:00Z", "Pacific/Auckland", "2026-10-28"],
+    ["2026-03-07T17:00:00Z", "America/New_York", "2026-03-08"],
+    ["2026-10-31T16:00:00Z", "America/New_York", "2026-11-01"],
+  ]) {
+    assert.deepEqual(
+      zonedParts(schedulePreset("tomorrow_morning", timezone, new Date(now)), timezone),
+      { date: expectedDay, time: "09:00" },
+    );
+    assert.deepEqual(
+      zonedParts(schedulePreset("tomorrow_evening", timezone, new Date(now)), timezone),
+      { date: expectedDay, time: "18:00" },
+    );
+    assert.equal(
+      schedulePreset("two_hours", timezone, new Date(now)).getTime() - Date.parse(now),
+      7200000,
+    );
+  }
 });

@@ -32,3 +32,19 @@ export function zonedTime(date: string, time: string, timezone: string): Date {
     return new Date(NaN);
   }
 }
+
+export function schedulePreset(
+  kind: "two_hours" | "tomorrow_morning" | "tomorrow_evening",
+  timezone: string,
+  now = new Date(),
+): Date {
+  if (kind === "two_hours") return new Date(now.getTime() + 2 * 60 * 60 * 1000);
+  const today = zonedParts(now, timezone).date;
+  const tomorrow = new Date(`${today}T12:00:00Z`);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  return zonedTime(
+    tomorrow.toISOString().slice(0, 10),
+    kind === "tomorrow_morning" ? "09:00" : "18:00",
+    timezone,
+  );
+}

@@ -135,6 +135,19 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="clients"
+        options={{
+          title: "Clients",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons
+              name="people-outline"
+              color={typeof color === "string" ? color : colors.muted}
+              size={size}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="create"
         options={{
           title: "Create",
@@ -155,19 +168,6 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons
               name="calendar-outline"
-              color={typeof color === "string" ? color : colors.muted}
-              size={size}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="clients"
-        options={{
-          title: "Clients",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons
-              name="people-outline"
               color={typeof color === "string" ? color : colors.muted}
               size={size}
             />

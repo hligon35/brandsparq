@@ -1,4 +1,4 @@
-import { zonedTime, zonedParts } from "@/shared/zoned-time";
+import { zonedTime, zonedParts, schedulePreset } from "@/shared/zoned-time";
 import { TimePicker } from "@/components/pickers";
 import { Alert } from "@/components/feedback";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,20 +8,6 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";
-
-function optionDate(kind: "two_hours" | "tomorrow_morning" | "tomorrow_evening") {
-  const date = new Date();
-  if (kind === "two_hours") date.setHours(date.getHours() + 2);
-  if (kind === "tomorrow_morning") {
-    date.setDate(date.getDate() + 1);
-    date.setHours(9, 0, 0, 0);
-  }
-  if (kind === "tomorrow_evening") {
-    date.setDate(date.getDate() + 1);
-    date.setHours(18, 0, 0, 0);
-  }
-  return date;
-}
 
 function localDateValue(date: Date) {
   return [
@@ -48,6 +34,9 @@ const options = [
 export default function RescheduleScreen() {
   const { postId } = useLocalSearchParams<{ postId: string }>();
   const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
   const [post, setPost] = useState<any>(null);
   const [timezone, setTimezone] = useState("");
   const [dateText, setDateText] = useState(localDateValue(new Date()));
@@ -58,9 +47,12 @@ export default function RescheduleScreen() {
   const [suggested, setSuggested] = useState<string>("");
 
   useEffect(() => {
-    if (!postId) return;
+    let active = true;
+    setLoading(true);
+    setError("");
     Promise.all([api.getPost(postId), api.getClients()])
       .then(([p, clients]) => {
+        if (!active) return;
         setPost(p);
         const client = clients.find((c) => c.id === p.clientId);
         setTimezone(client?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -74,20 +66,29 @@ export default function RescheduleScreen() {
         setDateText(parts.date);
         setTimeText(parts.time);
       })
-      .catch(() => {});
-  }, [postId]);
+      .catch((err) => {
+        if (active) setError(err instanceof Error ? err.message : "Unable to load post.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [postId, attempt]);
 
   async function apply(date: Date) {
-    if (!postId) return;
+    if (!postId || !post || loading || error || working) return;
     setWorking(true);
     try {
       const result = await api.reschedulePost(postId, date.toISOString());
       const scheduled = new Date(result.scheduledPublishAt);
       Alert.alert(
         result.adjusted ? "Rescheduled to next available slot" : "Rescheduled",
-        `New time: ${scheduled.toLocaleString()}`,
+        `New time: ${scheduled.toLocaleString(undefined, { timeZone: timezone })} (${timezone})`,
       );
-      router.dismissAll();
+      if (router.canGoBack()) router.back();
+      else router.replace({ pathname: "/calendar", params: { clientId: post.clientId } });
     } catch (error) {
       Alert.alert("Unable to reschedule", error instanceof Error ? error.message : "Try again.");
     } finally {
@@ -96,7 +97,7 @@ export default function RescheduleScreen() {
   }
 
   async function choose(kind: "two_hours" | "tomorrow_morning" | "tomorrow_evening") {
-    await apply(optionDate(kind));
+    await apply(schedulePreset(kind, timezone));
   }
 
   async function submitCustom() {
@@ -151,9 +152,23 @@ export default function RescheduleScreen() {
         subtitle="Choose a quick option or enter an exact date and time. BrandSparQ validates every change against spacing, blackout, daily-limit, and preferred-window rules."
       />
 
+      {loading && <Text accessibilityLiveRegion="polite">Loading schedule…</Text>}
+      {!!error && (
+        <Card>
+          <Text accessibilityRole="alert">{error}</Text>
+          <Button label="Try again" onPress={() => setAttempt((value) => value + 1)} />
+        </Card>
+      )}
       <View style={styles.grid}>
         {options.map((option) => (
-          <Pressable key={option.kind} onPress={() => choose(option.kind)} style={styles.gridItem}>
+          <Pressable
+            key={option.kind}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: loading || !!error || working }}
+            disabled={loading || !!error || working}
+            onPress={() => choose(option.kind)}
+            style={styles.gridItem}
+          >
             <Card style={styles.optionCard}>
               <Ionicons name={option.icon} color={colors.primary} size={27} />
               <Text style={styles.optionTitle}>{option.title}</Text>
@@ -185,14 +200,19 @@ export default function RescheduleScreen() {
         </View>
         {!!suggested && (
           <Text style={styles.suggested}>
-            BrandSparQ recommendation: {new Date(suggested).toLocaleString()}
+            BrandSparQ recommendation:{" "}
+            {new Date(suggested).toLocaleString(undefined, { timeZone: timezone })}
           </Text>
         )}
         <View style={styles.actions}>
-          <Button label="Find next available" secondary onPress={working ? undefined : recommend} />
+          <Button
+            label="Find next available"
+            secondary
+            onPress={working || loading || !!error ? undefined : recommend}
+          />
           <Button
             label={working ? "Saving…" : "Save custom time"}
-            onPress={working ? undefined : submitCustom}
+            onPress={working || loading || !!error ? undefined : submitCustom}
           />
         </View>
       </Card>
