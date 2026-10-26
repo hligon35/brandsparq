@@ -1,3 +1,4 @@
+import { useGuardedNavigation } from "@/hooks/useUnsavedChanges";
 import { type ComponentRef, useRef, useState } from "react";
 import { Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { usePathname, useRouter } from "expo-router";
@@ -9,6 +10,7 @@ import { colors } from "@/theme/tokens";
 export function HeaderActions() {
   const { user, signOut } = useAuth();
   const router = useRouter();
+  const navigate = useGuardedNavigation();
   const pathname = usePathname();
   const anchor = useRef<ComponentRef<typeof View>>(null);
   const { width, height } = useWindowDimensions();
@@ -44,7 +46,7 @@ export function HeaderActions() {
       <IconButton
         label="Notifications"
         icon="notifications-outline"
-        onPress={() => router.push("/notifications")}
+        onPress={() => void navigate(() => router.push("/notifications"))}
       />
       <Modal
         visible={!!position}
@@ -71,16 +73,18 @@ export function HeaderActions() {
                   onPress={() => {
                     setPosition(null);
                     if (item.path === "/settings") {
-                      router.push("/settings");
+                      void navigate(() => router.push("/settings"));
                     } else if (item.path === "/profile") {
-                      router.push("/profile");
+                      void navigate(() => router.push("/profile"));
                     } else
-                      void signOut().catch((error) =>
-                        Alert.alert(
-                          "Unable to sign out",
-                          error instanceof Error ? error.message : "Try again.",
-                        ),
-                      );
+                      void navigate(() => {
+                        void signOut().catch((error) =>
+                          Alert.alert(
+                            "Unable to sign out",
+                            error instanceof Error ? error.message : "Try again.",
+                          ),
+                        );
+                      });
                   }}
                   style={styles.item}
                 >

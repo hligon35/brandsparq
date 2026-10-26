@@ -1,7 +1,8 @@
+import { calendarDate, calendarDayStart, sameCalendarDay } from "@/shared/calendar-time";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { Link, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { IconButton } from "@/components/icon-button";
 import { api } from "@/api/client";
@@ -14,32 +15,23 @@ type CalendarMode = "day" | "week" | "month";
 
 function startOfDay(value: Date) {
   const d = new Date(value);
-  d.setHours(0, 0, 0, 0);
+  d.setUTCHours(0, 0, 0, 0);
   return d;
 }
 function startOfWeek(value: Date) {
   const d = startOfDay(value);
-  d.setDate(d.getDate() - d.getDay());
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
   return d;
 }
 function startOfMonth(value: Date) {
   const d = startOfDay(value);
-  d.setDate(1);
+  d.setUTCDate(1);
   return d;
 }
 function addDays(value: Date, days: number) {
   const d = new Date(value);
-  d.setDate(d.getDate() + days);
+  d.setUTCDate(d.getUTCDate() + days);
   return d;
-}
-function sameDay(value: string | undefined, date: Date) {
-  if (!value) return false;
-  const d = new Date(value);
-  return (
-    d.getFullYear() === date.getFullYear() &&
-    d.getMonth() === date.getMonth() &&
-    d.getDate() === date.getDate()
-  );
 }
 function rangeFor(mode: CalendarMode, anchor: Date) {
   if (mode === "day") {
@@ -62,6 +54,7 @@ function rangeFor(mode: CalendarMode, anchor: Date) {
 function titleFor(mode: CalendarMode, anchor: Date) {
   if (mode === "day")
     return anchor.toLocaleDateString(undefined, {
+      timeZone: "UTC",
       weekday: "long",
       month: "long",
       day: "numeric",
@@ -70,16 +63,18 @@ function titleFor(mode: CalendarMode, anchor: Date) {
   if (mode === "week") {
     const start = startOfWeek(anchor),
       end = addDays(start, 6);
-    return `${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${end.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
+    return `${start.toLocaleDateString(undefined, { timeZone: "UTC", month: "short", day: "numeric" })} – ${end.toLocaleDateString(undefined, { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" })}`;
   }
-  return anchor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  return anchor.toLocaleDateString(undefined, { timeZone: "UTC", month: "long", year: "numeric" });
 }
 
 export default function CalendarScreen() {
   const can = useCapabilities();
   const { clientId: requestedClient } = useLocalSearchParams<{ clientId?: string }>();
   const [mode, setMode] = useState<CalendarMode>("week");
-  const [anchor, setAnchor] = useState(startOfDay(new Date()));
+  const [anchor, setAnchor] = useState(() =>
+    calendarDate(new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone),
+  );
   const [posts, setPosts] = useState<MarketingPost[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [clientFilter, setClientFilter] = useState(requestedClient || "all");
@@ -88,8 +83,20 @@ export default function CalendarScreen() {
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    setSelected([]);
+  }, [clientFilter, platformFilter, query]);
   const { wide } = useResponsive();
   const compact = !wide;
+  const timezone =
+    clients.find((client) => client.id === clientFilter)?.timezone ||
+    Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const loadVersion = useRef(0);
+  useEffect(() => {
+    setAnchor(calendarDate(new Date(), timezone));
+    setSelected([]);
+  }, [timezone]);
 
   const range = useMemo(() => rangeFor(mode, anchor), [mode, anchor]);
 
@@ -98,24 +105,34 @@ export default function CalendarScreen() {
   }, [requestedClient]);
 
   async function load() {
+    const version = ++loadVersion.current;
+    setLoading(true);
     setError("");
     try {
       const [calendar, clientRows] = await Promise.all([
-        api.getCalendar(range.from.toISOString(), range.to.toISOString()),
+        api.getCalendar(
+          calendarDayStart(range.from, timezone).toISOString(),
+          calendarDayStart(range.to, timezone).toISOString(),
+        ),
         api.getClients(),
       ]);
+      if (version !== loadVersion.current) return;
       setPosts(calendar);
+      setSelected((current) => current.filter((id) => calendar.some((post) => post.id === id)));
       setClients(clientRows);
     } catch (err) {
+      if (version !== loadVersion.current) return;
       setPosts([]);
       setError(err instanceof Error ? err.message : "Unable to load calendar.");
+    } finally {
+      if (version === loadVersion.current) setLoading(false);
     }
   }
 
   useFocusEffect(
     useCallback(() => {
       void load();
-    }, [mode, anchor]),
+    }, [mode, anchor, timezone]),
   );
 
   const filtered = useMemo(() => {
@@ -145,9 +162,9 @@ export default function CalendarScreen() {
 
   function navigate(direction: number) {
     const next = new Date(anchor);
-    if (mode === "day") next.setDate(next.getDate() + direction);
-    if (mode === "week") next.setDate(next.getDate() + 7 * direction);
-    if (mode === "month") next.setMonth(next.getMonth() + direction, 1);
+    if (mode === "day") next.setUTCDate(next.getUTCDate() + direction);
+    if (mode === "week") next.setUTCDate(next.getUTCDate() + 7 * direction);
+    if (mode === "month") next.setUTCMonth(next.getUTCMonth() + direction, 1);
     setAnchor(startOfDay(next));
     setSelected([]);
   }
@@ -216,6 +233,7 @@ export default function CalendarScreen() {
           <Text style={styles.time}>
             {post.scheduledPublishAt
               ? new Date(post.scheduledPublishAt).toLocaleTimeString([], {
+                  timeZone: timezone,
                   hour: "numeric",
                   minute: "2-digit",
                 })
@@ -248,9 +266,17 @@ export default function CalendarScreen() {
         subtitle="Navigate true day, week, and month views. Search, filter, select, shift, pause, or open approved posts."
       />
 
+      <Text accessibilityLabel="Calendar time zone" style={styles.sub}>
+        {clientFilter === "all" ? "All clients shown in" : "Client time zone:"} {timezone}
+      </Text>
       <View style={styles.navRow}>
         <IconButton label="Previous period" icon="chevron-back" onPress={() => navigate(-1)} />
-        <Button label="Today" secondary small onPress={() => setAnchor(startOfDay(new Date()))} />
+        <Button
+          label="Today"
+          secondary
+          small
+          onPress={() => setAnchor(calendarDate(new Date(), timezone))}
+        />
         <Text style={styles.rangeTitle}>{titleFor(mode, anchor)}</Text>
         <IconButton label="Next period" icon="chevron-forward" onPress={() => navigate(1)} />
       </View>
@@ -340,13 +366,13 @@ export default function CalendarScreen() {
             <Text style={styles.selectedText}>{selected.length} selected</Text>
             <View style={styles.bulkActions}>
               <Button
-                label="−1 day"
+                label="−24 hours"
                 small
                 secondary
                 onPress={working ? undefined : () => shift(-1440)}
               />
               <Button
-                label="+1 day"
+                label="+24 hours"
                 small
                 secondary
                 onPress={working ? undefined : () => shift(1440)}
@@ -358,6 +384,7 @@ export default function CalendarScreen() {
         )}
       </Card>
 
+      {loading && <Text accessibilityLiveRegion="polite">Loading calendar…</Text>}
       {error && (
         <Card subtle>
           <Text style={styles.emptyTitle}>Calendar unavailable</Text>
@@ -368,16 +395,16 @@ export default function CalendarScreen() {
         </Card>
       )}
 
-      {!error && mode === "day" && (
+      {!loading && !error && mode === "day" && (
         <View style={styles.dayView}>
           {filtered
-            .filter((post) => sameDay(post.scheduledPublishAt, anchor))
+            .filter((post) => sameCalendarDay(post.scheduledPublishAt, anchor, timezone))
             .sort(
               (a, b) =>
                 Date.parse(a.scheduledPublishAt || "") - Date.parse(b.scheduledPublishAt || ""),
             )
             .map(postCard)}
-          {!filtered.some((post) => sameDay(post.scheduledPublishAt, anchor)) && (
+          {!filtered.some((post) => sameCalendarDay(post.scheduledPublishAt, anchor, timezone)) && (
             <Card subtle>
               <Text style={styles.emptyTitle}>Open space</Text>
               <Text style={styles.sub}>No posts scheduled for this day.</Text>
@@ -386,17 +413,20 @@ export default function CalendarScreen() {
         </View>
       )}
 
-      {!error &&
+      {!loading &&
+        !error &&
         mode === "week" &&
         (compact ? (
           <View style={styles.agenda}>
             {range.days.map((day) => {
-              const dayPosts = filtered.filter((post) => sameDay(post.scheduledPublishAt, day));
+              const dayPosts = filtered.filter((post) =>
+                sameCalendarDay(post.scheduledPublishAt, day, timezone),
+              );
               return (
                 <View key={day.toISOString()} style={styles.agendaDay}>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`Show ${day.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`}
+                    accessibilityLabel={`Show ${day.toLocaleDateString(undefined, { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" })}`}
                     onPress={() => {
                       setAnchor(day);
                       setMode("day");
@@ -405,6 +435,7 @@ export default function CalendarScreen() {
                   >
                     <Text style={styles.agendaDate}>
                       {day.toLocaleDateString(undefined, {
+                        timeZone: "UTC",
                         weekday: "short",
                         month: "short",
                         day: "numeric",
@@ -424,7 +455,9 @@ export default function CalendarScreen() {
         ) : (
           <View style={styles.weekGrid}>
             {range.days.map((day) => {
-              const dayPosts = filtered.filter((post) => sameDay(post.scheduledPublishAt, day));
+              const dayPosts = filtered.filter((post) =>
+                sameCalendarDay(post.scheduledPublishAt, day, timezone),
+              );
               return (
                 <View key={day.toISOString()} style={styles.weekColumn}>
                   <Pressable
@@ -434,9 +467,9 @@ export default function CalendarScreen() {
                     }}
                   >
                     <Text style={styles.weekDay}>
-                      {day.toLocaleDateString(undefined, { weekday: "short" })}
+                      {day.toLocaleDateString(undefined, { timeZone: "UTC", weekday: "short" })}
                     </Text>
-                    <Text style={styles.weekDate}>{day.getDate()}</Text>
+                    <Text style={styles.weekDate}>{day.getUTCDate()}</Text>
                   </Pressable>
                   <View style={styles.weekPosts}>
                     {dayPosts.map(postCard)}
@@ -448,20 +481,22 @@ export default function CalendarScreen() {
           </View>
         ))}
 
-      {!error && mode === "month" && compact && (
+      {!loading && !error && mode === "month" && compact && (
         <View style={styles.agenda}>
           {range.days
-            .filter((day) => day.getMonth() === anchor.getMonth())
+            .filter((day) => day.getUTCMonth() === anchor.getUTCMonth())
             .map((day) => ({
               day,
-              posts: filtered.filter((post) => sameDay(post.scheduledPublishAt, day)),
+              posts: filtered.filter((post) =>
+                sameCalendarDay(post.scheduledPublishAt, day, timezone),
+              ),
             }))
             .filter(({ posts }) => posts.length > 0)
             .map(({ day, posts }) => (
               <View key={day.toISOString()} style={styles.agendaDay}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Show ${day.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`}
+                  accessibilityLabel={`Show ${day.toLocaleDateString(undefined, { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" })}`}
                   onPress={() => {
                     setAnchor(day);
                     setMode("day");
@@ -470,6 +505,7 @@ export default function CalendarScreen() {
                 >
                   <Text style={styles.agendaDate}>
                     {day.toLocaleDateString(undefined, {
+                      timeZone: "UTC",
                       weekday: "long",
                       month: "short",
                       day: "numeric",
@@ -484,8 +520,8 @@ export default function CalendarScreen() {
             ))}
           {!range.days.some(
             (day) =>
-              day.getMonth() === anchor.getMonth() &&
-              filtered.some((post) => sameDay(post.scheduledPublishAt, day)),
+              day.getUTCMonth() === anchor.getUTCMonth() &&
+              filtered.some((post) => sameCalendarDay(post.scheduledPublishAt, day, timezone)),
           ) && (
             <Card subtle>
               <Text style={styles.emptyTitle}>No posts this month</Text>
@@ -495,7 +531,7 @@ export default function CalendarScreen() {
         </View>
       )}
 
-      {!error && mode === "month" && !compact && (
+      {!loading && !error && mode === "month" && !compact && (
         <View>
           <View style={styles.weekdayHeader}>
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
@@ -506,8 +542,10 @@ export default function CalendarScreen() {
           </View>
           <View style={styles.monthGrid}>
             {range.days.map((day) => {
-              const inMonth = day.getMonth() === anchor.getMonth();
-              const dayPosts = filtered.filter((post) => sameDay(post.scheduledPublishAt, day));
+              const inMonth = day.getUTCMonth() === anchor.getUTCMonth();
+              const dayPosts = filtered.filter((post) =>
+                sameCalendarDay(post.scheduledPublishAt, day, timezone),
+              );
               return (
                 <Pressable
                   key={day.toISOString()}
@@ -519,7 +557,7 @@ export default function CalendarScreen() {
                 >
                   <View style={styles.monthCellTop}>
                     <Text style={[styles.monthDate, !inMonth && styles.mutedText]}>
-                      {day.getDate()}
+                      {day.getUTCDate()}
                     </Text>
                     {!!dayPosts.length && <Text style={styles.monthCount}>{dayPosts.length}</Text>}
                   </View>

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { api } from "@/api/client";
 import { useCapabilities } from "@/auth/capabilities";
-import { Alert } from "@/components/feedback";
+import { Alert, confirmAction } from "@/components/feedback";
 import { formStyles as styles } from "@/components/forms";
 import { Button, Card, PageHeader, PageScroll } from "@/components/ui";
 export default function PausedScreen() {
@@ -27,6 +27,17 @@ export default function PausedScreen() {
     void load();
   }, []);
   async function act(id: string, action: "resume" | "restore-review" | "cancel") {
+    const post = posts.find((item) => item.id === id);
+    if (
+      action === "cancel" &&
+      !(await confirmAction(
+        "Cancel paused post?",
+        `Cancel “${post?.title || "this post"}” for ${post?.client_name || "this client"}? It will no longer be available to resume.`,
+        "Cancel post",
+        "Keep post",
+      ))
+    )
+      return;
     setWorking(id);
     try {
       await api.pausedAction(id, action);

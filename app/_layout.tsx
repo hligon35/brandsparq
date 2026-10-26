@@ -1,3 +1,4 @@
+import { UnsavedChangesProvider } from "@/hooks/useUnsavedChanges";
 import { HeaderActions } from "@/components/header-actions";
 import { NotificationRouter } from "@/notifications/router";
 import { Stack, useSegments } from "expo-router";
@@ -11,9 +12,11 @@ import { FeedbackHost } from "@/components/feedback";
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <RootNavigator />
-      <FeedbackHost />
-      <NotificationRouter />
+      <UnsavedChangesProvider>
+        <RootNavigator />
+        <FeedbackHost />
+        <NotificationRouter />
+      </UnsavedChangesProvider>
     </AuthProvider>
   );
 }
@@ -42,8 +45,8 @@ function RootNavigator() {
             <Stack.Screen name="login" options={{ headerShown: false }} />
           </Stack.Protected>
           <Stack.Protected guard={!!user}>
-            <Stack.Screen name="profile/index" options={{ title: "Profile" }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="profile/index" options={{ title: "Profile" }} />
 
             <Stack.Screen name="generation/index" options={{ title: "Generation progress" }} />
             <Stack.Screen name="paused/index" options={{ title: "Paused content" }} />

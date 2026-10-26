@@ -14,6 +14,7 @@ export default function PublishDecisionScreen() {
   const { postId } = useLocalSearchParams<{ postId: string }>();
   const router = useRouter();
   const [post, setPost] = useState<MarketingPost>();
+  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [working, setWorking] = useState(false);
   const [loadError, setLoadError] = useState("");
   const { wide } = useResponsive();
@@ -22,7 +23,12 @@ export default function PublishDecisionScreen() {
     if (!postId) return;
     setLoadError("");
     try {
-      setPost(await api.getPost(postId));
+      const [nextPost, clients] = await Promise.all([api.getPost(postId), api.getClients()]);
+      setTimezone(
+        clients.find((client) => client.id === nextPost.clientId)?.timezone ||
+          Intl.DateTimeFormat().resolvedOptions().timeZone,
+      );
+      setPost(nextPost);
     } catch (error) {
       setPost(undefined);
       setLoadError(error instanceof Error ? error.message : "Unable to load post.");
@@ -92,8 +98,11 @@ export default function PublishDecisionScreen() {
         <Text style={styles.label}>Scheduled</Text>
         <Text style={styles.time}>
           {post.scheduledPublishAt
-            ? new Date(post.scheduledPublishAt).toLocaleString()
+            ? new Date(post.scheduledPublishAt).toLocaleString(undefined, { timeZone: timezone })
             : "No time selected"}
+        </Text>
+        <Text accessibilityLabel="Publishing time zone" style={styles.sub}>
+          {timezone}
         </Text>
         <Text style={styles.sub}>{post.title}</Text>
       </Card>

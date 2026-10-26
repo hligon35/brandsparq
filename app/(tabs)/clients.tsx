@@ -2,7 +2,7 @@ import { TimezonePicker } from "@/components/pickers";
 import { useAuth } from "@/auth/context";
 import { useCapabilities } from "@/auth/capabilities";
 import { StatusBadge } from "@/components/ui";
-import { Alert } from "@/components/feedback";
+import { Alert, confirmAction } from "@/components/feedback";
 import { Link, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
@@ -51,6 +51,14 @@ export default function ClientsScreen() {
   }
 
   async function archive(client: Client) {
+    if (
+      !(await confirmAction(
+        "Archive client?",
+        `Archive ${client.name}? Their scheduled and review work will be paused. Restoring the client will not resume publishing automatically.`,
+        "Archive client",
+      ))
+    )
+      return;
     setWorking(true);
     try {
       await api.archiveClient(client.id);

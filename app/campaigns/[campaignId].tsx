@@ -1,4 +1,5 @@
-import { Link, useLocalSearchParams } from "expo-router";
+import { GuardedLink as Link, useUnsavedChanges } from "@/hooks/useUnsavedChanges";
+import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { api } from "@/api/client";
@@ -13,13 +14,18 @@ export default function CampaignDetailScreen() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const { markSaved } = useUnsavedChanges(
+    form,
+    !!data && can("client_manage", data.campaign.client_id),
+    setForm,
+  );
   async function load() {
     setError("");
     try {
       const { data } = await api.getCampaign(campaignId);
       setData(data);
       const c = data.campaign;
-      setForm({
+      const nextForm = {
         name: c.name,
         objective: c.objective || "",
         startsAt: c.starts_at?.slice(0, 10) || "",
@@ -27,7 +33,9 @@ export default function CampaignDetailScreen() {
         priority: String(c.priority || 0),
         notes: c.notes || "",
         status: c.status,
-      });
+      };
+      setForm(nextForm);
+      markSaved(nextForm);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to load campaign.");
     }

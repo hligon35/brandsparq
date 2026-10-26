@@ -1,9 +1,23 @@
 import { useEffect, useState } from "react";
-import { Alert as NativeAlert, Modal, Platform, StyleSheet, Text, View } from "react-native";
+import {
+  Alert as NativeAlert,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Button } from "./ui";
 import { colors, radius, spacing } from "@/theme/tokens";
 
-type Notice = { title: string; message?: string };
+type Notice = {
+  title: string;
+  message?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  resolve?: (confirmed: boolean) => void;
+};
 let showNotice: ((notice: Notice) => void) | undefined;
 const pending: Notice[] = [];
 
@@ -17,6 +31,30 @@ export const Alert = {
   },
 };
 
+export function confirmAction(
+  title: string,
+  message: string,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (Platform.OS === "web") {
+      const notice = { title, message, confirmLabel, cancelLabel, resolve };
+      if (showNotice) showNotice(notice);
+      else pending.push(notice);
+    } else
+      NativeAlert.alert(
+        title,
+        message,
+        [
+          { text: cancelLabel, style: "cancel", onPress: () => resolve(false) },
+          { text: confirmLabel, style: "destructive", onPress: () => resolve(true) },
+        ],
+        { cancelable: true, onDismiss: () => resolve(false) },
+      );
+  });
+}
+
 export function FeedbackHost() {
   const [notices, setNotices] = useState<Notice[]>([]);
   useEffect(() => {
@@ -27,17 +65,40 @@ export function FeedbackHost() {
     };
   }, []);
   const notice = notices[0];
-  const dismiss = () => setNotices((current) => current.slice(1));
+  const dismiss = (confirmed = false) => {
+    notice?.resolve?.(confirmed);
+    setNotices((current) => current.slice(1));
+  };
   if (Platform.OS !== "web" || !notice) return null;
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={dismiss}>
+    <Modal visible transparent animationType="fade" onRequestClose={() => dismiss()}>
       <View style={styles.backdrop}>
         <View style={styles.dialog} accessibilityRole="alert" accessibilityLabel={notice.title}>
-          <Text accessibilityRole="header" style={styles.title}>
-            {notice.title}
-          </Text>
-          {!!notice.message && <Text style={styles.message}>{notice.message}</Text>}
-          <Button label="Close message" onPress={dismiss} />
+          <ScrollView
+            contentContainerStyle={{ gap: spacing.md }}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text accessibilityRole="header" style={styles.title}>
+              {notice.title}
+            </Text>
+            {!!notice.message && <Text style={styles.message}>{notice.message}</Text>}
+            {notice.resolve ? (
+              <>
+                <Button
+                  label={notice.cancelLabel || "Cancel"}
+                  secondary
+                  onPress={() => dismiss()}
+                />
+                <Button
+                  danger
+                  label={notice.confirmLabel || "Confirm"}
+                  onPress={() => dismiss(true)}
+                />
+              </>
+            ) : (
+              <Button label="Close message" onPress={() => dismiss()} />
+            )}
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -55,6 +116,7 @@ const styles = StyleSheet.create({
   dialog: {
     width: "100%",
     maxWidth: 480,
+    maxHeight: "90%",
     padding: spacing.lg,
     borderRadius: radius.lg,
     backgroundColor: colors.surface,

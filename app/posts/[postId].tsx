@@ -1,5 +1,6 @@
+import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { useCapabilities } from "@/auth/capabilities";
-import { Alert } from "@/components/feedback";
+import { Alert, confirmAction } from "@/components/feedback";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Image, StyleSheet, Text, TextInput, Pressable, View } from "react-native";
@@ -16,6 +17,7 @@ export default function PostReviewScreen() {
   const { postId } = useLocalSearchParams<{ postId: string }>();
   const router = useRouter();
   const [post, setPost] = useState<MarketingPost | undefined>();
+  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [aiAction, setAiAction] = useState<AiAction>(null);
@@ -26,18 +28,32 @@ export default function PostReviewScreen() {
   const [creative, setCreative] = useState<any>(null);
   const [assigningAccount, setAssigningAccount] = useState(false);
   const { wide } = useResponsive();
+  const { dirty, markSaved } = useUnsavedChanges(
+    { headlineDraft, captionDraft },
+    !!post && can("review", post.clientId),
+    (saved) => {
+      setHeadlineDraft(saved.headlineDraft);
+      setCaptionDraft(saved.captionDraft);
+    },
+  );
 
   async function reload() {
     if (!postId) return;
     setLoadError("");
     try {
-      const [nextPost, nextCreative] = await Promise.all([
+      const [nextPost, nextCreative, clients] = await Promise.all([
         api.getPost(postId),
         api.getPostCreative(postId),
+        api.getClients(),
       ]);
+      setTimezone(
+        clients.find((client) => client.id === nextPost.clientId)?.timezone ||
+          Intl.DateTimeFormat().resolvedOptions().timeZone,
+      );
       setPost(nextPost);
       setHeadlineDraft(nextPost.title || "");
       setCaptionDraft(nextPost.caption || "");
+      markSaved({ headlineDraft: nextPost.title || "", captionDraft: nextPost.caption || "" });
       setCreative(nextCreative.data);
     } catch (error) {
       setPost(undefined);
@@ -49,11 +65,16 @@ export default function PostReviewScreen() {
   useEffect(() => {
     if (!postId) return;
     setLoadError("");
-    Promise.all([api.getPost(postId), api.getPostCreative(postId)])
-      .then(([nextPost, nextCreative]) => {
+    Promise.all([api.getPost(postId), api.getPostCreative(postId), api.getClients()])
+      .then(([nextPost, nextCreative, clients]) => {
+        setTimezone(
+          clients.find((client) => client.id === nextPost.clientId)?.timezone ||
+            Intl.DateTimeFormat().resolvedOptions().timeZone,
+        );
         setPost(nextPost);
         setHeadlineDraft(nextPost.title || "");
         setCaptionDraft(nextPost.caption || "");
+        markSaved({ headlineDraft: nextPost.title || "", captionDraft: nextPost.caption || "" });
         setCreative(nextCreative.data);
       })
       .catch((error) => {
@@ -103,6 +124,16 @@ export default function PostReviewScreen() {
   const reviewable = ["awaiting_approval", "edit_requested"].includes(post.status);
   const editable = reviewable && can("review", post.clientId);
   async function assignAccount(accountId: string) {
+    if (
+      dirty &&
+      !(await confirmAction(
+        "Replace unsaved copy?",
+        "This action reloads the post and replaces your unsaved copy. Save your copy first to keep it.",
+        "Replace copy",
+        "Keep editing",
+      ))
+    )
+      return;
     setAssigningAccount(true);
     try {
       await api.assignSocialAccount(post!.id, accountId);
@@ -133,6 +164,16 @@ export default function PostReviewScreen() {
   }
 
   async function reject() {
+    if (
+      dirty &&
+      !(await confirmAction(
+        "Replace unsaved copy?",
+        "This action reloads the post and replaces your unsaved copy. Save your copy first to keep it.",
+        "Replace copy",
+        "Keep editing",
+      ))
+    )
+      return;
     setSaving(true);
     try {
       await api.rejectPost(post!.id, instruction.trim() || "Changes requested.");
@@ -150,6 +191,10 @@ export default function PostReviewScreen() {
   async function approve() {
     setSaving(true);
     try {
+      if (dirty) {
+        await api.editPost(post!.id, { headline: headlineDraft, caption: captionDraft });
+        markSaved({ headlineDraft, captionDraft });
+      }
       await api.approvePost(post!.id);
       Alert.alert("Approved", "This post is now on the marketing calendar.");
       router.back();
@@ -161,6 +206,16 @@ export default function PostReviewScreen() {
   }
 
   async function runAi(action: Exclude<AiAction, null>) {
+    if (
+      dirty &&
+      !(await confirmAction(
+        "Replace unsaved copy?",
+        "This action reloads the post and replaces your unsaved copy. Save your copy first to keep it.",
+        "Replace copy",
+        "Keep editing",
+      ))
+    )
+      return;
     if (action === "image" && !instruction.trim()) {
       Alert.alert("Describe the edit", "Enter what you want changed in the graphic first.");
       return;
@@ -197,7 +252,7 @@ export default function PostReviewScreen() {
       />
 
       <View style={[styles.reviewGrid, wide && styles.reviewGridWide]}>
-        <Card style={styles.mediaCard}>
+        <Card style={[styles.mediaCard, wide && { flex: 1.05 }]}>
           {post.imageUrl ? (
             <Image source={{ uri: post.imageUrl }} style={styles.image} resizeMode="cover" />
           ) : (
@@ -207,7 +262,7 @@ export default function PostReviewScreen() {
           )}
         </Card>
 
-        <View style={styles.copyColumn}>
+        <View style={[styles.copyColumn, wide && { flex: 0.95 }]}>
           {editable && (
             <Card>
               <SectionTitle
@@ -216,12 +271,14 @@ export default function PostReviewScreen() {
               />
               <Text style={styles.label}>Headline</Text>
               <TextInput
+                accessibilityLabel="Headline"
                 value={headlineDraft}
                 onChangeText={setHeadlineDraft}
                 style={styles.singleInput}
               />
               <Text style={styles.label}>Caption</Text>
               <TextInput
+                accessibilityLabel="Caption"
                 value={captionDraft}
                 onChangeText={setCaptionDraft}
                 multiline
@@ -299,10 +356,12 @@ export default function PostReviewScreen() {
           )}
 
           <Card subtle>
-            <Text style={styles.label}>Recommended slot</Text>
+            <Text style={styles.label}>Recommended slot · {timezone}</Text>
             <Text style={styles.heading}>
               {post.suggestedPublishAt
-                ? new Date(post.suggestedPublishAt).toLocaleString()
+                ? new Date(post.suggestedPublishAt).toLocaleString(undefined, {
+                    timeZone: timezone,
+                  })
                 : "Not selected"}
             </Text>
           </Card>
@@ -390,11 +449,9 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   mediaCard: {
-    flex: 1.05,
     padding: 10,
   },
   copyColumn: {
-    flex: 0.95,
     gap: spacing.md,
     minWidth: 0,
   },

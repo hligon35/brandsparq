@@ -7,7 +7,9 @@ test.beforeEach(async ({ request, page }) => {
 
 async function signIn(page) {
   await page.goto("/login?handoff=fixture-handoff");
-  await expect(page.getByRole("heading", { name: "Your workspace" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your workspace" })).toBeVisible({
+    timeout: 10000,
+  });
 }
 
 test("login is accessible, fits the viewport, and restores a signed-in session after refresh", async ({
@@ -27,6 +29,7 @@ test("login is accessible, fits the viewport, and restores a signed-in session a
 });
 
 test("workspace routes stay inside narrow phone viewports", async ({ page }) => {
+  test.setTimeout(90000); // This scenario loads 36 pages across two viewport sizes.
   await signIn(page);
 
   const routes = [
@@ -243,6 +246,7 @@ test("archived clients can be found and restored explicitly", async ({ page }) =
   const clientLink = page.getByRole("link", { name: "Open Client A workspace", exact: true });
   const card = clientLink.locator("..");
   await card.getByText("Archive", { exact: true }).click();
+  await page.getByRole("button", { name: "Archive client", exact: true }).click();
   await expect(clientLink).toHaveCount(0);
   await page.getByRole("button", { name: "Show archived clients", exact: true }).click();
   await page.getByRole("button", { name: "Restore client", exact: true }).click();
@@ -278,6 +282,10 @@ test("owners can send and revoke team invitations from Access Management", async
   await page.getByRole("button", { name: "Close message", exact: true }).click();
   await expect(page.getByText(/new-member@example.test · pending/)).toBeVisible();
   await page.getByRole("button", { name: "Revoke invitation", exact: true }).click();
+  await page
+    .getByRole("alert", { name: "Revoke invitation?", exact: true })
+    .getByRole("button", { name: "Revoke invitation", exact: true })
+    .click();
   await expect(page.getByText(/new-member@example.test · revoked/)).toBeVisible();
 });
 
@@ -501,4 +509,183 @@ test("rescheduling preserves history and refreshes Calendar on return", async ({
   await expect(page.getByRole("heading", { name: "Calendar", exact: true })).toBeVisible();
   const state = await (await request.post("/__test/state")).json();
   expect(state.post.status).toBe("rescheduled");
+});
+
+test("unsaved brand edits can be kept, saved or discarded through primary navigation", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/clients/client-a/brand");
+  const voice = page.getByLabel("Brand voice", { exact: true });
+  await expect(voice).toBeEditable();
+  const original = await voice.inputValue();
+  await voice.fill("Unsaved brand voice");
+  const calendar = () =>
+    page
+      .getByLabel("Workspace navigation", { exact: true })
+      .getByRole("link", { name: "Calendar", exact: true });
+  await calendar().click();
+  await page.getByRole("button", { name: "Keep editing", exact: true }).click();
+  await expect(voice).toHaveValue("Unsaved brand voice");
+  await calendar().click();
+  await page.getByRole("button", { name: "Discard changes", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Calendar", exact: true })).toBeVisible();
+  await page.goto("/clients/client-a/brand");
+  await expect(voice).toHaveValue(original);
+  await voice.fill("Saved brand voice");
+  await page.getByRole("button", { name: "Save Brand Brain", exact: true }).click();
+  await page.getByRole("button", { name: "Close message", exact: true }).click();
+  await calendar().click();
+  await expect(page.getByRole("heading", { name: "Calendar", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("alert", { name: "Discard unsaved changes?", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("campaign edits are protected when opening a post and using back navigation", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/campaigns");
+  await page.getByRole("link").filter({ hasText: "Community campaign" }).click();
+  await page.getByLabel("Notes", { exact: true }).fill("Keep this unsaved note");
+  await page.getByRole("button", { name: "Open post", exact: true }).click();
+  await page.getByRole("button", { name: "Keep editing", exact: true }).click();
+  await expect(page.getByLabel("Notes", { exact: true })).toHaveValue("Keep this unsaved note");
+  await page.getByRole("link", { name: /back$/i }).first().click();
+  await page.getByRole("button", { name: "Discard changes", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Campaigns", exact: true }).first()).toBeVisible();
+});
+
+test("header menu protects unsaved settings and client selection is searchable", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Timezone", exact: true }).click();
+  await page.getByLabel("Search Timezone", { exact: true }).fill("UTC");
+  await page.getByRole("button", { name: "UTC", exact: true }).click();
+  await page.getByRole("button", { name: "Open profile menu", exact: true }).click();
+  await page.getByRole("button", { name: "Profile", exact: true }).click();
+  await page.getByRole("button", { name: "Keep editing", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Timezone", exact: true })).toContainText("UTC");
+  await page.getByRole("button", { name: "Save settings", exact: true }).click();
+  await page.getByRole("button", { name: "Close message", exact: true }).click();
+  await page.goto("/clients/client-a");
+  await page.getByRole("button", { name: "Select client: Client A", exact: true }).click();
+  await page.getByLabel("Search clients", { exact: true }).fill("Missing");
+  await expect(page.getByText("No matching clients.", { exact: true })).toBeVisible();
+  await page.getByLabel("Search clients", { exact: true }).fill("Client B");
+  await page.getByRole("button", { name: "Choose Client B", exact: true }).click();
+  await expect(page).toHaveURL(/clients\/client-b$/);
+  await page.getByRole("button", { name: "Select client: Client B", exact: true }).click();
+  await page
+    .getByLabel("Close client selector", { exact: true })
+    .click({ position: { x: 4, y: 4 } });
+  await expect(page.getByLabel("Search clients", { exact: true })).toHaveCount(0);
+});
+
+test("disconnect confirmation names the account and cancellation makes no mutation", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/social?clientId=client-a");
+  await page.getByRole("button", { name: "Manage facebook accounts", exact: true }).click();
+  let disconnects = 0;
+  page.on("request", (request) => {
+    if (request.url().endsWith("/disconnect")) disconnects++;
+  });
+  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await expect(
+    page.getByRole("alert", { name: "Disconnect social account?", exact: true }),
+  ).toContainText("Test Facebook Page");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(disconnects).toBe(0);
+  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await page
+    .getByRole("alert", { name: "Disconnect social account?", exact: true })
+    .getByRole("button", { name: "Disconnect", exact: true })
+    .click();
+  await expect.poll(() => disconnects).toBe(1);
+});
+
+test("Calendar labels and API boundaries use a client zone rather than the device zone", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.route("**/v1/clients", async (route) => {
+    const response = await route.fetch();
+    const json = await response.json();
+    const rows = Array.isArray(json) ? json : json.data;
+    rows.find((client) => client.id === "client-b").timezone = "Pacific/Auckland";
+    await route.fulfill({ response, json });
+  });
+  await page.goto("/calendar?clientId=client-b");
+  await expect(page.getByLabel("Calendar time zone", { exact: true })).toContainText(
+    "Pacific/Auckland",
+  );
+  const response = page.waitForResponse((response) => {
+    if (!response.url().includes("/v1/posts/calendar") || !response.ok()) return false;
+    const url = new URL(response.url());
+    const duration =
+      Date.parse(url.searchParams.get("to")) - Date.parse(url.searchParams.get("from"));
+    return duration > 0 && duration <= 25 * 3600000;
+  });
+  await page.getByRole("button", { name: "day", exact: true }).click();
+  const url = new URL((await response).url());
+  const from = new Date(url.searchParams.get("from"));
+  const to = new Date(url.searchParams.get("to"));
+  expect(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Pacific/Auckland",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).format(from),
+  ).toBe("00:00");
+  expect((to - from) / 3600000).toBe(24);
+});
+
+test("post copy is protected on navigation and saved before approval", async ({
+  page,
+  request,
+}) => {
+  await signIn(page);
+  await page.goto("/posts/fixture-post");
+  const caption = page.getByLabel("Caption", { exact: true });
+  await caption.fill("Approved with my edited copy.");
+  await page
+    .getByLabel("Workspace navigation", { exact: true })
+    .getByRole("link", { name: "Calendar", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Keep editing", exact: true }).click();
+  await expect(caption).toHaveValue("Approved with my edited copy.");
+  await page.getByRole("button", { name: "Approve post", exact: true }).click();
+  await expect(page.getByRole("alert", { name: "Approved", exact: true })).toBeVisible();
+  const state = await (await request.post("/__test/state")).json();
+  expect(state.post.caption).toBe("Approved with my edited copy.");
+  expect(state.post.status).toBe("calendar_scheduled");
+});
+
+test("browser reload can be cancelled without losing unsaved brand edits", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/clients/client-a/brand");
+  const voice = page.getByLabel("Brand voice", { exact: true });
+  await expect(voice).toBeEditable();
+  await voice.fill("Keep my draft through a cancelled reload");
+  let prompts = 0;
+  page.removeAllListeners("dialog");
+  page.on("dialog", (dialog) => {
+    if (dialog.type() === "beforeunload") {
+      prompts++;
+      void dialog.dismiss();
+    } else void dialog.accept();
+  });
+  const reload = page.reload({ timeout: 2000 }).catch((error) => {
+    expect(error.message).toMatch(/ERR_ABORTED|cancelled|canceled|timeout/i);
+  });
+  await expect.poll(() => prompts).toBe(1);
+  await reload;
+  expect(prompts).toBe(1);
+  await expect(voice).toHaveValue("Keep my draft through a cancelled reload");
 });

@@ -1,3 +1,4 @@
+import { useGuardedNavigation } from "@/hooks/useUnsavedChanges";
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import { useRouter } from "expo-router";
@@ -5,6 +6,7 @@ import { useAuth } from "@/auth/context";
 export function NotificationRouter() {
   const { user } = useAuth();
   const router = useRouter();
+  const navigate = useGuardedNavigation();
   const handled = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (Platform.OS === "web" || !user) return;
@@ -30,10 +32,12 @@ export function NotificationRouter() {
           if (data?.userId !== user.id) return;
           // Route only known internal post IDs; never execute arbitrary push-provided URLs.
           if (typeof postId !== "string" || !/^[a-zA-Z0-9-]{1,128}$/.test(postId)) return;
-          handled.current = request.identifier;
-          router.push(
-            data?.type === "pre_publish" ? `/posts/${postId}/publish` : `/posts/${postId}`,
-          );
+          void navigate(() => {
+            handled.current = request.identifier;
+            router.push(
+              data?.type === "pre_publish" ? `/posts/${postId}/publish` : `/posts/${postId}`,
+            );
+          });
         };
         subscription = Notifications.addNotificationResponseReceivedListener(open);
         open(await Notifications.getLastNotificationResponseAsync());

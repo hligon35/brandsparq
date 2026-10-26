@@ -79,6 +79,8 @@ export default function HomeScreen() {
                   {next.client_name} · {next.platform}
                 </Text>
                 <Text style={styles.body}>
+                  {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                  {" · "}
                   {next.scheduled_publish_at
                     ? new Date(next.scheduled_publish_at).toLocaleString()
                     : "Schedule pending"}

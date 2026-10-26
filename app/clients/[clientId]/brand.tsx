@@ -1,8 +1,9 @@
-import { Link } from "expo-router";
+import { GuardedLink as Link, useUnsavedChanges } from "@/hooks/useUnsavedChanges";
+
 import { useCapabilities } from "@/auth/capabilities";
 import { TimezonePicker, ColorPicker } from "@/components/pickers";
 import { logoColors } from "@/media/logoColors";
-import { Alert } from "@/components/feedback";
+import { Alert, confirmAction } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
@@ -34,8 +35,9 @@ const fields = [
 export default function BrandBrainScreen() {
   const { clientId } = useLocalSearchParams<{ clientId: string }>();
   const can = useCapabilities();
+  const [loaded, setLoaded] = useState(false);
   const [clientActive, setClientActive] = useState(true);
-  const editable = clientActive && can("brand_manage", clientId);
+  const editable = loaded && clientActive && can("brand_manage", clientId);
   const [brand, setBrand] = useState<Record<string, string>>({});
   const [name, setName] = useState("Brand Brain");
   const [timezone, setTimezone] = useState("");
@@ -43,6 +45,11 @@ export default function BrandBrainScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const { wide } = useResponsive();
+  const { markSaved } = useUnsavedChanges({ name, timezone, brand }, editable, (saved) => {
+    setName(saved.name);
+    setTimezone(saved.timezone);
+    setBrand(saved.brand);
+  });
 
   async function load() {
     if (!clientId) return;
@@ -55,7 +62,7 @@ export default function BrandBrainScreen() {
       setClientActive(data.client_status === "active");
       setName(data.name || "Brand Brain");
       setTimezone(data.timezone || "");
-      setBrand({
+      const nextBrand = {
         logoPreference: data.logo_preference || "primary",
         voice: data.voice || "",
         audience: data.audience || "",
@@ -75,7 +82,14 @@ export default function BrandBrainScreen() {
         hashtagPolicy: data.hashtag_policy || "",
         targetLocations: data.target_locations || "",
         platformRules: data.platform_rules || "",
+      };
+      setBrand(nextBrand);
+      markSaved({
+        name: data.name || "Brand Brain",
+        timezone: data.timezone || "",
+        brand: nextBrand,
       });
+      setLoaded(true);
       setAssets(assetResult.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load Brand Brain.");
@@ -93,6 +107,7 @@ export default function BrandBrainScreen() {
         api.saveBrand(clientId, brand),
         api.updateClient(clientId, { name, timezone }),
       ]);
+      markSaved({ name, timezone, brand });
       Alert.alert("Brand Brain saved", "Future generations will use these rules.");
     } catch (err) {
       Alert.alert("Unable to save", err instanceof Error ? err.message : "Try again.");
@@ -235,10 +250,18 @@ export default function BrandBrainScreen() {
                       saving
                         ? undefined
                         : async () => {
+                            if (
+                              !(await confirmAction(
+                                "Remove brand asset?",
+                                `Remove ${asset.label || asset.filename} from ${name}? Existing original uploads will be retained.`,
+                                "Remove asset",
+                              ))
+                            )
+                              return;
                             setSaving(true);
                             try {
                               await api.removeBrandAsset(clientId, asset.id);
-                              await load();
+                              setAssets((await api.getBrandAssets(clientId)).data);
                             } catch (e) {
                               Alert.alert(
                                 "Unable to remove asset",

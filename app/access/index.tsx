@@ -1,4 +1,4 @@
-import { Alert } from "@/components/feedback";
+import { Alert, confirmAction } from "@/components/feedback";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
@@ -51,6 +51,15 @@ export default function AccessScreen() {
   }
   async function toggle(clientId: string) {
     if (!user || user.role === "owner") return;
+    if (
+      assigned.has(clientId) &&
+      !(await confirmAction(
+        "Remove client access?",
+        `Remove ${user.name || user.email}’s access to ${data.clients.find((client) => client.id === clientId)?.name || "this client"}?`,
+        "Remove client access",
+      ))
+    )
+      return;
     try {
       await api.updateUserClientAccess(user.id, clientId, !assigned.has(clientId), user.role);
       await load();
@@ -59,7 +68,15 @@ export default function AccessScreen() {
     }
   }
 
-  async function act(action: () => Promise<unknown>) {
+  async function act(
+    action: () => Promise<unknown>,
+    confirmation?: { title: string; message: string; label: string },
+  ) {
+    if (
+      confirmation &&
+      !(await confirmAction(confirmation.title, confirmation.message, confirmation.label))
+    )
+      return;
     setWorking(true);
     try {
       await action();
@@ -173,7 +190,12 @@ export default function AccessScreen() {
                     onPress={
                       working
                         ? undefined
-                        : () => act(() => api.invitationAction(invite.id, "revoke"))
+                        : () =>
+                            act(() => api.invitationAction(invite.id, "revoke"), {
+                              title: "Revoke invitation?",
+                              message: `${invite.email} will no longer be able to use this invitation.`,
+                              label: "Revoke invitation",
+                            })
                     }
                   />
                 )}
@@ -263,12 +285,20 @@ export default function AccessScreen() {
                   working
                     ? undefined
                     : () =>
-                        act(() =>
-                          api.memberAction(
-                            user.id,
-                            "status",
-                            user.status === "active" ? "suspended" : "active",
-                          ),
+                        act(
+                          () =>
+                            api.memberAction(
+                              user.id,
+                              "status",
+                              user.status === "active" ? "suspended" : "active",
+                            ),
+                          user.status === "active"
+                            ? {
+                                title: "Suspend account?",
+                                message: `Suspend ${user.name || user.email}? They will be signed out and unable to access the workspace until reactivated.`,
+                                label: "Suspend account",
+                              }
+                            : undefined,
                         )
                 }
               />
@@ -280,7 +310,12 @@ export default function AccessScreen() {
                 onPress={
                   working
                     ? undefined
-                    : () => act(() => api.memberAction(user.id, "revoke-sessions"))
+                    : () =>
+                        act(() => api.memberAction(user.id, "revoke-sessions"), {
+                          title: "Revoke sessions?",
+                          message: `Sign ${user.name || user.email} out of all devices? They can sign in again if their access is still active.`,
+                          label: "Revoke sessions",
+                        })
                 }
               />
               {user.status !== "removed" && (
@@ -292,7 +327,12 @@ export default function AccessScreen() {
                   onPress={
                     working
                       ? undefined
-                      : () => act(() => api.memberAction(user.id, "status", "removed"))
+                      : () =>
+                          act(() => api.memberAction(user.id, "status", "removed"), {
+                            title: "Remove workspace access?",
+                            message: `Remove ${user.name || user.email} from this workspace? Their sessions and client access will be revoked.`,
+                            label: "Remove access",
+                          })
                   }
                 />
               )}

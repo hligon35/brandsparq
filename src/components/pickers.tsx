@@ -174,7 +174,9 @@ export function TimeWindows({
   label,
   values,
   onChange,
+  disabled = false,
 }: {
+  disabled?: boolean;
   label: string;
   values: string[];
   onChange: (v: string[]) => void;
@@ -188,6 +190,7 @@ export function TimeWindows({
           <View key={i} style={styles.row}>
             <View style={{ flex: 1 }}>
               <TimePicker
+                disabled={disabled}
                 label="From"
                 value={start}
                 onChange={(v) => onChange(values.map((x, j) => (i === j ? `${v}-${end}` : x)))}
@@ -195,12 +198,14 @@ export function TimeWindows({
             </View>
             <View style={{ flex: 1 }}>
               <TimePicker
+                disabled={disabled}
                 label="Until"
                 value={end}
                 onChange={(v) => onChange(values.map((x, j) => (i === j ? `${start}-${v}` : x)))}
               />
             </View>
             <Pressable
+              disabled={disabled}
               accessibilityRole="button"
               accessibilityLabel={`Remove ${label} ${i + 1}`}
               onPress={() => onChange(values.filter((_, j) => i !== j))}
@@ -215,7 +220,7 @@ export function TimeWindows({
         label={`Add ${label.toLowerCase()}`}
         small
         secondary
-        onPress={() => onChange([...values, "09:00-17:00"])}
+        onPress={disabled ? undefined : () => onChange([...values, "09:00-17:00"])}
       />
     </View>
   );
