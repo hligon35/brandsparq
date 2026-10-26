@@ -1,5 +1,6 @@
+import { GuardedLink as Link } from "@/hooks/useUnsavedChanges";
 import { Ionicons } from "@expo/vector-icons";
-import { Link, usePathname } from "expo-router";
+import { usePathname } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCapabilities } from "@/auth/capabilities";

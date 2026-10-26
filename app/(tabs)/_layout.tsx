@@ -1,6 +1,7 @@
+import { GuardedLink as Link } from "@/hooks/useUnsavedChanges";
 import { useCapabilities } from "@/auth/capabilities";
 import { Ionicons } from "@expo/vector-icons";
-import { Link, Redirect, Tabs, usePathname } from "expo-router";
+import { Redirect, Tabs, usePathname } from "expo-router";
 import {
   ActivityIndicator,
   Platform,

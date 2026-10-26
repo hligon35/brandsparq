@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { Client } from "@/types/domain";
 import { colors, radius } from "@/theme/tokens";
@@ -14,6 +24,7 @@ export function ClientPicker({
   onChange(id: string): void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [query, setQuery] = useState("");
   const selected = clients.find((client) => client.id === value);
   return (
     <View style={styles.container}>
@@ -21,7 +32,10 @@ export function ClientPicker({
         accessibilityRole="button"
         accessibilityLabel={`Select client: ${selected?.name || "Choose client"}`}
         accessibilityState={{ expanded }}
-        onPress={() => setExpanded(!expanded)}
+        onPress={() => {
+          setQuery("");
+          setExpanded(true);
+        }}
         style={styles.row}
       >
         <View style={[styles.avatar, { backgroundColor: selected?.color || colors.primary }]}>
@@ -33,26 +47,99 @@ export function ClientPicker({
         </View>
         <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={20} color={colors.text} />
       </Pressable>
-      {expanded &&
-        clients.map((client) => (
+      <Modal
+        visible={expanded}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setExpanded(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.overlay}
+        >
           <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ selected: client.id === value }}
-            key={client.id}
-            style={styles.option}
-            onPress={() => {
-              onChange(client.id);
-              setExpanded(false);
-            }}
-          >
-            <Text style={styles.name}>{client.name}</Text>
-            {client.id === value && <Ionicons name="checkmark" size={20} color={colors.primary} />}
-          </Pressable>
-        ))}
+            accessibilityLabel="Close client selector"
+            style={StyleSheet.absoluteFill}
+            onPress={() => setExpanded(false)}
+          />
+          <View accessibilityViewIsModal style={styles.dialog}>
+            <Text accessibilityRole="header" style={styles.name}>
+              Choose client
+            </Text>
+            <TextInput
+              accessibilityLabel="Search clients"
+              placeholder="Search clients…"
+              value={query}
+              onChangeText={setQuery}
+              style={styles.search}
+              autoCorrect={false}
+            />
+            <FlatList
+              style={{ maxHeight: 360, flexShrink: 1 }}
+              keyboardShouldPersistTaps="handled"
+              data={clients.filter((client) =>
+                client.name.toLowerCase().includes(query.trim().toLowerCase()),
+              )}
+              keyExtractor={(client) => client.id}
+              ListEmptyComponent={<Text style={styles.empty}>No matching clients.</Text>}
+              renderItem={({ item: client }) => (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Choose ${client.name}`}
+                  accessibilityState={{ selected: client.id === value }}
+                  aria-pressed={client.id === value}
+                  style={styles.option}
+                  onPress={() => {
+                    setExpanded(false);
+                    onChange(client.id);
+                  }}
+                >
+                  <Text style={styles.name}>{client.name}</Text>
+                  {client.id === value && (
+                    <Ionicons name="checkmark" size={20} color={colors.primary} />
+                  )}
+                </Pressable>
+              )}
+            />
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setExpanded(false)}
+              style={styles.option}
+            >
+              <Text style={styles.name}>Cancel</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
 const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(7,27,51,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  dialog: {
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "85%",
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    padding: 16,
+    gap: 12,
+  },
+  search: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    color: colors.text,
+  },
+  empty: { padding: 16, color: colors.muted },
   container: {
     backgroundColor: colors.surface,
     borderRadius: radius.md,

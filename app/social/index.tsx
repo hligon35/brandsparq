@@ -1,5 +1,5 @@
 import { useCapabilities } from "@/auth/capabilities";
-import { Alert } from "@/components/feedback";
+import { Alert, confirmAction } from "@/components/feedback";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams } from "expo-router";
@@ -143,6 +143,16 @@ export default function SocialConnectionsScreen() {
   }
 
   async function disconnect(id: string) {
+    const account = accounts.find((item) => item.id === id);
+    const client = clients.find((item) => item.id === clientId);
+    if (
+      !(await confirmAction(
+        "Disconnect social account?",
+        `Disconnect ${account?.account_name || account?.platform || "this account"} from ${client?.name || "this client"}? Posts will need a connected destination before publishing.`,
+        "Disconnect",
+      ))
+    )
+      return;
     setWorkingId(id);
     try {
       await api.disconnectSocialAccount(id);

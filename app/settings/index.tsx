@@ -1,3 +1,4 @@
+import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { TimezonePicker, TimeWindows } from "@/components/pickers";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
@@ -34,12 +35,24 @@ export default function SettingsScreen() {
     }
   }
   const [saving, setSaving] = useState(false);
+  const { markSaved } = useUnsavedChanges(
+    { workspace, notifications },
+    can("settings_manage"),
+    (saved) => {
+      setWorkspace(saved.workspace);
+      setNotifications(saved.notifications);
+    },
+  );
+  const [loadError, setLoadError] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const editable = loaded && can("settings_manage") && !saving;
 
-  useEffect(() => {
-    api
+  function load() {
+    setLoadError("");
+    return api
       .getSettings()
       .then(({ data }) => {
-        setWorkspace({
+        const nextWorkspace = {
           timezone: data.workspace?.timezone || "America/Indiana/Indianapolis",
           defaultPrepublishMinutes: data.workspace?.default_prepublish_minutes ?? 30,
           defaultNoResponsePolicy: data.workspace?.default_no_response_policy || "auto_publish",
@@ -48,8 +61,8 @@ export default function SettingsScreen() {
           preferredWindows: data.workspace?.preferred_windows || ["09:00-11:00", "17:00-20:00"],
           blackoutWindows: data.workspace?.blackout_windows || [],
           analyticsRefreshHours: data.workspace?.analytics_refresh_hours ?? 6,
-        });
-        setNotifications({
+        };
+        const nextNotifications = {
           emailEnabled: Boolean(data.notifications?.email_enabled ?? 1),
           pushEnabled: Boolean(data.notifications?.push_enabled ?? 1),
           inAppEnabled: Boolean(data.notifications?.in_app_enabled ?? 1),
@@ -60,20 +73,25 @@ export default function SettingsScreen() {
           publishFailureEnabled: Boolean(data.notifications?.publish_failure_enabled ?? 1),
           prepublishMinutes: data.notifications?.prepublish_minutes ?? 30,
           noResponsePolicy: data.notifications?.no_response_policy || "auto_publish",
-        });
+        };
+        setWorkspace(nextWorkspace);
+        setNotifications(nextNotifications);
+        markSaved({ workspace: nextWorkspace, notifications: nextNotifications });
+        setLoaded(true);
       })
       .catch((error) => {
-        Alert.alert(
-          "Unable to load settings",
-          error instanceof Error ? error.message : "Try again.",
-        );
+        setLoadError(error instanceof Error ? error.message : "Unable to load settings.");
       });
+  }
+  useEffect(() => {
+    void load();
   }, []);
 
   async function save() {
     setSaving(true);
     try {
       await api.saveSettings({ workspace, notifications });
+      markSaved({ workspace, notifications });
       Alert.alert(
         "Settings saved",
         "BrandSparQ will use these rules for scheduling and notifications.",
@@ -90,6 +108,7 @@ export default function SettingsScreen() {
       <Text style={styles.label}>{label}</Text>
       <TextInput
         style={styles.input}
+        editable={editable}
         keyboardType="number-pad"
         value={String(value ?? "")}
         onChangeText={(v) => onChange(Number(v) || 0)}
@@ -101,6 +120,8 @@ export default function SettingsScreen() {
     <View style={styles.toggle} key={key}>
       <Text style={styles.toggleText}>{label}</Text>
       <Switch
+        accessibilityLabel={label}
+        disabled={!editable}
         value={Boolean(notifications[key])}
         onValueChange={(value) => setNotifications({ ...notifications, [key]: value })}
         trackColor={{ true: colors.primary }}
@@ -110,6 +131,13 @@ export default function SettingsScreen() {
 
   return (
     <PageScroll>
+      {!!loadError && (
+        <Card>
+          <Text accessibilityRole="alert">{loadError}</Text>
+          <Button label="Try again" onPress={load} />
+        </Card>
+      )}
+      {!can("settings_manage") && <Text>Workspace settings are read-only for your role.</Text>}
       <PageHeader
         eyebrow="Workspace behavior"
         title="Settings"
@@ -150,6 +178,7 @@ export default function SettingsScreen() {
         <View style={styles.grid}>
           <View style={styles.field}>
             <TimezonePicker
+              disabled={!editable}
               value={workspace.timezone || ""}
               onChange={(v) => setWorkspace({ ...workspace, timezone: v })}
             />
@@ -171,11 +200,13 @@ export default function SettingsScreen() {
           )}
         </View>
         <TimeWindows
+          disabled={!editable}
           label="Preferred windows"
           values={workspace.preferredWindows || []}
           onChange={(preferredWindows) => setWorkspace({ ...workspace, preferredWindows })}
         />
         <TimeWindows
+          disabled={!editable}
           label="Blackout windows"
           values={workspace.blackoutWindows || []}
           onChange={(blackoutWindows) => setWorkspace({ ...workspace, blackoutWindows })}
@@ -205,7 +236,11 @@ export default function SettingsScreen() {
             {["auto_publish", "hold", "skip"].map((policy) => (
               <Text
                 key={policy}
-                onPress={() => setNotifications({ ...notifications, noResponsePolicy: policy })}
+                onPress={
+                  editable
+                    ? () => setNotifications({ ...notifications, noResponsePolicy: policy })
+                    : undefined
+                }
                 style={[
                   styles.policy,
                   notifications.noResponsePolicy === policy && styles.policyActive,
@@ -218,10 +253,7 @@ export default function SettingsScreen() {
         </View>
       </Card>
 
-      <Button
-        label={saving ? "Saving…" : "Save settings"}
-        onPress={saving || !can("settings_manage") ? undefined : save}
-      />
+      <Button label={saving ? "Saving…" : "Save settings"} onPress={!editable ? undefined : save} />
     </PageScroll>
   );
 }

@@ -136,6 +136,9 @@ export default function ClientWorkspace() {
           <Text accessibilityRole="header" style={styles.title}>
             Next up
           </Text>
+          <Text style={styles.body}>
+            Times shown in {client.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}
+          </Text>
           {posts.length ? (
             posts.slice(0, 3).map((post) => (
               <Card key={post.id}>
@@ -144,7 +147,10 @@ export default function ClientWorkspace() {
                 <Text style={styles.body}>
                   {post.platform} ·{" "}
                   {post.scheduledPublishAt
-                    ? new Date(post.scheduledPublishAt).toLocaleString()
+                    ? new Date(post.scheduledPublishAt).toLocaleString(undefined, {
+                        timeZone:
+                          client.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+                      })
                     : "Schedule pending"}
                 </Text>
                 <Link href={`/posts/${post.id}`} style={styles.link}>
