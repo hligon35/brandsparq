@@ -188,6 +188,9 @@ test("social connection authenticates its API request before navigating to the p
       platform: "facebook",
       clientId: "client-a",
     });
+    expect(new URL(route.request().postDataJSON().returnTo).searchParams.get("clientId")).toBe(
+      "client-a",
+    );
     authenticated = true;
     await route.fulfill({ json: { authorizationUrl: "https://www.facebook.com/brandsparq-test" } });
   });
@@ -434,4 +437,68 @@ test("profile name saves and timezone and time pickers support selection", async
   await page.getByRole("button", { name: "Minute 30", exact: true }).click();
   await page.getByRole("button", { name: "Use time", exact: true }).click();
   await expect(page.getByRole("button", { name: "From: 10:30", exact: true })).toBeVisible();
+});
+
+test("secondary screens keep primary navigation reachable", async ({ page }) => {
+  await signIn(page);
+  for (const route of ["/social", "/analytics", "/campaigns", "/settings", "/clients/client-a"]) {
+    await page.goto(route);
+    const navigation = page.getByLabel("Workspace navigation", { exact: true });
+    await expect(navigation).toBeVisible();
+    await expect(navigation.getByRole("link", { name: "Calendar", exact: true })).toBeVisible();
+    await navigation.getByRole("link", { name: "Home", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Your workspace", exact: true })).toBeVisible();
+  }
+});
+
+test("client workspace links retain the selected client", async ({ page }) => {
+  await signIn(page);
+  const clientId = "client-b";
+  await page.goto(`/clients/${clientId}`);
+  await page.getByRole("link", { name: "Manage →", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Select client Client B", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(page).toHaveURL(new RegExp(`clientId=${clientId}`));
+  for (const [label, route] of [
+    ["View client calendar →", "calendar"],
+    ["View client analytics →", "analytics"],
+  ]) {
+    await page.goto(`/clients/${clientId}`);
+    await page.getByRole("link", { name: label, exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`${route}.*clientId=${clientId}`));
+    await expect(page.getByRole("button", { name: "Client B", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  }
+});
+
+test("rescheduling preserves history and refreshes Calendar on return", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/review/fixture-review");
+  await page.getByRole("button", { name: /Approve/ }).click();
+  await expect(
+    page.getByText("This post has been added to the official marketing calendar."),
+  ).toBeVisible();
+  await signIn(page);
+  await page.goto("/calendar");
+  await page.getByText("Open →", { exact: true }).first().click();
+  await page.getByRole("button", { name: "Reschedule", exact: true }).click();
+  await page.getByRole("button", { name: /Tomorrow · 9:00 AM/ }).click();
+  await page.getByRole("button", { name: "Close message", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Ready to publish?", exact: true })).toBeVisible();
+  const refreshed = page.waitForResponse(
+    (response) => response.url().includes("/v1/posts/calendar") && response.ok(),
+  );
+  await page
+    .getByLabel("Workspace navigation", { exact: true })
+    .getByRole("link", { name: "Calendar", exact: true })
+    .click();
+  await refreshed;
+  await expect(page.getByRole("heading", { name: "Calendar", exact: true })).toBeVisible();
+  const state = await (await request.post("/__test/state")).json();
+  expect(state.post.status).toBe("rescheduled");
 });

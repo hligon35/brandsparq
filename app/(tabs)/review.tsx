@@ -1,8 +1,8 @@
 import { IconButton } from "@/components/icon-button";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
-import { Link } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { Link, useFocusEffect } from "expo-router";
+import { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
@@ -33,9 +33,11 @@ export default function ReviewScreen() {
     }
   }
 
-  useEffect(() => {
-    void load();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, []),
+  );
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();

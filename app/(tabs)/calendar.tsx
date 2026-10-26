@@ -1,7 +1,7 @@
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
-import { Link } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { Link, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { IconButton } from "@/components/icon-button";
 import { api } from "@/api/client";
@@ -77,19 +77,25 @@ function titleFor(mode: CalendarMode, anchor: Date) {
 
 export default function CalendarScreen() {
   const can = useCapabilities();
+  const { clientId: requestedClient } = useLocalSearchParams<{ clientId?: string }>();
   const [mode, setMode] = useState<CalendarMode>("week");
   const [anchor, setAnchor] = useState(startOfDay(new Date()));
   const [posts, setPosts] = useState<MarketingPost[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
-  const [clientFilter, setClientFilter] = useState("all");
+  const [clientFilter, setClientFilter] = useState(requestedClient || "all");
   const [platformFilter, setPlatformFilter] = useState<"all" | Platform>("all");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
-  const { compact } = useResponsive();
+  const { wide } = useResponsive();
+  const compact = !wide;
 
   const range = useMemo(() => rangeFor(mode, anchor), [mode, anchor]);
+
+  useEffect(() => {
+    if (requestedClient) setClientFilter(requestedClient);
+  }, [requestedClient]);
 
   async function load() {
     setError("");
@@ -106,9 +112,11 @@ export default function CalendarScreen() {
     }
   }
 
-  useEffect(() => {
-    void load();
-  }, [mode, anchor]);
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [mode, anchor]),
+  );
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -276,6 +284,9 @@ export default function CalendarScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.chips}>
             <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: clientFilter === "all" }}
+              aria-pressed={clientFilter === "all"}
               onPress={() => setClientFilter("all")}
               style={[styles.chip, clientFilter === "all" && styles.chipActive]}
             >
@@ -286,6 +297,9 @@ export default function CalendarScreen() {
             {clients.map((client) => (
               <Pressable
                 key={client.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: clientFilter === client.id }}
+                aria-pressed={clientFilter === client.id}
                 onPress={() => setClientFilter(client.id)}
                 style={[styles.chip, clientFilter === client.id && styles.chipActive]}
               >
@@ -305,6 +319,9 @@ export default function CalendarScreen() {
             {platforms.map((platform) => (
               <Pressable
                 key={platform}
+                accessibilityRole="button"
+                accessibilityState={{ selected: platformFilter === platform }}
+                aria-pressed={platformFilter === platform}
                 onPress={() => setPlatformFilter(platform)}
                 style={[styles.chip, platformFilter === platform && styles.chipActive]}
               >
@@ -577,6 +594,7 @@ const styles = StyleSheet.create({
   },
   chips: { flexDirection: "row", gap: 8, paddingVertical: 5 },
   chip: {
+    minWidth: 44,
     paddingHorizontal: 13,
     minHeight: 44,
     paddingVertical: 11,

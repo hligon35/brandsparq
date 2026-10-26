@@ -29,9 +29,12 @@ function expiryLabel(value?: number | null) {
 
 export default function SocialConnectionsScreen() {
   const can = useCapabilities();
-  const { social_error: callbackError } = useLocalSearchParams<{ social_error?: string }>();
+  const { social_error: callbackError, clientId: requestedClient } = useLocalSearchParams<{
+    social_error?: string;
+    clientId?: string;
+  }>();
   const [clients, setClients] = useState<any[]>([]);
-  const [clientId, setClientId] = useState("");
+  const [clientId, setClientId] = useState(requestedClient || "");
   const [accounts, setAccounts] = useState<any[]>([]);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -40,6 +43,10 @@ export default function SocialConnectionsScreen() {
   useEffect(() => {
     if (callbackError) Alert.alert("Social connection failed", callbackError);
   }, [callbackError]);
+
+  useEffect(() => {
+    if (requestedClient) setClientId(requestedClient);
+  }, [requestedClient]);
 
   async function load() {
     try {
@@ -85,7 +92,9 @@ export default function SocialConnectionsScreen() {
   async function connect(platformName: string) {
     if (!clientId) return;
     const returnTo =
-      Platform.OS === "web" ? `${window.location.origin}/social` : Linking.createURL("/social");
+      Platform.OS === "web"
+        ? `${window.location.origin}/social?clientId=${encodeURIComponent(clientId)}`
+        : Linking.createURL("/social", { queryParams: { clientId } });
     setWorkingId(platformName);
     try {
       const { authorizationUrl: url } = await api.startSocialConnection(
@@ -162,6 +171,7 @@ export default function SocialConnectionsScreen() {
               key={client.id}
               accessibilityRole="button"
               accessibilityState={{ selected: client.id === clientId }}
+              aria-pressed={client.id === clientId}
               accessibilityLabel={`Select client ${client.name}`}
               onPress={() => setClientId(client.id)}
               style={[styles.chip, client.id === clientId && styles.chipActive]}

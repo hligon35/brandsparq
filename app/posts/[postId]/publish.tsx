@@ -1,7 +1,7 @@
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
@@ -29,9 +29,11 @@ export default function PublishDecisionScreen() {
     }
   }
 
-  useEffect(() => {
-    void load();
-  }, [postId]);
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [postId]),
+  );
 
   if (!post) {
     return (
@@ -54,7 +56,8 @@ export default function PublishDecisionScreen() {
     try {
       await api.keepSchedule(post!.id);
       Alert.alert("Schedule kept", "BrandSparQ will publish at the scheduled time.");
-      router.back();
+      if (router.canGoBack()) router.back();
+      else router.replace({ pathname: "/calendar", params: { clientId: post!.clientId } });
     } catch (error) {
       Alert.alert("Unable to update", error instanceof Error ? error.message : "Try again.");
     } finally {
@@ -67,7 +70,8 @@ export default function PublishDecisionScreen() {
     try {
       await api.publishNow(post!.id);
       Alert.alert("Queued to publish", "BrandSparQ has started the publishing job.");
-      router.back();
+      if (router.canGoBack()) router.back();
+      else router.replace({ pathname: "/calendar", params: { clientId: post!.clientId } });
     } catch (error) {
       Alert.alert("Unable to publish", error instanceof Error ? error.message : "Try again.");
     } finally {

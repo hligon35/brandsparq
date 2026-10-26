@@ -110,7 +110,7 @@ export default function ClientWorkspace() {
           <Card>
             <View style={styles.section}>
               <Text style={styles.title}>Connected channels</Text>
-              <Link href="/social" style={styles.link}>
+              <Link href={{ pathname: "/social", params: { clientId } }} style={styles.link}>
                 Manage →
               </Link>
             </View>
@@ -127,6 +127,12 @@ export default function ClientWorkspace() {
               </Text>
             )}
           </Card>
+          <Link href={{ pathname: "/calendar", params: { clientId } }} style={styles.link}>
+            View client calendar →
+          </Link>
+          <Link href={{ pathname: "/analytics", params: { clientId } }} style={styles.link}>
+            View client analytics →
+          </Link>
           <Text accessibilityRole="header" style={styles.title}>
             Next up
           </Text>

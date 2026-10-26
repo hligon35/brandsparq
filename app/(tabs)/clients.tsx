@@ -3,8 +3,8 @@ import { useAuth } from "@/auth/context";
 import { useCapabilities } from "@/auth/capabilities";
 import { StatusBadge } from "@/components/ui";
 import { Alert } from "@/components/feedback";
-import { Link } from "expo-router";
-import { useEffect, useState } from "react";
+import { Link, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";
@@ -30,9 +30,11 @@ export default function ClientsScreen() {
       setError(err instanceof Error ? err.message : "Unable to load clients.");
     }
   }
-  useEffect(() => {
-    void load();
-  }, [showArchived]);
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [showArchived]),
+  );
 
   async function create() {
     if (!name.trim()) return;
