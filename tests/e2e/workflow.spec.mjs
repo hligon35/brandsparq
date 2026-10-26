@@ -689,3 +689,36 @@ test("browser reload can be cancelled without losing unsaved brand edits", async
   expect(prompts).toBe(1);
   await expect(voice).toHaveValue("Keep my draft through a cancelled reload");
 });
+
+for (const outcome of ["Published", "Verified absent"])
+  test(`owner reconciles ${outcome} with visible evidence and no automatic retry`, async ({
+    page,
+    request,
+  }) => {
+    await signIn(page);
+    await request.post("/__test/unknown-outcome");
+    await page.goto("/system");
+    await page.getByRole("button", { name: "Reconcile outcome", exact: true }).click();
+    await page.getByRole("button", { name: outcome, exact: true }).click();
+    if (outcome === "Published")
+      await page.getByLabel("Provider post ID", { exact: true }).fill("verified-provider-post");
+    const evidence = `Verified ${outcome.toLowerCase()} on the correct provider test account at 10:00.`;
+    await page.getByLabel("Provider verification evidence", { exact: true }).fill(evidence);
+    await page.getByRole("button", { name: "Record verified outcome", exact: true }).click();
+    await page.getByRole("button", { name: "Record outcome", exact: true }).click();
+    await expect(page.getByText(evidence, { exact: true })).toBeVisible();
+    const state = await (await request.post("/__test/state")).json();
+    expect(state.post.status).toBe(outcome === "Published" ? "published" : "failed");
+    expect(state.post.failure_code).toBe(
+      outcome === "Published" ? null : "PUBLISH_CONFIRMED_ABSENT",
+    );
+    if (outcome === "Verified absent")
+      await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+    await page.screenshot({
+      path: test.info().outputPath("publish-reconciliation.png"),
+      fullPage: true,
+    });
+  });

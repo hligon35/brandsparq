@@ -340,6 +340,7 @@ async function generateGraphic(
   instruction?: string,
   edit = false,
   revisionJobId?: string,
+  graphicClaim?: { id: string; token: string },
 ) {
   const profile = creativeProfile(generated.platform as CreativePlatform);
   const composition = deterministicComposition({
@@ -422,7 +423,15 @@ async function generateGraphic(
   const score = scoreResult.data;
   const now = new Date().toISOString();
 
-  const fence = revisionFence(revisionJobId);
+  const fence = graphicClaim
+    ? {
+        sql: `approved_at IS NULL AND status='review_ready' AND EXISTS(SELECT 1 FROM graphic_jobs g
+      JOIN generation_jobs j ON j.id=g.generation_job_id JOIN clients c ON c.id=j.client_id
+      WHERE g.id=? AND g.post_id=posts.id AND g.claim_token=? AND g.status='processing'
+        AND j.status NOT IN ('canceled','failed') AND c.status='active')`,
+        values: [graphicClaim.id, graphicClaim.token],
+      }
+    : revisionFence(revisionJobId);
   const changed = await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO creative_variants
@@ -731,13 +740,15 @@ export async function runGenerationJob(env: GenerationEnv, jobId: string) {
       .run();
   if (!claimed.meta.changes) return { resumed: true, claimed: false };
   try {
-    return await processGenerationJob(env, jobId);
+    return await processGenerationJob(env, jobId, token);
   } catch (error) {
-    await env.DB.prepare(
-      "UPDATE generation_jobs SET status='retrying',claim_token=NULL WHERE id=? AND claim_token=?",
+    if (error instanceof GenerationClaimLost) return { resumed: true, claimed: false };
+    const released = await env.DB.prepare(
+      "UPDATE generation_jobs SET status='retrying',claim_token=NULL WHERE id=? AND claim_token=? AND status IN ('processing','rendering')",
     )
       .bind(jobId, token)
       .run();
+    if (!released.meta.changes) return { resumed: true, claimed: false };
     throw error;
   } finally {
     await env.DB.prepare("UPDATE generation_jobs SET claim_token=NULL WHERE id=? AND claim_token=?")
@@ -746,7 +757,11 @@ export async function runGenerationJob(env: GenerationEnv, jobId: string) {
   }
 }
 
-async function processGenerationJob(env: GenerationEnv, jobId: string) {
+class GenerationClaimLost extends Error {}
+function requireGenerationWrite(result: D1Result) {
+  if (!result.meta.changes) throw new GenerationClaimLost("Generation claim expired.");
+}
+async function processGenerationJob(env: GenerationEnv, jobId: string, claimToken: string) {
   if (!env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured.");
 
   let job = await env.DB.prepare(
@@ -780,16 +795,18 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
   }
 
   const startedAt = job.started_at || new Date().toISOString();
-  await env.DB.prepare(
-    `UPDATE generation_jobs SET
+  requireGenerationWrite(
+    await env.DB.prepare(
+      `UPDATE generation_jobs SET
        status='processing',
        started_at=COALESCE(started_at,?),
        stage_updated_at=?,
        error_message=NULL
-     WHERE id=?`,
-  )
-    .bind(startedAt, new Date().toISOString(), jobId)
-    .run();
+     WHERE id=? AND claim_token=?`,
+    )
+      .bind(startedAt, new Date().toISOString(), jobId, claimToken)
+      .run(),
+  );
 
   const assetIds: string[] = JSON.parse(job.asset_ids || "[]");
   const assets = await loadAssets(env, assetIds);
@@ -862,17 +879,25 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
       usage: campaignCall.usage,
     });
 
-    await env.DB.prepare(
-      `UPDATE generation_jobs SET
+    requireGenerationWrite(
+      await env.DB.prepare(
+        `UPDATE generation_jobs SET
        stage='planned',
        plan_json=?,
        provider='openai',
        model=?,
        stage_updated_at=?
-       WHERE id=?`,
-    )
-      .bind(JSON.stringify(generated), campaignCall.model, new Date().toISOString(), jobId)
-      .run();
+       WHERE id=? AND claim_token=?`,
+      )
+        .bind(
+          JSON.stringify(generated),
+          campaignCall.model,
+          new Date().toISOString(),
+          jobId,
+          claimToken,
+        )
+        .run(),
+    );
   }
 
   if (!generated.posts?.length) throw new Error("Generated campaign contains no posts.");
@@ -881,18 +906,28 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
   if (!campaignId) {
     campaignId = crypto.randomUUID();
     const now = new Date().toISOString();
-    await env.DB.batch([
+    const [, attached] = await env.DB.batch([
       env.DB.prepare(
-        "INSERT INTO campaigns (id,client_id,name,objective,status,created_at,updated_at) VALUES (?,?,?,?,'active',?,?)",
-      ).bind(campaignId, job.client_id, generated.campaignName, job.objective, now, now),
+        "INSERT INTO campaigns (id,client_id,name,objective,status,created_at,updated_at) SELECT ?,?,?,?,'active',?,? FROM generation_jobs WHERE id=? AND claim_token=?",
+      ).bind(
+        campaignId,
+        job.client_id,
+        generated.campaignName,
+        job.objective,
+        now,
+        now,
+        jobId,
+        claimToken,
+      ),
       env.DB.prepare(
         `UPDATE generation_jobs SET
          campaign_id=?,
          stage='campaign_created',
          stage_updated_at=?
-         WHERE id=?`,
-      ).bind(campaignId, now, jobId),
+         WHERE id=? AND claim_token=?`,
+      ).bind(campaignId, now, jobId, claimToken),
     ]);
+    requireGenerationWrite(attached);
   }
 
   const savedPostIds: string[] = job.post_ids ? JSON.parse(job.post_ids) : [];
@@ -934,9 +969,9 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
         const account = await resolveDefaultSocialAccount(env, job.client_id, p.platform);
         if (account)
           await env.DB.prepare(
-            "UPDATE posts SET social_account_id=? WHERE id=? AND social_account_id IS NULL",
+            "UPDATE posts SET social_account_id=? WHERE id=? AND social_account_id IS NULL AND EXISTS(SELECT 1 FROM generation_jobs WHERE id=? AND claim_token=?)",
           )
-            .bind(account.id, postId)
+            .bind(account.id, postId, jobId, claimToken)
             .run();
       }
     } else {
@@ -948,34 +983,38 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
 
       const defaultSocial = await resolveDefaultSocialAccount(env, job.client_id, p.platform);
 
-      await env.DB.prepare(
-        `INSERT INTO posts
+      requireGenerationWrite(
+        await env.DB.prepare(
+          `INSERT INTO posts
         (id,client_id,campaign_id,platform,status,title,headline,caption,hashtags,objective,
          suggested_publish_at,sparq_score,generation_job_id,generation_index,review_requested_at,
          ai_caption_response_id,social_account_id,created_at,updated_at)
-         VALUES (?,?,?,?,'review_ready',?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      )
-        .bind(
-          postId,
-          job.client_id,
-          campaignId,
-          p.platform,
-          p.headline,
-          p.headline,
-          p.caption,
-          JSON.stringify(p.hashtags || []),
-          p.objective,
-          suggested,
-          null,
-          jobId,
-          index,
-          now,
-          campaignResponseId,
-          defaultSocial?.id || null,
-          now,
-          now,
+         SELECT ?,?,?,?,'review_ready',?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM generation_jobs WHERE id=? AND claim_token=?`,
         )
-        .run();
+          .bind(
+            postId,
+            job.client_id,
+            campaignId,
+            p.platform,
+            p.headline,
+            p.headline,
+            p.caption,
+            JSON.stringify(p.hashtags || []),
+            p.objective,
+            suggested,
+            null,
+            jobId,
+            index,
+            now,
+            campaignResponseId,
+            defaultSocial?.id || null,
+            now,
+            now,
+            jobId,
+            claimToken,
+          )
+          .run(),
+      );
 
       existing = {
         id: postId,
@@ -992,9 +1031,9 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
 
     for (const assetId of assetIds) {
       await env.DB.prepare(
-        "INSERT OR IGNORE INTO post_assets (post_id,asset_id,role) VALUES (?,?,'source')",
+        "INSERT OR IGNORE INTO post_assets (post_id,asset_id,role) SELECT ?,?,'source' FROM generation_jobs WHERE id=? AND claim_token=?",
       )
-        .bind(postId, assetId)
+        .bind(postId, assetId, jobId, claimToken)
         .run();
     }
 
@@ -1011,7 +1050,9 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
       logoAssetId: job.logo_asset_id,
     });
 
-    await env.DB.prepare("UPDATE posts SET creative_composition=?,updated_at=? WHERE id=?")
+    await env.DB.prepare(
+      "UPDATE posts SET creative_composition=?,updated_at=? WHERE id=? AND EXISTS(SELECT 1 FROM generation_jobs WHERE id=? AND claim_token=?)",
+    )
       .bind(
         JSON.stringify({
           ...composition,
@@ -1020,6 +1061,8 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
         }),
         new Date().toISOString(),
         postId,
+        jobId,
+        claimToken,
       )
       .run();
 
@@ -1029,13 +1072,15 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
 
     if (!graphicJob) {
       const graphicJobId = crypto.randomUUID();
-      await env.DB.prepare(
-        `INSERT INTO graphic_jobs
+      requireGenerationWrite(
+        await env.DB.prepare(
+          `INSERT INTO graphic_jobs
          (id,generation_job_id,post_id,status,created_at,updated_at)
-         VALUES (?,?,?,'queued',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
-      )
-        .bind(graphicJobId, jobId, postId)
-        .run();
+         SELECT ?,?,?,'queued',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP FROM generation_jobs WHERE id=? AND claim_token=?`,
+        )
+          .bind(graphicJobId, jobId, postId, jobId, claimToken)
+          .run(),
+      );
       graphicJob = { id: graphicJobId, status: "queued" };
     }
 
@@ -1043,9 +1088,9 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
       await env.DB.prepare(
         `UPDATE graphic_jobs SET
          status='completed',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
-         WHERE id=?`,
+         WHERE id=? AND EXISTS(SELECT 1 FROM generation_jobs WHERE id=? AND claim_token=?)`,
       )
-        .bind(graphicJob.id)
+        .bind(graphicJob.id, jobId, claimToken)
         .run();
       graphicJob.status = "completed";
     }
@@ -1054,33 +1099,31 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
       graphicJobIds.push(graphicJob.id);
     }
 
-    await env.DB.prepare(
-      `UPDATE generation_jobs SET
+    requireGenerationWrite(
+      await env.DB.prepare(
+        `UPDATE generation_jobs SET
        post_ids=?,
        stage='posts_created',
        stage_updated_at=?
-       WHERE id=?`,
-    )
-      .bind(JSON.stringify(postIds), new Date().toISOString(), jobId)
-      .run();
+       WHERE id=? AND claim_token=?`,
+      )
+        .bind(JSON.stringify(postIds), new Date().toISOString(), jobId, claimToken)
+        .run(),
+    );
   }
 
   if (assetIds.length) {
     const marks = assetIds.map(() => "?").join(",");
-    await env.DB.prepare(`UPDATE assets SET status='ready' WHERE id IN (${marks})`)
-      .bind(...assetIds)
+    await env.DB.prepare(
+      `UPDATE assets SET status='ready' WHERE id IN (${marks}) AND EXISTS(SELECT 1 FROM generation_jobs WHERE id=? AND claim_token=?)`,
+    )
+      .bind(...assetIds, jobId, claimToken)
       .run();
   }
 
-  for (const graphicJobId of graphicJobIds) {
-    await env.GENERATION_QUEUE.send({
-      kind: "graphic",
-      graphicJobId,
-    });
-  }
-
-  await env.DB.prepare(
-    `UPDATE generation_jobs SET
+  requireGenerationWrite(
+    await env.DB.prepare(
+      `UPDATE generation_jobs SET
      status=?,
      stage=?,
      provider='openai',
@@ -1090,22 +1133,31 @@ async function processGenerationJob(env: GenerationEnv, jobId: string) {
      result_json=?,
      error_message=NULL,
      stage_updated_at=?
-     WHERE id=?`,
-  )
-    .bind(
-      graphicJobIds.length ? "rendering" : "processing",
-      graphicJobIds.length ? "graphics_queued" : "posts_created",
-      campaignModel,
-      campaignId,
-      JSON.stringify(postIds),
-      JSON.stringify({
-        ...generated,
-        promptVersion: AI_PROMPT_VERSION,
-      }),
-      new Date().toISOString(),
-      jobId,
+     WHERE id=? AND claim_token=?`,
     )
-    .run();
+      .bind(
+        graphicJobIds.length ? "rendering" : "processing",
+        graphicJobIds.length ? "graphics_queued" : "posts_created",
+        campaignModel,
+        campaignId,
+        JSON.stringify(postIds),
+        JSON.stringify({
+          ...generated,
+          promptVersion: AI_PROMPT_VERSION,
+        }),
+        new Date().toISOString(),
+        jobId,
+        claimToken,
+      )
+      .run(),
+  );
+
+  for (const graphicJobId of graphicJobIds) {
+    await env.GENERATION_QUEUE.send({
+      kind: "graphic",
+      graphicJobId,
+    });
+  }
 
   if (!graphicJobIds.length) {
     await finalizeGenerationReview(env, jobId);
@@ -1154,47 +1206,62 @@ export async function runGraphicJob(env: GenerationEnv, graphicJobId: string) {
     return { completed: true, resumed: true };
   }
 
+  const claimToken = crypto.randomUUID();
   const claimed = await env.DB.prepare(
     `UPDATE graphic_jobs SET
-     status='processing',
+     status='processing',claim_token=?,
      attempt_count=attempt_count+1,
      claimed_at=CURRENT_TIMESTAMP,
      updated_at=CURRENT_TIMESTAMP
-     WHERE id=? AND status IN ('queued','retrying') AND EXISTS (SELECT 1 FROM posts p JOIN clients c ON c.id=p.client_id WHERE p.id=graphic_jobs.post_id AND c.status='active')`,
+     WHERE id=? AND status IN ('queued','retrying') AND EXISTS (SELECT 1 FROM posts p JOIN clients c ON c.id=p.client_id JOIN generation_jobs j ON j.id=graphic_jobs.generation_job_id WHERE p.id=graphic_jobs.post_id AND p.status='review_ready' AND p.approved_at IS NULL AND c.status='active' AND j.status NOT IN ('canceled','failed'))`,
   )
-    .bind(graphicJobId)
+    .bind(claimToken, graphicJobId)
     .run();
 
   if (!claimed.meta.changes) {
     return { completed: graphicJob.status === "completed", resumed: true };
   }
 
-  const post = await loadPost(env, graphicJob.post_id);
-  if (!post) throw new Error("Post not found for graphic job.");
+  try {
+    const post = await loadPost(env, graphicJob.post_id);
+    if (!post) throw new Error("Post not found for graphic job.");
 
-  if (!post.graphic_key) {
-    const generated = await generatedPostForGraphicJob(
-      env,
-      graphicJob.generation_job_id,
-      graphicJob.post_id,
-    );
-    const images = await toImageInputs(env, await postSourceAssets(env, graphicJob.post_id), 3);
-    await generateGraphic(env, post, generated, images);
-  }
+    if (!post.graphic_key) {
+      const generated = await generatedPostForGraphicJob(
+        env,
+        graphicJob.generation_job_id,
+        graphicJob.post_id,
+      );
+      const images = await toImageInputs(env, await postSourceAssets(env, graphicJob.post_id), 3);
+      await generateGraphic(env, post, generated, images, undefined, false, undefined, {
+        id: graphicJobId,
+        token: claimToken,
+      });
+    }
 
-  await env.DB.prepare(
-    `UPDATE graphic_jobs SET
-     status='completed',
+    const completed = await env.DB.prepare(
+      `UPDATE graphic_jobs SET
+     status='completed',claim_token=NULL,
      last_error=NULL,
      completed_at=CURRENT_TIMESTAMP,
      updated_at=CURRENT_TIMESTAMP
-     WHERE id=?`,
-  )
-    .bind(graphicJobId)
-    .run();
+     WHERE id=? AND claim_token=? AND status='processing'`,
+    )
+      .bind(graphicJobId, claimToken)
+      .run();
 
-  await finalizeGenerationReview(env, graphicJob.generation_job_id);
-  return { completed: true, resumed: false };
+    if (!completed.meta.changes) return { completed: false, resumed: true };
+    await finalizeGenerationReview(env, graphicJob.generation_job_id);
+    return { completed: true, resumed: false };
+  } catch (error) {
+    const current = await env.DB.prepare("SELECT claim_token FROM graphic_jobs WHERE id=?")
+      .bind(graphicJobId)
+      .first<{ claim_token: string | null }>();
+    if (current?.claim_token !== claimToken) return { completed: false, resumed: true };
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+      graphicClaimToken: claimToken,
+    });
+  }
 }
 
 export async function markGraphicJobFailure(
@@ -1202,24 +1269,35 @@ export async function markGraphicJobFailure(
   graphicJobId: string,
   errorMessage: string,
   terminal: boolean,
+  expected?: { claimToken?: string; status?: string; updatedAt?: string },
 ) {
-  await env.DB.prepare(
+  const failureToken = terminal ? crypto.randomUUID() : null;
+  const changed = await env.DB.prepare(
     `UPDATE graphic_jobs SET
      status=?,
      last_error=?,
-     claimed_at=NULL,
+     claimed_at=NULL,claim_token=?,
      completed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE completed_at END,
      updated_at=CURRENT_TIMESTAMP
-     WHERE id=?`,
+     WHERE id=? AND status IN ('queued','processing','retrying')
+       AND (? IS NULL OR claim_token=?) AND (? IS NULL OR status=?) AND (? IS NULL OR updated_at=?)`,
   )
     .bind(
       terminal ? "failed" : "retrying",
       errorMessage.slice(0, 1500),
+      failureToken,
       terminal ? 1 : 0,
       graphicJobId,
+      expected?.claimToken || null,
+      expected?.claimToken || null,
+      expected?.status || null,
+      expected?.status || null,
+      expected?.updatedAt || null,
+      expected?.updatedAt || null,
     )
     .run();
 
+  if (!changed.meta.changes) return false;
   if (terminal) {
     const job = await env.DB.prepare(
       "SELECT generation_job_id,post_id FROM graphic_jobs WHERE id=?",
@@ -1232,13 +1310,14 @@ export async function markGraphicJobFailure(
          status='edit_requested',
          ai_last_error=?,
          updated_at=CURRENT_TIMESTAMP
-         WHERE id=?`,
+         WHERE id=? AND approved_at IS NULL AND status IN ('review_ready','edit_requested') AND EXISTS(SELECT 1 FROM graphic_jobs g WHERE g.id=? AND g.post_id=posts.id AND g.status='failed' AND g.claim_token=?)`,
       )
-        .bind(errorMessage.slice(0, 1500), job.post_id)
+        .bind(errorMessage.slice(0, 1500), job.post_id, graphicJobId, failureToken)
         .run();
       await finalizeGenerationReview(env, job.generation_job_id);
     }
   }
+  return true;
 }
 
 export async function finalizeGenerationReview(env: GenerationEnv, jobId: string) {
@@ -1260,7 +1339,7 @@ export async function finalizeGenerationReview(env: GenerationEnv, jobId: string
     .bind(jobId)
     .first<any>();
   if (!job) throw new Error("Generation job not found.");
-  if (job.status === "canceled") return { ready: false };
+  if (["canceled", "failed"].includes(job.status)) return { ready: false };
 
   const posts = await env.DB.prepare(
     `SELECT id,title,platform,suggested_publish_at
@@ -1289,27 +1368,17 @@ export async function finalizeGenerationReview(env: GenerationEnv, jobId: string
 
   const now = new Date().toISOString();
 
-  await env.DB.prepare(
-    `UPDATE posts SET
-     status='awaiting_approval',
-     review_requested_at=COALESCE(review_requested_at,?),
-     updated_at=?
-     WHERE generation_job_id=? AND status='review_ready'`,
-  )
-    .bind(now, now, jobId)
-    .run();
-
-  await env.DB.prepare(
-    `UPDATE generation_jobs SET
+  const [completed] = await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE generation_jobs SET
      status='completed',
      stage=?,
      review_email_sent_at=CASE WHEN ? THEN COALESCE(review_email_sent_at,?) ELSE review_email_sent_at END,
      completed_at=?,
      stage_updated_at=?,
      error_message=CASE WHEN ? > 0 THEN 'One or more graphics failed and require regeneration.' ELSE NULL END
-     WHERE id=?`,
-  )
-    .bind(
+     WHERE id=? AND status NOT IN ('canceled','failed') AND control_token IS ? AND claim_token IS ?`,
+    ).bind(
       Number(failed?.count || 0) > 0 ? "completed_with_graphic_errors" : "completed",
       emailSent ? 1 : 0,
       emailSent ? now : null,
@@ -1317,8 +1386,19 @@ export async function finalizeGenerationReview(env: GenerationEnv, jobId: string
       now,
       Number(failed?.count || 0),
       jobId,
-    )
-    .run();
+      job.control_token,
+      job.claim_token,
+    ),
+
+    env.DB.prepare(
+      `UPDATE posts SET
+     status='awaiting_approval',
+     review_requested_at=COALESCE(review_requested_at,?),
+     updated_at=?
+     WHERE generation_job_id=? AND status='review_ready' AND EXISTS(SELECT 1 FROM generation_jobs j WHERE j.id=posts.generation_job_id AND j.status='completed' AND j.control_token IS ? AND j.claim_token IS ?)`,
+    ).bind(now, now, jobId, job.control_token, job.claim_token),
+  ]);
+  if (!completed.meta.changes) return { ready: false };
 
   for (const post of posts.results) {
     const alreadyNotified = await env.DB.prepare(

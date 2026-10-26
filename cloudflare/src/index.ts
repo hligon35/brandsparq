@@ -1,3 +1,5 @@
+import { validTimezone } from "./settings-validation";
+import { dispatchGeneration } from "./generation-dispatch";
 import { getPilot, pilotPublishError } from "./pilot";
 import { handleWorkspaceRoute } from "./workspace";
 import { handleTeamRoute, invitationPreview } from "./team";
@@ -1004,10 +1006,25 @@ export default {
           clientId?: string;
           objective?: string;
           assetIds?: string[];
+          requestKey?: string;
         }>()
         .catch(() => ({}) as any);
 
-      if (!payload.clientId || !payload.assetIds?.length) {
+      if (
+        !payload ||
+        typeof payload !== "object" ||
+        typeof payload.clientId !== "string" ||
+        !Array.isArray(payload.assetIds) ||
+        !payload.assetIds.length ||
+        payload.assetIds.length > 20 ||
+        payload.assetIds.some((id: unknown) => typeof id !== "string" || !id) ||
+        new Set(payload.assetIds).size !== payload.assetIds.length ||
+        (payload.objective !== undefined &&
+          (typeof payload.objective !== "string" || payload.objective.length > 2000)) ||
+        (payload.requestKey !== undefined &&
+          (typeof payload.requestKey !== "string" ||
+            !/^[a-zA-Z0-9_-]{16,128}$/.test(payload.requestKey)))
+      ) {
         return response(
           request,
           env,
@@ -1036,23 +1053,59 @@ export default {
         );
       }
 
-      const jobId = crypto.randomUUID();
+      const candidateId = crypto.randomUUID();
+      const assetIds = JSON.stringify([...payload.assetIds].sort());
       await env.DB.prepare(
-        `INSERT INTO generation_jobs
-         (id, client_id, requested_by, objective, asset_ids, status)
-         VALUES (?, ?, ?, ?, ?, 'queued')`,
+        `INSERT OR IGNORE INTO generation_jobs
+         (id,client_id,requested_by,objective,asset_ids,status,request_key)
+         VALUES (?,?,?,?,?,'queued',?)`,
       )
         .bind(
-          jobId,
+          candidateId,
           payload.clientId,
-          sessionUser?.id || null,
+          sessionUser!.id,
           payload.objective || "Auto",
-          JSON.stringify(payload.assetIds),
+          assetIds,
+          payload.requestKey || null,
         )
         .run();
-
-      await env.GENERATION_QUEUE.send({ kind: "generate", jobId });
-      return response(request, env, { ok: true, jobId, status: "queued" }, { status: 202 });
+      const job =
+        await env.DB.prepare(`SELECT id,client_id,objective,asset_ids,status FROM generation_jobs
+        WHERE id=? OR (requested_by=? AND request_key=?) LIMIT 1`)
+          .bind(candidateId, sessionUser!.id, payload.requestKey || null)
+          .first<{
+            id: string;
+            client_id: string;
+            objective: string;
+            asset_ids: string;
+            status: string;
+          }>();
+      if (!job) throw new Error("Unable to persist generation request.");
+      if (
+        job.client_id !== payload.clientId ||
+        job.objective !== (payload.objective || "Auto") ||
+        job.asset_ids !== assetIds
+      )
+        return response(
+          request,
+          env,
+          { error: "This request identity belongs to different content. Start a new request." },
+          { status: 409 },
+        );
+      if (job.id === candidateId) await dispatchGeneration(env, job.id);
+      const current = await env.DB.prepare(
+        "SELECT status,error_message FROM generation_jobs WHERE id=?",
+      )
+        .bind(job.id)
+        .first<any>();
+      // Accept the durable job even when transport fails: the progress screen can
+      // retry this exact job without creating another campaign.
+      return response(
+        request,
+        env,
+        { ok: true, jobId: job.id, status: current.status, error: current.error_message },
+        { status: 202 },
+      );
     }
 
     if (request.method === "GET" && url.pathname === "/v1/dashboard") {
@@ -1149,7 +1202,14 @@ export default {
         return response(request, env, { error: "Client name is required." }, { status: 400 });
 
       const id = crypto.randomUUID();
-      const timezone = payload.timezone?.trim() || "America/Indiana/Indianapolis";
+      const timezone = payload.timezone ?? "America/Indiana/Indianapolis";
+      if (!validTimezone(timezone))
+        return response(
+          request,
+          env,
+          { error: "A valid IANA time zone is required." },
+          { status: 400 },
+        );
       const statements = [
         env.DB.prepare(
           "INSERT INTO clients (id, name, timezone, status, created_at, updated_at) VALUES (?, ?, ?, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
@@ -1179,6 +1239,13 @@ export default {
       const payload = await request
         .json<{ name?: string; timezone?: string }>()
         .catch(() => ({}) as any);
+      if (payload.timezone !== undefined && !validTimezone(payload.timezone))
+        return response(
+          request,
+          env,
+          { error: "A valid IANA time zone is required." },
+          { status: 400 },
+        );
       const current = await env.DB.prepare("SELECT id FROM clients WHERE id = ?")
         .bind(clientMatch[1])
         .first();
@@ -1188,6 +1255,7 @@ export default {
         `UPDATE clients SET
          name = COALESCE(NULLIF(?, ''), name),
          timezone = COALESCE(NULLIF(?, ''), timezone),
+         schedule_revision=schedule_revision+1,
          updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
       )
@@ -1935,15 +2003,17 @@ export default {
     const keepMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/keep-schedule$/);
     if (request.method === "POST" && keepMatch) {
       const postId = keepMatch[1];
-      const post = await env.DB.prepare("SELECT client_id, status FROM posts WHERE id = ?")
+      const post = await env.DB.prepare(
+        "SELECT client_id, status, publish_version FROM posts WHERE id = ?",
+      )
         .bind(postId)
-        .first<{ client_id: string; status: string }>();
+        .first<{ client_id: string; status: string; publish_version: number }>();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
       const denied = await authorize(env, sessionUser!, "calendar_manage", post.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
-      if (!["calendar_scheduled", "pre_publish", "rescheduled", "paused"].includes(post.status)) {
+      if (!["calendar_scheduled", "pre_publish", "rescheduled"].includes(post.status)) {
         return response(
           request,
           env,
@@ -1953,11 +2023,21 @@ export default {
       }
 
       const now = new Date().toISOString();
-      await env.DB.prepare(
-        `UPDATE posts SET prepublish_response = 'keep', status = 'calendar_scheduled', updated_at = ? WHERE id = ?`,
+      const kept = await env.DB.prepare(
+        `UPDATE posts SET prepublish_response='keep',status='calendar_scheduled',updated_at=?
+         WHERE id=? AND status=? AND publish_version=? AND approved_at IS NOT NULL
+           AND scheduled_publish_at IS NOT NULL AND platform_post_id IS NULL
+           AND NOT EXISTS(SELECT 1 FROM publish_jobs j WHERE j.post_id=posts.id AND j.status='publishing')`,
       )
-        .bind(now, postId)
+        .bind(now, postId, post.status, post.publish_version)
         .run();
+      if (!kept.meta.changes)
+        return response(
+          request,
+          env,
+          { error: "Post changed or publishing has started. Refresh and try again." },
+          { status: 409 },
+        );
       await audit(env, postId, "post.keep_schedule", undefined, sessionUser!.id);
       return response(request, env, { ok: true, postId, status: "calendar_scheduled" });
     }
@@ -2062,23 +2142,37 @@ export default {
       const pilotDenied = await pilotPublishError(env, sessionUser!, postId);
       if (pilotDenied) return response(request, env, { error: pilotDenied }, { status: 409 });
 
+      const changed = await env.DB.prepare(
+        `UPDATE posts SET prepublish_response='publish_now',status='publish_queued',updated_at=?
+         WHERE id=? AND status=? AND publish_version=? AND platform_post_id IS NULL
+           AND approved_at IS NOT NULL
+           AND EXISTS(SELECT 1 FROM clients c WHERE c.id=posts.client_id AND c.status='active')
+           AND NOT EXISTS(SELECT 1 FROM publish_jobs j WHERE j.post_id=posts.id AND j.status='publishing')`,
+      )
+        .bind(new Date().toISOString(), postId, post.status, post.publish_version)
+        .run();
+      if (!changed.meta.changes)
+        return response(
+          request,
+          env,
+          { error: "Post changed or publishing has started. Refresh before publishing." },
+          { status: 409 },
+        );
       const job = await ensurePublishJob(
         env,
         postId,
         post.scheduled_publish_at || new Date().toISOString(),
         sessionUser!.id,
         pilotContext.revision,
+        post.publish_version,
       );
-
-      await env.DB.prepare(
-        `UPDATE posts SET
-         prepublish_response = 'publish_now',
-         status = CASE WHEN status = 'published' THEN status ELSE 'publish_queued' END,
-         updated_at = ?
-         WHERE id = ? AND status=? AND publish_version=?`,
-      )
-        .bind(new Date().toISOString(), postId, post.status, post.publish_version)
-        .run();
+      if (!job.jobId)
+        return response(
+          request,
+          env,
+          { error: "Post changed before enqueueing. Refresh before publishing." },
+          { status: 409 },
+        );
 
       if (job.shouldEnqueue) {
         await env.PUBLISH_QUEUE.send({
@@ -2209,7 +2303,7 @@ export default {
     const nowIso = now.toISOString();
 
     const upcoming = await env.DB.prepare(
-      `SELECT p.id, p.client_id, p.platform, p.scheduled_publish_at,
+      `SELECT p.id, p.client_id, p.platform, p.scheduled_publish_at, p.publish_version,
               COALESCE(cs.prepublish_minutes, np.prepublish_minutes,
                        ws.default_prepublish_minutes, 30) AS prepublish_minutes
        FROM posts p
@@ -2229,9 +2323,9 @@ export default {
         Number(row.prepublish_minutes || 30) * 60 * 1000;
       if (alertAt <= Date.now()) {
         const alerted = await env.DB.prepare(
-          "UPDATE posts SET status = 'pre_publish', prepublish_alert_at = ?, updated_at = ? WHERE id = ? AND status IN ('calendar_scheduled','rescheduled') AND prepublish_alert_at IS NULL",
+          "UPDATE posts SET status = 'pre_publish', prepublish_alert_at = ?, updated_at = ? WHERE id = ? AND status IN ('calendar_scheduled','rescheduled') AND prepublish_alert_at IS NULL AND publish_version=?",
         )
-          .bind(nowIso, nowIso, row.id)
+          .bind(nowIso, nowIso, row.id, row.publish_version)
           .run();
 
         if (!alerted.meta.changes) continue;
@@ -2250,7 +2344,7 @@ export default {
     }
 
     const due = await env.DB.prepare(
-      `SELECT p.id, p.prepublish_response,
+      `SELECT p.id, p.prepublish_response, p.publish_version,
               COALESCE(cs.no_response_policy, np.no_response_policy,
                        ws.default_no_response_policy, 'auto_publish') AS no_response_policy
        FROM posts p
@@ -2269,6 +2363,9 @@ export default {
 
     const pilot = await getPilot(env);
     for (const row of due.results) {
+      const responsePolicy = ["auto_publish", "hold", "skip"].includes(row.no_response_policy)
+        ? row.no_response_policy
+        : "hold";
       const policy =
         pilot.mode !== "normal" &&
         (pilot.mode !== "supervised" ||
@@ -2278,10 +2375,16 @@ export default {
           ? "hold"
           : row.prepublish_response
             ? "auto_publish"
-            : row.no_response_policy || "auto_publish";
+            : responsePolicy;
 
       if (policy === "hold") {
-        const changed = await stopScheduledPost(env, row.id, "paused", pilot.mode === "normal");
+        const changed = await stopScheduledPost(
+          env,
+          row.id,
+          "paused",
+          pilot.mode === "normal",
+          `post:${row.id}:publish:v${row.publish_version}`,
+        );
         if (!changed) continue;
         await notifyPostOwners(
           env,
@@ -2294,7 +2397,13 @@ export default {
       }
 
       if (policy === "skip") {
-        const changed = await stopScheduledPost(env, row.id, "canceled", true);
+        const changed = await stopScheduledPost(
+          env,
+          row.id,
+          "canceled",
+          true,
+          `post:${row.id}:publish:v${row.publish_version}`,
+        );
         if (!changed) continue;
         await notifyPostOwners(
           env,
@@ -2310,7 +2419,14 @@ export default {
         .bind(row.id)
         .first<{ scheduled_publish_at: string | null }>();
 
-      const job = await ensurePublishJob(env, row.id, scheduled?.scheduled_publish_at || nowIso);
+      const job = await ensurePublishJob(
+        env,
+        row.id,
+        scheduled?.scheduled_publish_at || nowIso,
+        undefined,
+        undefined,
+        row.publish_version,
+      );
 
       if (job.shouldEnqueue) {
         const queued = await env.DB.prepare(
@@ -2451,7 +2567,9 @@ export default {
             error instanceof Error ? error.message.slice(0, 1500) : "Graphic generation failed";
           const terminal = message.attempts >= 3;
 
-          await markGraphicJobFailure(env, message.body.graphicJobId, errorMessage, terminal);
+          await markGraphicJobFailure(env, message.body.graphicJobId, errorMessage, terminal, {
+            claimToken: (error as any)?.graphicClaimToken,
+          });
 
           if (terminal) {
             await recordSystemEvent(env, {
@@ -2488,7 +2606,7 @@ export default {
              error_message = ?,
              stage_updated_at = ?,
              completed_at = CASE WHEN ? THEN ? ELSE completed_at END
-             WHERE id = ?`,
+             WHERE id = ? AND status='retrying' AND claim_token IS NULL`,
           )
             .bind(
               terminal ? "failed" : "retrying",
@@ -2628,9 +2746,32 @@ export default {
 
         message.ack();
       } catch (error) {
-        const persisted = await env.DB.prepare("SELECT status FROM posts WHERE id=?")
+        const persisted = await env.DB.prepare(
+          "SELECT status,publish_version FROM posts WHERE id=?",
+        )
           .bind(message.body.postId)
-          .first<{ status: string }>();
+          .first<{ status: string; publish_version: number }>();
+        if (
+          persisted &&
+          message.body.executionKey !==
+            `post:${message.body.postId}:publish:v${persisted.publish_version}`
+        ) {
+          await recordSystemEvent(env, {
+            severity: "critical",
+            category: "publishing",
+            eventType: "late_publish_result",
+            entityType: "post",
+            entityId: message.body.postId,
+            message:
+              "An expired publishing execution returned after the post changed. Check its stored provider receipts before further publishing.",
+            metadata: {
+              executionKey: message.body.executionKey,
+              error: error instanceof Error ? error.message : "Late publishing result",
+            },
+          });
+          message.ack();
+          continue;
+        }
         if (persisted && ["published", "provider_processing"].includes(persisted.status)) {
           await markPublishJobCompleted(env, message.body.publishJobId);
           await recordSystemEvent(env, {

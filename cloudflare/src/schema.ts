@@ -1217,6 +1217,18 @@ export const REQUIRED_SCHEMA = {
       notnull: 0,
       pk: 0,
     },
+    {
+      name: "request_key",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "control_token",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
   ],
   google_auth_handoffs: [
     {
@@ -1353,6 +1365,12 @@ export const REQUIRED_SCHEMA = {
       name: "updated_at",
       type: "TEXT",
       notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "claim_token",
+      type: "TEXT",
+      notnull: 0,
       pk: 0,
     },
   ],
@@ -2171,6 +2189,12 @@ export const REQUIRED_SCHEMA = {
     },
     {
       name: "schedule_token",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "reconciliation_id",
       type: "TEXT",
       notnull: 0,
       pk: 0,
@@ -3557,6 +3581,10 @@ export const REQUIRED_INDEXES = [
   {
     name: "idx_generation_jobs_recovery",
     sql: "CREATE INDEX idx_generation_jobs_recovery\n  ON generation_jobs(status, stage_updated_at)",
+  },
+  {
+    name: "idx_generation_request_identity",
+    sql: "CREATE UNIQUE INDEX idx_generation_request_identity ON generation_jobs(requested_by,request_key)\n  WHERE request_key IS NOT NULL",
   },
   {
     name: "idx_google_auth_handoffs_hash",

@@ -129,6 +129,17 @@ export function workspace(t) {
       status,
       new Date(Date.now() + 86400000).toISOString(),
     );
+    if (
+      [
+        "calendar_scheduled",
+        "pre_publish",
+        "rescheduled",
+        "publish_queued",
+        "publishing",
+        "published",
+      ].includes(status)
+    )
+      exec("UPDATE posts SET approved_at=CURRENT_TIMESTAMP WHERE id=?", id);
   }
   async function request(path, { user, method = "GET", body, origin } = {}) {
     const headers = new Headers();

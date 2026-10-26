@@ -195,6 +195,7 @@ export async function reserveSchedule(
     publishVersion: number;
     desiredAt: string;
     decision?: string;
+    resume?: boolean;
     reviewTokenId?: string;
   },
 ): Promise<string | null> {
@@ -216,14 +217,15 @@ export async function reserveSchedule(
         calendar_added_at=CASE WHEN ? THEN ? ELSE calendar_added_at END,
         publish_version=publish_version+1,updated_at=?
         WHERE id=? AND client_id=? AND status=? AND publish_version=?
+          AND platform_post_id IS NULL AND (status!='paused' OR approved_at IS NOT NULL)
           AND EXISTS (SELECT 1 FROM clients c WHERE c.id=posts.client_id AND c.status='active' AND c.schedule_revision=?)
           AND NOT EXISTS (SELECT 1 FROM publish_jobs j WHERE j.post_id=posts.id AND j.status='publishing')
           AND (? IS NULL OR EXISTS (SELECT 1 FROM review_tokens rt WHERE rt.id=? AND rt.post_id=posts.id
             AND rt.revoked_at IS NULL AND rt.used_at IS NULL AND rt.expires_at>?))`).bind(
         scheduledAt,
         token,
-        approving ? "calendar_scheduled" : "rescheduled",
-        approving ? null : "reschedule",
+        approving || input.resume ? "calendar_scheduled" : "rescheduled",
+        approving || input.resume ? null : "reschedule",
         approving ? 1 : 0,
         now,
         approving ? 1 : 0,

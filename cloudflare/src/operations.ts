@@ -1,3 +1,4 @@
+import { dispatchGeneration } from "./generation-dispatch";
 import { configurePilot, pilotOverview } from "./pilot";
 import { REQUIRED_SCHEMA, REQUIRED_INDEXES } from "./schema";
 import { markGraphicJobFailure, recoverRevisionJobs } from "./generation";
@@ -226,19 +227,29 @@ export async function recoverStaleWork(env: OperationsEnv) {
   }
 
   const staleGeneration = await env.DB.prepare(
-    `SELECT id,status,stage FROM generation_jobs
+    `SELECT id,status,stage,stage_updated_at,claim_token,control_token FROM generation_jobs
      WHERE status IN ('queued','processing','retrying')
        AND datetime(COALESCE(stage_updated_at,created_at)) < datetime('now','-30 minutes')
      LIMIT 25`,
   ).all<any>();
 
   for (const job of staleGeneration.results) {
-    await env.DB.prepare(
-      `UPDATE generation_jobs SET status='queued',stage='queued',claim_token=NULL,stage_updated_at=CURRENT_TIMESTAMP,error_message='Recovered stale generation job.' WHERE id=?`,
+    const recovered = await env.DB.prepare(
+      `UPDATE generation_jobs SET status='queued',stage='queued',claim_token=NULL,control_token=?,stage_updated_at=CURRENT_TIMESTAMP,error_message='Recovered stale generation job.'
+       WHERE id=? AND status=? AND stage_updated_at IS ? AND claim_token IS ? AND control_token IS ?
+         AND EXISTS(SELECT 1 FROM clients c WHERE c.id=generation_jobs.client_id AND c.status='active')`,
     )
-      .bind(job.id)
+      .bind(
+        crypto.randomUUID(),
+        job.id,
+        job.status,
+        job.stage_updated_at,
+        job.claim_token,
+        job.control_token,
+      )
       .run();
-    await env.GENERATION_QUEUE.send({ kind: "generate", jobId: job.id }, { delaySeconds: 30 });
+    if (!recovered.meta.changes) continue;
+    await dispatchGeneration(env, job.id, 30);
     await recordSystemEvent(env, {
       severity: "warning",
       category: "generation",
@@ -251,7 +262,7 @@ export async function recoverStaleWork(env: OperationsEnv) {
   }
 
   const staleGraphics = await env.DB.prepare(
-    `SELECT id,generation_job_id,status,attempt_count
+    `SELECT id,generation_job_id,status,attempt_count,updated_at
      FROM graphic_jobs
      WHERE status IN ('queued','processing','retrying')
        AND datetime(updated_at) < datetime('now','-30 minutes')
@@ -261,7 +272,14 @@ export async function recoverStaleWork(env: OperationsEnv) {
   let graphicsRecovered = 0;
   for (const job of staleGraphics.results) {
     if (Number(job.attempt_count) >= 3) {
-      await markGraphicJobFailure(env as any, job.id, "Graphic worker timed out.", true);
+      const failed = await markGraphicJobFailure(
+        env as any,
+        job.id,
+        "Graphic worker timed out.",
+        true,
+        { status: job.status, updatedAt: job.updated_at },
+      );
+      if (!failed) continue;
       await recordSystemEvent(env, {
         severity: "error",
         category: "generation",
@@ -273,11 +291,14 @@ export async function recoverStaleWork(env: OperationsEnv) {
       });
       continue;
     }
-    await env.DB.prepare(
-      `UPDATE graphic_jobs SET status='retrying',claimed_at=NULL,last_error=COALESCE(last_error,'Recovered stale graphic job.'),updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+    const recovered = await env.DB.prepare(
+      `UPDATE graphic_jobs SET status='retrying',claimed_at=NULL,claim_token=NULL,last_error=COALESCE(last_error,'Recovered stale graphic job.'),updated_at=CURRENT_TIMESTAMP
+        WHERE id=? AND status=? AND updated_at=? AND EXISTS(SELECT 1 FROM generation_jobs g JOIN clients c ON c.id=g.client_id
+          WHERE g.id=graphic_jobs.generation_job_id AND g.status NOT IN ('canceled','failed') AND c.status='active')`,
     )
-      .bind(job.id)
+      .bind(job.id, job.status, job.updated_at)
       .run();
+    if (!recovered.meta.changes) continue;
     await env.GENERATION_QUEUE.send(
       { kind: "graphic", graphicJobId: job.id },
       { delaySeconds: 30 },
@@ -318,36 +339,44 @@ export async function recoverStaleWork(env: OperationsEnv) {
 }
 
 export async function getSystemOverview(env: OperationsEnv) {
-  const [health, publish, generation, failedPosts, events, social] = await Promise.all([
-    readiness(env),
-    env.DB.prepare(
-      `SELECT status,COUNT(*) AS count FROM publish_jobs
+  const [health, publish, generation, failedPosts, events, social, reconciliations] =
+    await Promise.all([
+      readiness(env),
+      env.DB.prepare(
+        `SELECT status,COUNT(*) AS count FROM publish_jobs
        WHERE datetime(created_at)>=datetime('now','-7 days') GROUP BY status`,
-    ).all<any>(),
-    env.DB.prepare(
-      `SELECT status,COUNT(*) AS count FROM generation_jobs
+      ).all<any>(),
+      env.DB.prepare(
+        `SELECT status,COUNT(*) AS count FROM generation_jobs
        WHERE datetime(created_at)>=datetime('now','-7 days') GROUP BY status`,
-    ).all<any>(),
-    env.DB.prepare(
-      `SELECT p.id,p.title,p.platform,p.failure_code,p.failure_message,p.updated_at,c.name AS client_name
+      ).all<any>(),
+      env.DB.prepare(
+        `SELECT p.id,p.title,p.platform,p.failure_code,p.failure_message,p.publish_version,p.social_account_id,p.updated_at,c.name AS client_name
        FROM posts p JOIN clients c ON c.id=p.client_id
        WHERE p.status='failed' ORDER BY p.updated_at DESC LIMIT 20`,
-    ).all<any>(),
-    env.DB.prepare(
-      `SELECT * FROM system_events
+      ).all<any>(),
+      env.DB.prepare(
+        `SELECT * FROM system_events
        WHERE resolved_at IS NULL ORDER BY
        CASE severity WHEN 'critical' THEN 1 WHEN 'error' THEN 2 WHEN 'warning' THEN 3 ELSE 4 END,
        created_at DESC LIMIT 50`,
-    ).all<any>(),
-    env.DB.prepare(
-      `SELECT status,COUNT(*) AS count FROM social_accounts GROUP BY status`,
-    ).all<any>(),
-  ]);
+      ).all<any>(),
+      env.DB.prepare(
+        `SELECT status,COUNT(*) AS count FROM social_accounts GROUP BY status`,
+      ).all<any>(),
+      env.DB.prepare(`SELECT a.id,a.entity_id,a.next_state,a.metadata_json,a.created_at,u.email AS actor_email,p.title
+      FROM recovery_actions a JOIN users u ON u.id=a.actor_user_id LEFT JOIN posts p ON p.id=a.entity_id
+      WHERE a.action='reconcile_publish_outcome' ORDER BY a.created_at DESC,a.id LIMIT 20`).all<any>(),
+    ]);
   return {
     health,
     publishJobs: publish.results,
     generationJobs: generation.results,
     failedPosts: failedPosts.results,
+    reconciliations: reconciliations.results.map((row) => ({
+      ...row,
+      metadata: JSON.parse(row.metadata_json || "{}"),
+    })),
     events: events.results,
     socialAccounts: social.results,
   };
@@ -718,6 +747,113 @@ export async function handleOperationsRoute(
     return { body: { ok: true, data: result } };
   }
 
+  const reconcile = url.pathname.match(/^\/v1\/system\/posts\/([^/]+)\/reconcile$/);
+  if (request.method === "POST" && reconcile) {
+    const payload = await request.json<any>().catch(() => null);
+    if (
+      !payload ||
+      !["published", "absent"].includes(payload.outcome) ||
+      !Number.isInteger(payload.publishVersion) ||
+      typeof payload.evidence !== "string" ||
+      payload.evidence.trim().length < 20 ||
+      payload.evidence.length > 4000 ||
+      (payload.outcome === "published" &&
+        (typeof payload.providerPostId !== "string" ||
+          !payload.providerPostId.trim() ||
+          payload.providerPostId.length > 500))
+    )
+      return {
+        body: {
+          error:
+            "Choose an outcome, provide the current version and at least 20 characters of provider verification evidence; published outcomes also require a provider post ID.",
+        },
+        status: 400,
+      };
+    const id = reconcile[1],
+      now = new Date().toISOString(),
+      actionId = crypto.randomUUID();
+    const published = payload.outcome === "published";
+    const providerId = published ? payload.providerPostId.trim() : null;
+    const nextCode = published ? null : "PUBLISH_CONFIRMED_ABSENT";
+    // The audit insert and transition are one transaction. Competing decisions,
+    // late receipts, and repeated requests cannot change an already resolved post.
+    const [changed] = await env.DB.batch([
+      env.DB.prepare(`UPDATE posts SET status=?,platform_post_id=?,published_at=CASE WHEN ? THEN ? ELSE published_at END,
+          failure_code=?,failure_message=?,publish_version=publish_version+1,reconciliation_id=?,updated_at=?
+        WHERE id=? AND status='failed' AND failure_code='PUBLISH_OUTCOME_UNKNOWN' AND publish_version=?
+          AND platform_post_id IS NULL
+          AND (?=1 OR NOT EXISTS(SELECT 1 FROM social_publish_receipts r WHERE r.post_id=posts.id AND r.status IN ('published','provider_processing')))
+          AND NOT EXISTS(SELECT 1 FROM publish_jobs j WHERE j.post_id=posts.id AND j.status='publishing')
+          AND (? IS NULL OR NOT EXISTS(SELECT 1 FROM posts other WHERE other.id!=posts.id
+            AND other.platform=posts.platform AND other.social_account_id IS posts.social_account_id AND other.platform_post_id=?))`).bind(
+        published ? "published" : "failed",
+        providerId,
+        published ? 1 : 0,
+        now,
+        nextCode,
+        published ? null : "Owner verified absence at provider; explicit retry is available.",
+        actionId,
+        now,
+        id,
+        payload.publishVersion,
+        published ? 1 : 0,
+        providerId,
+        providerId,
+      ),
+      env.DB.prepare(`INSERT INTO recovery_actions(id,actor_user_id,action,entity_type,entity_id,previous_state,next_state,metadata_json)
+        SELECT ?,?,'reconcile_publish_outcome','post',id,'PUBLISH_OUTCOME_UNKNOWN',?,? FROM posts
+        WHERE id=? AND publish_version=? AND status=? AND failure_code IS ? AND reconciliation_id=?`).bind(
+        actionId,
+        user.id,
+        published ? "published" : "confirmed_absent",
+        JSON.stringify({
+          outcome: payload.outcome,
+          providerPostId: providerId,
+          evidence: payload.evidence.trim(),
+        }),
+        id,
+        payload.publishVersion + 1,
+        published ? "published" : "failed",
+        nextCode,
+        actionId,
+      ),
+      ...(published
+        ? [
+            env.DB.prepare(`INSERT INTO social_publish_receipts
+        (id,post_id,social_account_id,provider_post_id,status,provider_status,last_checked_at,confirmed_at,raw_json)
+        SELECT ?,id,social_account_id,?,'published','owner_verified',?,?,? FROM posts
+        WHERE id=? AND reconciliation_id=? AND social_account_id IS NOT NULL`).bind(
+              crypto.randomUUID(),
+              providerId,
+              now,
+              now,
+              JSON.stringify({ recoveryActionId: actionId }),
+              id,
+              actionId,
+            ),
+          ]
+        : []),
+      env.DB.prepare(`UPDATE publish_jobs SET status=?,completed_at=?,updated_at=?
+        WHERE post_id=? AND status IN ('queued','retrying','failed')
+          AND EXISTS(SELECT 1 FROM recovery_actions WHERE id=?)`).bind(
+        published ? "completed" : "canceled",
+        now,
+        now,
+        id,
+        actionId,
+      ),
+    ]);
+    if (!changed.meta.changes)
+      return {
+        body: {
+          error:
+            "Post changed, is still publishing, or the provider receipt is already assigned. Refresh and reconcile the current state.",
+        },
+        status: 409,
+      };
+    return { body: { ok: true, outcome: payload.outcome } };
+  }
+
   const retryPost = url.pathname.match(/^\/v1\/system\/posts\/([^/]+)\/retry$/);
   if (request.method === "POST" && retryPost) {
     const post = await env.DB.prepare(
@@ -746,12 +882,34 @@ export async function handleOperationsRoute(
       };
 
     const now = new Date().toISOString();
-    await env.DB.prepare(
-      `UPDATE posts SET status='calendar_scheduled',failure_code=NULL,failure_message=NULL,publish_version=publish_version+1,updated_at=? WHERE id=?`,
+    const changed = await env.DB.prepare(
+      `UPDATE posts SET status='calendar_scheduled',failure_code=NULL,failure_message=NULL,publish_version=publish_version+1,updated_at=?
+        WHERE id=? AND status='failed' AND publish_version=? AND platform_post_id IS NULL
+          AND COALESCE(failure_code,'')!='PUBLISH_OUTCOME_UNKNOWN'
+          AND NOT EXISTS(SELECT 1 FROM social_publish_receipts r WHERE r.post_id=posts.id AND r.status IN ('published','provider_processing'))
+          AND EXISTS(SELECT 1 FROM clients c WHERE c.id=posts.client_id AND c.status='active')
+          AND NOT EXISTS(SELECT 1 FROM publish_jobs j WHERE j.post_id=posts.id AND j.status='publishing')`,
     )
-      .bind(now, post.id)
+      .bind(now, post.id, post.publish_version)
       .run();
-    const job = await ensurePublishJob(env, post.id, post.scheduled_publish_at || now);
+    if (!changed.meta.changes)
+      return {
+        body: { error: "Post changed or publishing has started. Refresh before retrying." },
+        status: 409,
+      };
+    const job = await ensurePublishJob(
+      env,
+      post.id,
+      post.scheduled_publish_at || now,
+      undefined,
+      undefined,
+      post.publish_version + 1,
+    );
+    if (!job.jobId)
+      return {
+        body: { error: "Post changed before enqueueing. Refresh and try again." },
+        status: 409,
+      };
     if (job.shouldEnqueue) {
       await env.PUBLISH_QUEUE.send({
         kind: "publish",

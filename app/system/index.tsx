@@ -1,3 +1,4 @@
+import { PublishReconciliation } from "@/components/PublishReconciliation";
 import { IconButton } from "@/components/icon-button";
 import { PilotControls } from "@/components/PilotControls";
 import { Alert } from "@/components/feedback";
@@ -233,7 +234,10 @@ export default function SystemHealthScreen() {
           subtitle="Retry only after the underlying provider/account problem has been corrected."
         />
         {(data?.failedPosts || []).map((post: any) => (
-          <View key={post.id} style={styles.incident}>
+          <View
+            key={post.id}
+            style={[styles.incident, { flexDirection: "column", alignItems: "stretch" }]}
+          >
             <View style={styles.copy}>
               <Text style={styles.title}>{post.title}</Text>
               <Text style={styles.muted}>
@@ -241,11 +245,41 @@ export default function SystemHealthScreen() {
               </Text>
               {!!post.failure_message && <Text style={styles.error}>{post.failure_message}</Text>}
             </View>
-            <Button label="Retry" small secondary onPress={() => retry(post.id)} />
+            {post.failure_code === "PUBLISH_OUTCOME_UNKNOWN" ? (
+              <PublishReconciliation post={post} onResolved={load} />
+            ) : (
+              <Button label="Retry" small secondary onPress={() => retry(post.id)} />
+            )}
           </View>
         ))}
         {!data?.failedPosts?.length && (
           <Text style={styles.muted}>No failed posts need recovery.</Text>
+        )}
+      </Card>
+
+      <Card>
+        <SectionTitle
+          title="Verified publishing outcomes"
+          subtitle="Recent owner decisions and the provider evidence recorded with them."
+        />
+        {(data?.reconciliations || []).map((item: any) => (
+          <View key={item.id} style={styles.incident}>
+            <View style={styles.copy}>
+              <Text style={styles.title}>
+                {item.title || item.entity_id} · {item.next_state.replaceAll("_", " ")}
+              </Text>
+              <Text style={styles.muted}>{item.metadata?.evidence}</Text>
+              {!!item.metadata?.providerPostId && (
+                <Text style={styles.muted}>Provider ID: {item.metadata.providerPostId}</Text>
+              )}
+              <Text style={styles.time}>
+                {item.actor_email} · {new Date(item.created_at).toLocaleString()}
+              </Text>
+            </View>
+          </View>
+        ))}
+        {!data?.reconciliations?.length && (
+          <Text style={styles.muted}>No publishing outcomes have been reconciled.</Text>
         )}
       </Card>
 

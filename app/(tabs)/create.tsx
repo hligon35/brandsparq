@@ -2,7 +2,7 @@ import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
 import { Link, useRouter, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ClientPicker } from "@/components/client-picker";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,6 +26,16 @@ export default function CreateScreen() {
   const [creationMode, setCreationMode] = useState<"social" | "campaign">("campaign");
   const [assets, setAssets] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [uploading, setUploading] = useState(false);
+  // Preserve the exact creation request after a lost response. Retrying this
+  // submission must not upload again or create a second campaign.
+  const pending = useRef<{
+    signature: string;
+    clientId: string;
+    objective: string;
+    assetIds: string[];
+    requestKey: string;
+  } | null>(null);
+  const submitting = useRef(false);
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
   const { wide } = useResponsive();
 
@@ -65,52 +75,66 @@ export default function CreateScreen() {
   }
 
   async function upload() {
-    if (!clientId || !assets.length) return;
+    if (!clientId || !assets.length || submitting.current) return;
+    submitting.current = true;
+    const signature = JSON.stringify([clientId, objective, assets.map((asset) => asset.uri)]);
     setUploading(true);
     setUploadProgress({ done: 0, total: assets.length });
     try {
-      const uploaded = new Array(assets.length);
-      let cursor = 0;
+      if (pending.current?.signature !== signature) {
+        const uploaded = new Array(assets.length);
+        let cursor = 0;
 
-      async function worker() {
-        while (true) {
-          const index = cursor++;
-          if (index >= assets.length) return;
-          const asset = assets[index];
-          const prepared = await prepareCampaignAsset(asset, index);
-          const original = await api.uploadAsset(
-            clientId,
-            asset.uri,
-            asset.fileName || `brandsparq-${Date.now()}-${index + 1}.jpg`,
-            asset.mimeType || "image/jpeg",
-            asset.width,
-            asset.height,
-          );
-          await api.uploadAssetDerivative(
-            clientId,
-            original.id,
-            prepared.analysisUri,
-            "analysis",
-            prepared.analysisFilename,
-            prepared.analysisMimeType,
-            prepared.analysisWidth,
-            prepared.analysisHeight,
-          );
-          uploaded[index] = original;
-          setUploadProgress((progress) => ({
-            ...progress,
-            done: progress.done + 1,
-          }));
+        async function worker() {
+          while (true) {
+            const index = cursor++;
+            if (index >= assets.length) return;
+            const asset = assets[index];
+            const prepared = await prepareCampaignAsset(asset, index);
+            const original = await api.uploadAsset(
+              clientId,
+              asset.uri,
+              asset.fileName || `brandsparq-${Date.now()}-${index + 1}.jpg`,
+              asset.mimeType || "image/jpeg",
+              asset.width,
+              asset.height,
+            );
+            await api.uploadAssetDerivative(
+              clientId,
+              original.id,
+              prepared.analysisUri,
+              "analysis",
+              prepared.analysisFilename,
+              prepared.analysisMimeType,
+              prepared.analysisWidth,
+              prepared.analysisHeight,
+            );
+            uploaded[index] = original;
+            setUploadProgress((progress) => ({
+              ...progress,
+              done: progress.done + 1,
+            }));
+          }
         }
+
+        await Promise.all(Array.from({ length: Math.min(3, assets.length) }, () => worker()));
+
+        pending.current = {
+          signature,
+          clientId,
+          objective,
+          assetIds: uploaded.map((item) => item.id),
+          requestKey: `generation_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`,
+        };
       }
-
-      await Promise.all(Array.from({ length: Math.min(3, assets.length) }, () => worker()));
-
+      const request = pending.current!;
       const job = await api.createGenerationJob(
-        clientId,
-        objective,
-        uploaded.map((item) => item.id),
+        request.clientId,
+        request.objective,
+        request.assetIds,
+        request.requestKey,
       );
+      pending.current = null;
       setAssets([]);
       setUploadProgress({ done: 0, total: 0 });
       router.push(`/generation?jobId=${job.jobId}`);
@@ -120,6 +144,7 @@ export default function CreateScreen() {
         error instanceof Error ? error.message : "Unable to create campaign.",
       );
     } finally {
+      submitting.current = false;
       setUploading(false);
     }
   }

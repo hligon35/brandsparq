@@ -1068,7 +1068,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
   const now = new Date().toISOString();
 
   try {
-    await env.DB.batch([
+    const [, saved] = await env.DB.batch([
       env.DB.prepare(
         `INSERT INTO social_publish_receipts
        (id, post_id, social_account_id, provider_post_id, provider_post_url,
@@ -1093,7 +1093,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
        platform_url = ?,
        published_at = ?,
        updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ? AND publish_version=? AND reconciliation_id IS ?`,
       ).bind(
         asynchronous ? "provider_processing" : "published",
         providerPostId,
@@ -1101,8 +1101,11 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
         asynchronous ? null : now,
         now,
         post.id,
+        post.publish_version,
+        post.reconciliation_id,
       ),
     ]);
+    if (!saved.meta.changes) throw new Error("Post changed before its provider receipt returned.");
   } catch {
     throw uncertainPublication(
       `Provider accepted publication ${providerPostId}, but saving its receipt failed.`,
@@ -1598,8 +1601,8 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
          status='published',
          published_at=COALESCE(published_at,?),
          updated_at=?
-         WHERE id=?`,
-      ).bind(now, now, receipt.post_id),
+         WHERE id=? AND status='provider_processing' AND platform_post_id=?`,
+      ).bind(now, now, receipt.post_id, receipt.provider_post_id),
     ]);
     return {
       status: "published",
@@ -1666,8 +1669,14 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
          platform_post_id=COALESCE(?,platform_post_id),
          published_at=COALESCE(published_at,?),
          updated_at=?
-         WHERE id=?`,
-      ).bind(publicPostId ? String(publicPostId) : null, now, now, receipt.post_id),
+         WHERE id=? AND status='provider_processing' AND platform_post_id=?`,
+      ).bind(
+        publicPostId ? String(publicPostId) : null,
+        now,
+        now,
+        receipt.post_id,
+        receipt.provider_post_id,
+      ),
     ]);
     return {
       status: "published",
@@ -1692,8 +1701,8 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
          failure_code='PROVIDER_REJECTED',
          failure_message=?,
          updated_at=?
-         WHERE id=?`,
-      ).bind(detail, now, receipt.post_id),
+         WHERE id=? AND status='provider_processing' AND platform_post_id=?`,
+      ).bind(detail, now, receipt.post_id, receipt.provider_post_id),
     ]);
     return {
       status: "failed",
