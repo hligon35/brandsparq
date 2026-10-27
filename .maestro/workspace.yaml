@@ -1,22 +1,31 @@
-appId: com.alphazonelabs.brandsparq
-name: BrandSparQ native workspace acceptance
+appId: com.alphazonelabs.brandsparq.e2e
+name: BrandSparQ isolated fixture workspace acceptance
 ---
 - launchApp:
     clearState: true
 - assertVisible: "Continue with Google"
-- openLink: "brandsparq://login?handoff=fixture-handoff"
+- openLink: "brandsparq-e2e://login?handoff=fixture-handoff"
 - extendedWaitUntil:
-    visible: "Marketing moves faster with a system."
+    visible: "Your workspace"
     timeout: 30000
-- tapOn: "Review"
+- openLink: "brandsparq-e2e://review"
 - assertVisible: "Launch campaign"
-- tapOn: "More"
-- tapOn: "Clients & Brand Brain"
+- openLink: "brandsparq-e2e://clients"
+- assertVisible: "Your clients"
+- scrollUntilVisible:
+    element: "Client A"
+    direction: DOWN
 - assertVisible: "Client A"
+- scrollUntilVisible:
+    element: "Client B"
+    direction: DOWN
 - assertVisible: "Client B"
-- openLink: "brandsparq://more"
+- openLink: "brandsparq-e2e://profile"
+- assertVisible: "Save profile"
 - scrollUntilVisible:
     element: "Sign out"
     direction: DOWN
 - tapOn: "Sign out"
+- assertVisible: "Continue with Google"
+- launchApp
 - assertVisible: "Continue with Google"

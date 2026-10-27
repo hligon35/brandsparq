@@ -128,31 +128,31 @@ export function TimePicker({
               ].map((column, index) => (
                 <View key={column.label} style={{ flex: 1, gap: 8 }}>
                   <Text style={styles.label}>{column.label}</Text>
-                  <FlatList
+                  <ScrollView
                     style={{ height: 230 }}
-                    initialScrollIndex={Math.max(0, Number(column.current) || 0)}
-                    getItemLayout={(_, i) => ({ length: 48, offset: 48 * i, index: i })}
-                    data={Array.from({ length: column.count }, (_, i) =>
-                      String(i).padStart(2, "0"),
+                    contentOffset={{ x: 0, y: Math.max(0, Number(column.current) || 0) * 48 }}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {Array.from({ length: column.count }, (_, i) => String(i).padStart(2, "0")).map(
+                      (item) => (
+                        <Pressable
+                          key={item}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${column.label} ${item}`}
+                          accessibilityState={{ selected: item === column.current }}
+                          style={[
+                            styles.timeOption,
+                            item === column.current && { backgroundColor: colors.bgStrong },
+                          ]}
+                          onPress={() =>
+                            setDraft(index === 0 ? `${item}:${minute}` : `${hour}:${item}`)
+                          }
+                        >
+                          <Text style={styles.text}>{item}</Text>
+                        </Pressable>
+                      ),
                     )}
-                    keyExtractor={(v) => v}
-                    renderItem={({ item }) => (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`${column.label} ${item}`}
-                        accessibilityState={{ selected: item === column.current }}
-                        style={[
-                          styles.timeOption,
-                          item === column.current && { backgroundColor: colors.bgStrong },
-                        ]}
-                        onPress={() =>
-                          setDraft(index === 0 ? `${item}:${minute}` : `${hour}:${item}`)
-                        }
-                      >
-                        <Text style={styles.text}>{item}</Text>
-                      </Pressable>
-                    )}
-                  />
+                  </ScrollView>
                 </View>
               ))}
             </View>

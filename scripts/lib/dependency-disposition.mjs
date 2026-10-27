@@ -6,7 +6,6 @@ export function assessAudit(
   if (report.error || !report.metadata?.vulnerabilities || !report.vulnerabilities)
     throw new Error("Dependency audit did not return a complete report.");
   const tracked = {
-    "GHSA-86w9-cpqp-85rv": { package: "node-forge", version: "1.4.0" },
     "GHSA-mrhx-c7xc-m3w5": { package: "zod", version: "3.25.76" },
   };
   const unresolved = new Set();

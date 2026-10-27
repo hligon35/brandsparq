@@ -1,3 +1,4 @@
+import { verifyAcceptanceMatrix } from "./acceptance-matrix.mjs";
 export const RELEASE_GATES = [
   "ci",
   "staging",
@@ -73,6 +74,7 @@ export function verifyReleaseEvidence(report, { commit, now = Date.now() }) {
     throw new Error("Record the provider scope that actually passed acceptance.");
   if (report.gates.advisories.ownerAccepted !== true)
     throw new Error("Dependency disposition requires the release owner's recorded decision.");
+  verifyAcceptanceMatrix(report, { now });
   return {
     releaseCommit: commit,
     operator: report.operator,

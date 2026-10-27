@@ -1,3 +1,4 @@
+import { accepted } from "./fixtures/release-report.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -43,41 +44,6 @@ test("production preflight rejects pending migrations, automatic publishing and 
   assert.throws(() => verifyProductionState(claimed, migrations), /in-flight/);
 });
 
-function accepted() {
-  const releaseCommit = "a".repeat(40);
-  return {
-    releaseCommit,
-    operator: "Test operator",
-    recordedAt: new Date().toISOString(),
-    stagingOrigin: "https://brandsparq-staging.test.workers.dev",
-    gates: Object.fromEntries(
-      RELEASE_GATES.map((name) => [
-        name,
-        {
-          releaseCommit,
-          status: "passed",
-          evidenceUrl: `https://evidence.example.test/${name}`,
-          summary: "Test acceptance evidence",
-          conclusion: "success",
-          anonymous: true,
-          physicalDevice: true,
-          device: "Test device",
-          osVersion: "Test OS",
-          buildId: "test-build",
-          backupId: "test-backup",
-          restoreDatabaseId: "00000000-0000-4000-8000-000000000001",
-          restoreBucket: "brandsparq-restore-test",
-          elapsedSeconds: 10,
-          mediaChecksumsVerified: true,
-          tokenDecryptionVerified: true,
-          accepted: ["facebook"],
-          ownerAccepted: true,
-        },
-      ]),
-    ),
-  };
-}
-
 test("release admission rejects missing, stale, wrong-commit and incomplete actual acceptance", () => {
   let report = accepted();
   const options = { commit: report.releaseCommit };
@@ -108,19 +74,19 @@ test("dependency checks track only the reviewed package/version and block unknow
   const report = {
     metadata: { vulnerabilities: { high: 1 } },
     vulnerabilities: {
-      "node-forge": {
-        name: "node-forge",
-        nodes: ["node_modules/node-forge"],
-        via: [{ url: "https://github.com/advisories/GHSA-86w9-cpqp-85rv" }],
+      zod: {
+        name: "zod",
+        nodes: ["node_modules/zod"],
+        via: [{ url: "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5" }],
       },
     },
   };
-  const lock = { packages: { "node_modules/node-forge": { version: "1.4.0" } } };
+  const lock = { packages: { "node_modules/zod": { version: "3.25.76" } } };
   const options = { now: Date.parse("2026-10-25") };
   assert.equal(assessAudit(report, lock, options).securityClear, false);
   assert.throws(() => assessAudit(report, lock, { ...options, release: true }), /owner/);
   assert.throws(() => assessAudit(report, lock, { now: Date.parse("2026-11-09") }), /expired/);
-  report.vulnerabilities["node-forge"].via[0].url += "-unknown";
+  report.vulnerabilities["zod"].via[0].url += "-unknown";
   assert.throws(() => assessAudit(report, lock, options), /Unreviewed/);
 });
 

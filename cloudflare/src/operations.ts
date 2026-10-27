@@ -12,6 +12,7 @@ export interface OperationsEnv {
   PUBLISH_QUEUE: Queue<any>;
   GENERATION_QUEUE: Queue<any>;
   ENVIRONMENT?: string;
+  RELEASE_COMMIT?: string;
   AUTH_PEPPER?: string;
   AUTH_ALLOWED_EMAILS?: string;
   GOOGLE_CLIENT_ID?: string;
