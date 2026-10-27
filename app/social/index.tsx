@@ -142,6 +142,20 @@ export default function SocialConnectionsScreen() {
     }
   }
 
+  async function makeDefault(id: string) {
+    setWorkingId(id);
+    try {
+      await api.setDefaultSocialAccount(id);
+      await load();
+    } catch (error) {
+      Alert.alert(
+        "Unable to change default",
+        error instanceof Error ? error.message : "Try again.",
+      );
+    } finally {
+      setWorkingId("");
+    }
+  }
   async function disconnect(id: string) {
     const account = accounts.find((item) => item.id === id);
     const client = clients.find((item) => item.id === clientId);
@@ -270,6 +284,9 @@ export default function SocialConnectionsScreen() {
                         <Text style={styles.meta}>
                           {account.account_type || account.external_account_id}
                         </Text>
+                        {!!account.is_default && (
+                          <Text style={styles.meta}>Default publishing destination</Text>
+                        )}
                         <Text style={styles.meta}>{expiryLabel(account.token_expires_at)}</Text>
                         {!!account.health_checked_at && (
                           <Text style={styles.meta}>
@@ -281,13 +298,27 @@ export default function SocialConnectionsScreen() {
                         )}
                         {can("social_manage", clientId) && (
                           <View style={styles.actions}>
+                            {!account.is_default &&
+                              account.status === "connected" &&
+                              !unhealthy &&
+                              !degraded && (
+                                <Button
+                                  label="Make default"
+                                  small
+                                  secondary
+                                  onPress={workingId ? undefined : () => makeDefault(account.id)}
+                                />
+                              )}
                             <Button
                               label={workingId === account.id ? "Checking…" : "Verify"}
                               secondary
                               small
                               onPress={workingId ? undefined : () => verify(account.id)}
                             />
-                            {unhealthy && (
+                            {(unhealthy ||
+                              account.status !== "connected" ||
+                              (account.token_expires_at &&
+                                Number(account.token_expires_at) <= Date.now())) && (
                               <Button
                                 label="Reconnect"
                                 small

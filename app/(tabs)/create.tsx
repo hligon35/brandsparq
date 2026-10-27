@@ -1,7 +1,10 @@
+import { GuardedLink as Link, useUnsavedChanges } from "@/hooks/useUnsavedChanges";
+import { uploadBatch, type UploadItem } from "@/shared/upload-batch";
+import { Choices } from "@/components/forms";
 import { useCapabilities } from "@/auth/capabilities";
-import { Alert } from "@/components/feedback";
+import { Alert, confirmAction } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
-import { Link, useRouter, useLocalSearchParams } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ClientPicker } from "@/components/client-picker";
@@ -19,48 +22,137 @@ export default function CreateScreen() {
   const router = useRouter();
   const { clientId: requestedClientId } = useLocalSearchParams<{ clientId?: string }>();
   const can = useCapabilities();
-  const [clients, setClients] = useState<Client[]>([]);
-  const [clientId, setClientId] = useState("");
-  const [clientError, setClientError] = useState("");
-  const [objective, setObjective] = useState("Auto");
-  const [creationMode, setCreationMode] = useState<"social" | "campaign">("campaign");
-  const [assets, setAssets] = useState<ImagePicker.ImagePickerAsset[]>([]);
-  const [uploading, setUploading] = useState(false);
-  // Preserve the exact creation request after a lost response. Retrying this
-  // submission must not upload again or create a second campaign.
-  const pending = useRef<{
-    signature: string;
-    clientId: string;
-    objective: string;
-    assetIds: string[];
-    requestKey: string;
-  } | null>(null);
-  const submitting = useRef(false);
-  const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
+  const [clients, setClients] = useState<Client[]>([]),
+    [clientId, setClientId] = useState(""),
+    [clientError, setClientError] = useState("");
+  const [objective, setObjective] = useState("Auto"),
+    [creationMode, setCreationMode] = useState<"social" | "campaign">("campaign"),
+    [outputCount, setOutputCount] = useState(3);
+  const [items, setItems] = useState<UploadItem<ImagePicker.ImagePickerAsset>[]>([]);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const [uploading, setUploading] = useState(false),
+    [readiness, setReadiness] = useState<any>(),
+    [readinessError, setReadinessError] = useState("");
+  const [destinationIds, setDestinationIds] = useState<string[]>([]);
+  const pending = useRef<Parameters<typeof api.createContent>[0] | null>(null);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const operation = useRef(0);
+  const submitting = useRef(false),
+    loadVersion = useRef(0);
+  const [pendingCreation, setPendingCreation] = useState(false);
   const { wide } = useResponsive();
-
+  const assets = items.map((item) => item.source);
+  const uploadProgress = {
+    done: items.filter((item) => item.status === "ready").length,
+    total: items.length,
+  };
+  const draft = {
+    clientId,
+    objective,
+    creationMode,
+    outputCount,
+    destinationIds,
+    images: items.map((item) => item.key),
+  };
+  const { markSaved } = useUnsavedChanges(
+    draft,
+    !!items.length || uploading || pendingCreation,
+    () => {
+      operation.current++;
+      pending.current = null;
+      setPendingCreation(false);
+      setItems([]);
+    },
+  );
+  useEffect(() => {
+    markSaved({ ...draft, images: [] });
+  }, []);
+  const locked = uploading || pendingCreation;
   async function loadClients() {
     setClientError("");
     try {
-      const data = await api.getClients();
-      const visible = data.filter((client) => can("generate", client.id));
-      setClients(visible);
+      const rows = (await api.getClients()).filter((c) => can("generate", c.id));
+      setClients(rows);
       setClientId((current) =>
-        visible.some((client) => client.id === requestedClientId)
+        rows.some((c) => c.id === requestedClientId)
           ? requestedClientId!
-          : current || visible[0]?.id || "",
+          : current || rows[0]?.id || "",
       );
-    } catch (err) {
-      setClients([]);
-      setClientError(err instanceof Error ? err.message : "Unable to load clients.");
+    } catch (error) {
+      setClientError(error instanceof Error ? error.message : "Unable to load clients.");
     }
   }
-
   useEffect(() => {
     void loadClients();
   }, [requestedClientId]);
-
+  async function loadReadiness() {
+    const version = ++loadVersion.current;
+    setReadiness(undefined);
+    setReadinessError("");
+    if (!clientId) return;
+    try {
+      const next = (await api.getCreationReadiness(clientId)).data;
+      if (version !== loadVersion.current) return;
+      setReadiness(next);
+      setDestinationIds((current) =>
+        current.filter((id) => next.destinations.some((d: any) => d.id === id && d.ready)),
+      );
+    } catch (error) {
+      if (version === loadVersion.current)
+        setReadinessError(error instanceof Error ? error.message : "Unable to check readiness.");
+    }
+  }
+  useEffect(() => {
+    setDestinationIds([]);
+    void loadReadiness();
+    return () => {
+      loadVersion.current++;
+    };
+  }, [clientId]);
+  async function changeClient(id: string) {
+    if (locked || id === clientId) return;
+    if (
+      items.length &&
+      !(await confirmAction(
+        "Change client?",
+        "The selected images will be uploaded for the new client. Completed uploads remain with the previous client.",
+        "Change client",
+      ))
+    )
+      return;
+    setItems((current) =>
+      current.map((item) => ({
+        ...item,
+        originalId: undefined,
+        status: "pending",
+        error: undefined,
+      })),
+    );
+    setClientId(id);
+  }
+  function toggleDestination(account: any) {
+    if (locked) return;
+    setDestinationIds((current) => {
+      if (current.includes(account.id)) return current.filter((id) => id !== account.id);
+      const next =
+        creationMode === "social"
+          ? []
+          : current.filter(
+              (id) =>
+                readiness.destinations.find((d: any) => d.id === id)?.platform !== account.platform,
+            );
+      return [...next, account.id].slice(0, creationMode === "social" ? 1 : outputCount);
+    });
+  }
   async function chooseImages() {
+    if (locked) return;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
@@ -68,40 +160,57 @@ export default function CreateScreen() {
         selectionLimit: 20,
         quality: 1,
       });
-      if (!result.canceled) setAssets(result.assets);
+      if (!result.canceled)
+        setItems((current) =>
+          [
+            ...current,
+            ...result.assets
+              .filter((asset) => !current.some((item) => item.key === asset.uri))
+              .map((source) => ({ key: source.uri, source, status: "pending" as const })),
+          ].slice(0, 20),
+        );
     } catch (error) {
       Alert.alert("Unable to open photos", error instanceof Error ? error.message : "Try again.");
     }
   }
-
   async function upload() {
-    if (!clientId || !assets.length || submitting.current) return;
+    if (!clientId || !items.length || submitting.current) return;
     submitting.current = true;
-    const signature = JSON.stringify([clientId, objective, assets.map((asset) => asset.uri)]);
+    const currentOperation = ++operation.current;
     setUploading(true);
-    setUploadProgress({ done: 0, total: assets.length });
+    const snapshot = itemsRef.current,
+      selectedClient = clientId;
+    const changed = () => {
+      if (alive.current && currentOperation === operation.current) setItems([...snapshot]);
+    };
     try {
-      if (pending.current?.signature !== signature) {
-        const uploaded = new Array(assets.length);
-        let cursor = 0;
-
-        async function worker() {
-          while (true) {
-            const index = cursor++;
-            if (index >= assets.length) return;
-            const asset = assets[index];
-            const prepared = await prepareCampaignAsset(asset, index);
-            const original = await api.uploadAsset(
-              clientId,
-              asset.uri,
-              asset.fileName || `brandsparq-${Date.now()}-${index + 1}.jpg`,
-              asset.mimeType || "image/jpeg",
-              asset.width,
-              asset.height,
-            );
+      if (!pending.current) {
+        const ready = (await api.getCreationReadiness(selectedClient)).data;
+        if (
+          !ready.ready ||
+          !destinationIds.length ||
+          destinationIds.some((id) => !ready.destinations.some((d: any) => d.id === id && d.ready))
+        )
+          throw new Error(ready.blockers.join(" ") || "Choose a ready publishing destination.");
+        await uploadBatch(
+          snapshot,
+          async (item, index) => {
+            if (!item.originalId) {
+              const original = await api.uploadAsset(
+                selectedClient,
+                item.source.uri,
+                item.source.fileName || `brandsparq-${Date.now()}-${index}.jpg`,
+                item.source.mimeType || "image/jpeg",
+                item.source.width,
+                item.source.height,
+              );
+              item.originalId = original.id;
+              changed();
+            }
+            const prepared = await prepareCampaignAsset(item.source, index);
             await api.uploadAssetDerivative(
-              clientId,
-              original.id,
+              selectedClient,
+              item.originalId!,
               prepared.analysisUri,
               "analysis",
               prepared.analysisFilename,
@@ -109,46 +218,42 @@ export default function CreateScreen() {
               prepared.analysisWidth,
               prepared.analysisHeight,
             );
-            uploaded[index] = original;
-            setUploadProgress((progress) => ({
-              ...progress,
-              done: progress.done + 1,
-            }));
-          }
-        }
-
-        await Promise.all(Array.from({ length: Math.min(3, assets.length) }, () => worker()));
-
+          },
+          changed,
+        );
+        if (!alive.current || currentOperation !== operation.current) return;
         pending.current = {
-          signature,
-          clientId,
+          clientId: selectedClient,
           objective,
-          assetIds: uploaded.map((item) => item.id),
-          requestKey: `generation_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`,
+          assetIds: [...new Set(snapshot.map((item) => item.originalId!))],
+          mode: creationMode,
+          outputCount: creationMode === "social" ? 1 : outputCount,
+          destinationIds: [...destinationIds],
+          requestKey: `creation_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`,
         };
       }
-      const request = pending.current!;
-      const job = await api.createGenerationJob(
-        request.clientId,
-        request.objective,
-        request.assetIds,
-        request.requestKey,
-      );
+      if (!alive.current || currentOperation !== operation.current) return;
+      const job = await api.createContent(pending.current);
+      if (!alive.current || currentOperation !== operation.current) return;
       pending.current = null;
-      setAssets([]);
-      setUploadProgress({ done: 0, total: 0 });
+      setPendingCreation(false);
+      setItems([]);
+      markSaved({ ...draft, images: [] });
       router.push(`/generation?jobId=${job.jobId}`);
     } catch (error) {
+      if (!alive.current || currentOperation !== operation.current) return;
+      const status = (error as { status?: number })?.status;
+      if (status && status >= 400 && status < 500 && status !== 408) pending.current = null;
+      setPendingCreation(!!pending.current);
       Alert.alert(
-        "Campaign creation failed",
-        error instanceof Error ? error.message : "Unable to create campaign.",
+        "Content creation needs attention",
+        error instanceof Error ? error.message : "Try again.",
       );
     } finally {
       submitting.current = false;
       setUploading(false);
     }
   }
-
   return (
     <PageScroll>
       <PageHeader
@@ -161,7 +266,9 @@ export default function CreateScreen() {
           accessibilityRole="button"
           accessibilityLabel="Create a social post"
           accessibilityState={{ selected: creationMode === "social" }}
+          disabled={locked}
           onPress={() => {
+            setDestinationIds((current) => current.slice(0, 1));
             setCreationMode("social");
             setObjective("Auto");
           }}
@@ -175,6 +282,7 @@ export default function CreateScreen() {
           accessibilityRole="button"
           accessibilityLabel="Create a campaign"
           accessibilityState={{ selected: creationMode === "campaign" }}
+          disabled={locked}
           onPress={() => setCreationMode("campaign")}
           style={[styles.modeCard, creationMode === "campaign" && styles.modeCardSelected]}
         >
@@ -206,13 +314,81 @@ export default function CreateScreen() {
         </Card>
       ) : (
         <View style={[styles.columns, wide && styles.columnsWide]}>
-          <View style={styles.column}>
+          <View style={[styles.column, wide && { flex: 1 }]}>
             <Card>
               <SectionTitle
                 title="1. Choose client"
                 subtitle="Brand Brain rules will shape the creative."
               />
-              <ClientPicker clients={clients} value={clientId} onChange={setClientId} />
+              <ClientPicker
+                clients={clients}
+                value={clientId}
+                onChange={changeClient}
+                disabled={locked}
+              />
+            </Card>
+            <Card>
+              <SectionTitle
+                title="Publishing destinations"
+                subtitle="Choose one account per platform. Every selected platform receives at least one post."
+              />
+              {readinessError ? (
+                <>
+                  <Text style={styles.errorBody}>{readinessError}</Text>
+                  <Button label="Retry readiness check" onPress={loadReadiness} />
+                </>
+              ) : !readiness ? (
+                <Text style={styles.errorBody}>Checking readiness…</Text>
+              ) : (
+                <>
+                  {readiness.blockers.map((text: string) => (
+                    <Text key={text} style={styles.errorBody}>
+                      {text}
+                    </Text>
+                  ))}
+                  {readiness.warnings.map((text: string) => (
+                    <Text key={text} style={styles.errorBody}>
+                      {text}
+                    </Text>
+                  ))}
+                  {readiness.destinations.map((account: any) => (
+                    <Button
+                      key={account.id}
+                      label={`${destinationIds.includes(account.id) ? "✓ " : ""}${account.platform} · ${account.account_name || account.id}${account.is_default ? " · default" : ""}${!account.ready ? " · needs attention" : ""}`}
+                      secondary={!destinationIds.includes(account.id)}
+                      onPress={
+                        locked || !account.ready ? undefined : () => toggleDestination(account)
+                      }
+                    />
+                  ))}
+                  <Link href={`/clients/${clientId}/brand`} asChild>
+                    <Button label="Open Brand Brain" small secondary />
+                  </Link>
+                  <Link href={`/social?clientId=${clientId}`} asChild>
+                    <Button label="Manage destinations" small secondary />
+                  </Link>
+                  <Button
+                    label="Refresh readiness"
+                    small
+                    secondary
+                    onPress={locked ? undefined : loadReadiness}
+                  />
+                </>
+              )}
+              {creationMode === "campaign" && (
+                <>
+                  <Text style={styles.errorBody}>Number of posts</Text>
+                  <Choices
+                    values={["3", "4", "5"]}
+                    value={String(outputCount)}
+                    disabled={locked}
+                    onChange={(value) => {
+                      setOutputCount(Number(value));
+                      setDestinationIds((current) => current.slice(0, Number(value)));
+                    }}
+                  />
+                </>
+              )}
             </Card>
             <Card>
               <SectionTitle
@@ -232,6 +408,7 @@ export default function CreateScreen() {
                       key={item}
                       accessibilityRole="button"
                       accessibilityState={{ selected: active }}
+                      disabled={locked}
                       onPress={() => setObjective(item)}
                       style={[styles.chip, active && styles.chipActive]}
                     >
@@ -247,7 +424,7 @@ export default function CreateScreen() {
               </ScrollView>
             </Card>
           </View>
-          <View style={styles.column}>
+          <View style={[styles.column, wide && { flex: 1 }]}>
             <Card style={styles.assetCard}>
               <SectionTitle
                 title="3. Start with a photo"
@@ -255,25 +432,40 @@ export default function CreateScreen() {
               />
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={assets.length ? "Change images" : "Choose images"}
-                disabled={uploading}
+                accessibilityLabel={assets.length ? "Add images" : "Choose images"}
+                disabled={locked}
                 onPress={chooseImages}
                 style={styles.uploadTarget}
               >
                 <Ionicons name="images-outline" size={36} color={colors.primary} />
                 <Text style={styles.uploadTitle}>
-                  {assets.length ? "Change images" : "Start with a photo"}
+                  {assets.length ? "Add images" : "Start with a photo"}
                 </Text>
                 <Text style={styles.errorBody}>Choose up to 20 brand images</Text>
               </Pressable>
               {!!assets.length && (
                 <View style={styles.previewGrid}>
-                  {assets.map((asset) => (
-                    <Image
-                      key={asset.assetId || asset.uri}
-                      source={{ uri: asset.uri }}
-                      style={styles.preview}
-                    />
+                  {items.map((item) => (
+                    <View key={item.key} style={{ gap: 6 }}>
+                      <Image source={{ uri: item.source.uri }} style={styles.preview} />
+                      <Text style={styles.errorBody}>{item.status}</Text>
+                      {!!item.error && (
+                        <Text style={[styles.errorBody, { maxWidth: 180 }]}>{item.error}</Text>
+                      )}
+                      <Button
+                        label={`Remove ${item.source.fileName || "image"}`}
+                        small
+                        secondary
+                        onPress={
+                          locked
+                            ? undefined
+                            : () =>
+                                setItems((current) =>
+                                  current.filter((entry) => entry.key !== item.key),
+                                )
+                        }
+                      />
+                    </View>
                   ))}
                 </View>
               )}
@@ -287,9 +479,19 @@ export default function CreateScreen() {
                   label={
                     uploading
                       ? `Uploading ${uploadProgress.done}/${uploadProgress.total}…`
-                      : `Create campaign from ${assets.length} image${assets.length === 1 ? "" : "s"}`
+                      : pendingCreation
+                        ? "Retry creation request"
+                        : items.some((item) => item.status === "failed")
+                          ? "Retry failed uploads"
+                          : creationMode === "social"
+                            ? "Create social post"
+                            : `Create ${outputCount}-post campaign`
                   }
-                  onPress={uploading ? undefined : upload}
+                  onPress={
+                    uploading || (!pendingCreation && (!readiness?.ready || !destinationIds.length))
+                      ? undefined
+                      : upload
+                  }
                 />
               )}
             </Card>
@@ -333,7 +535,7 @@ const styles = StyleSheet.create({
   uploadTitle: { color: colors.text, fontSize: 20, fontWeight: "800" },
   columns: { gap: spacing.md },
   columnsWide: { flexDirection: "row", alignItems: "flex-start" },
-  column: { flex: 1, gap: spacing.md, minWidth: 0 },
+  column: { gap: spacing.md, minWidth: 0 },
   chips: { flexDirection: "row", gap: spacing.sm },
   chip: {
     backgroundColor: colors.surface2,

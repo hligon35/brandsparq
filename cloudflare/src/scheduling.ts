@@ -1,3 +1,4 @@
+import { postCampaign } from "./campaign-workflow";
 export interface SchedulingEnv {
   DB: D1Database;
 }
@@ -111,6 +112,9 @@ export async function findNextAvailableSlot(
   excludePostId?: string | null,
 ) {
   const rules = await loadRules(env, clientId);
+  const campaign = excludePostId ? await postCampaign(env, excludePostId) : null;
+  if (campaign && campaign.status !== "active")
+    throw new ScheduleUnavailable("Activate the campaign before scheduling its posts.");
   let candidate =
     desiredAt && !Number.isNaN(Date.parse(desiredAt))
       ? new Date(desiredAt)
@@ -118,9 +122,14 @@ export async function findNextAvailableSlot(
 
   // Never approve an AI suggestion or a manual date into the past.
   candidate = new Date(Math.max(candidate.getTime(), Date.now() + 60_000));
+  if (campaign?.start) candidate = new Date(Math.max(candidate.getTime(), campaign.start));
   candidate.setSeconds(0, 0);
+  if (campaign?.start && candidate.getTime() < campaign.start)
+    candidate = new Date(Math.ceil(campaign.start / 60000) * 60000);
 
   for (let attempt = 0; attempt < 14 * 24 * 4; attempt += 1) {
+    if (campaign?.end && candidate.getTime() >= campaign.end)
+      throw new ScheduleUnavailable("No publishing slot remains inside the campaign dates.");
     const local = localParts(candidate, rules.timezone);
 
     if (
@@ -165,7 +174,7 @@ export async function findNextAvailableSlot(
     candidate = new Date(candidate.getTime() + 15 * 60 * 1000);
   }
 
-  throw new Error("No available publishing slot found in the next 14 days.");
+  throw new ScheduleUnavailable("No available publishing slot found in the next 14 days.");
 }
 
 export async function validateSchedule(
@@ -186,6 +195,8 @@ export async function validateSchedule(
 // D1 batches are transactional. Reserve against the calendar epoch read BEFORE
 // selecting a slot; a concurrent winner forces a fresh selection. Post state and
 // publish version are checked independently so a publisher or another edit wins.
+class ScheduleUnavailable extends Error {}
+
 export async function reserveSchedule(
   env: SchedulingEnv,
   postId: string,
@@ -206,7 +217,15 @@ export async function reserveSchedule(
       .bind(input.clientId)
       .first<{ schedule_revision: number }>();
     if (!calendar) return null;
-    const scheduledAt = await findNextAvailableSlot(env, input.clientId, input.desiredAt, postId);
+    const campaign = await postCampaign(env, postId);
+    if (campaign && campaign.status !== "active") return null;
+    let scheduledAt: string;
+    try {
+      scheduledAt = await findNextAvailableSlot(env, input.clientId, input.desiredAt, postId);
+    } catch (error) {
+      if (error instanceof ScheduleUnavailable) return null;
+      throw error;
+    }
     const token = crypto.randomUUID();
     const now = new Date().toISOString();
     const approving = !!input.decision;
@@ -218,6 +237,7 @@ export async function reserveSchedule(
         publish_version=publish_version+1,updated_at=?
         WHERE id=? AND client_id=? AND status=? AND publish_version=?
           AND platform_post_id IS NULL AND (status!='paused' OR approved_at IS NOT NULL)
+          AND (? IS NULL OR EXISTS(SELECT 1 FROM campaigns ca WHERE ca.id=posts.campaign_id AND ca.id=? AND ca.status='active' AND ca.workflow_revision=?))
           AND EXISTS (SELECT 1 FROM clients c WHERE c.id=posts.client_id AND c.status='active' AND c.schedule_revision=?)
           AND NOT EXISTS (SELECT 1 FROM publish_jobs j WHERE j.post_id=posts.id AND j.status='publishing')
           AND (? IS NULL OR EXISTS (SELECT 1 FROM review_tokens rt WHERE rt.id=? AND rt.post_id=posts.id
@@ -235,6 +255,9 @@ export async function reserveSchedule(
         input.clientId,
         input.status,
         input.publishVersion,
+        campaign?.id || null,
+        campaign?.id || null,
+        campaign?.workflow_revision ?? null,
         calendar.schedule_revision,
         input.reviewTokenId || null,
         input.reviewTokenId || null,

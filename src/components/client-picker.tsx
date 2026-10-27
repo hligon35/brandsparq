@@ -18,10 +18,12 @@ export function ClientPicker({
   clients,
   value,
   onChange,
+  disabled = false,
 }: {
   clients: Client[];
   value: string;
   onChange(id: string): void;
+  disabled?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState("");
@@ -31,7 +33,8 @@ export function ClientPicker({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Select client: ${selected?.name || "Choose client"}`}
-        accessibilityState={{ expanded }}
+        accessibilityState={{ expanded, disabled }}
+        disabled={disabled}
         onPress={() => {
           setQuery("");
           setExpanded(true);

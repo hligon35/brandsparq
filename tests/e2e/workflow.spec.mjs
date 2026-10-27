@@ -549,7 +549,7 @@ test("campaign edits are protected when opening a post and using back navigation
   await page.goto("/campaigns");
   await page.getByRole("link").filter({ hasText: "Community campaign" }).click();
   await page.getByLabel("Notes", { exact: true }).fill("Keep this unsaved note");
-  await page.getByRole("button", { name: "Open post", exact: true }).click();
+  await page.getByRole("link", { name: "Open post", exact: true }).click();
   await page.getByRole("button", { name: "Keep editing", exact: true }).click();
   await expect(page.getByLabel("Notes", { exact: true })).toHaveValue("Keep this unsaved note");
   await page.getByRole("link", { name: /back$/i }).first().click();
@@ -722,3 +722,121 @@ for (const outcome of ["Published", "Verified absent"])
       fullPage: true,
     });
   });
+
+const creationImage = {
+  name: "creation.png",
+  mimeType: "image/png",
+  buffer: Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jh18AAAAASUVORK5CYII=",
+    "base64",
+  ),
+};
+async function chooseCreationImage(page) {
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Choose images", exact: true }).click();
+  await (await chooser).setFiles(creationImage);
+  await expect(
+    page.getByRole("button", { name: "Remove creation.png", exact: true }),
+  ).toBeVisible();
+}
+for (const mode of ["social", "campaign"])
+  test(`creation submits the ${mode} contract with selected destination and output count`, async ({
+    page,
+    request,
+  }) => {
+    await signIn(page);
+    await page.goto("/create");
+    if (mode === "social")
+      await page.getByRole("button", { name: "Create a social post", exact: true }).click();
+    else await page.getByRole("button", { name: "4", exact: true }).click();
+    await page.getByRole("button", { name: "facebook · Test Facebook Page", exact: true }).click();
+    await chooseCreationImage(page);
+    await page
+      .getByRole("button", {
+        name: mode === "social" ? "Create social post" : "Create 4-post campaign",
+        exact: true,
+      })
+      .click();
+    await expect(page).toHaveURL(/generation\?jobId=/);
+    const state = await (await request.post("/__test/state")).json();
+    const job = state.generationJobs.find((job) => job.creation_options);
+    expect(JSON.parse(job.creation_options).mode).toBe(mode);
+    expect(JSON.parse(job.creation_options).outputCount).toBe(mode === "social" ? 1 : 4);
+    expect(JSON.parse(job.creation_options).destinations[0].id).toBe("fixture-social");
+  });
+
+test("lost creation response retries the same durable request without another job", async ({
+  page,
+  request,
+}) => {
+  await signIn(page);
+  await page.goto("/create");
+  await page.getByRole("button", { name: "Create a social post", exact: true }).click();
+  await page.getByRole("button", { name: "facebook · Test Facebook Page", exact: true }).click();
+  await chooseCreationImage(page);
+  const submissions = [];
+  await page.route("**/v1/creation-jobs", async (route) => {
+    submissions.push(route.request().postDataJSON());
+    if (submissions.length === 1) {
+      await route.fetch();
+      await route.abort("failed");
+    } else await route.continue();
+  });
+  await page.getByRole("button", { name: "Create social post", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Close message", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close message", exact: true }).click();
+  await page.getByRole("button", { name: "Retry creation request", exact: true }).click();
+  await expect(page).toHaveURL(/generation\?jobId=/);
+  expect(submissions).toHaveLength(2);
+  expect(submissions[0]).toEqual(submissions[1]);
+  const state = await (await request.post("/__test/state")).json();
+  expect(state.generationJobs.filter((job) => job.creation_options)).toHaveLength(1);
+});
+
+test("a requested generation job remains visible outside the recent fifty jobs", async ({
+  page,
+  request,
+}) => {
+  await signIn(page);
+  await request.post("/__test/old-generation");
+  await page.goto("/generation?jobId=fixture-generation");
+  await expect(page.getByText("Fixture generation failure", { exact: true })).toBeVisible();
+});
+
+test("published posts expose their status without enabled delivery actions", async ({
+  page,
+  request,
+}) => {
+  await signIn(page);
+  await request.post("/__test/published");
+  await page.goto("/posts/fixture-post/publish");
+  await expect(page.getByText("This post is already published.", { exact: true })).toBeVisible();
+  for (const name of ["Keep schedule", "Publish now", "Reschedule"])
+    await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
+});
+
+test("campaign delivery actions report eligible changes and preserve post navigation", async ({
+  page,
+  request,
+}) => {
+  await signIn(page);
+  await page.goto("/campaigns/fixture-campaign");
+  await page.getByRole("button", { name: "Approve ready posts", exact: true }).click();
+  await page.getByRole("button", { name: "Apply action", exact: true }).click();
+  await expect(page.getByText("1 updated · 0 skipped or failed", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Pause scheduled posts", exact: true }).click();
+  await page.getByRole("button", { name: "Apply action", exact: true }).click();
+  await expect
+    .poll(async () => (await (await request.post("/__test/state")).json()).post.status)
+    .toBe("paused");
+  await page.getByRole("button", { name: "Resume approved paused posts", exact: true }).click();
+  await page.getByRole("button", { name: "Apply action", exact: true }).click();
+  await expect
+    .poll(async () => (await (await request.post("/__test/state")).json()).post.status)
+    .toBe("calendar_scheduled");
+  await expect(
+    page.getByRole("button", { name: "Resume approved paused posts", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("link", { name: "Open post", exact: true }).click();
+  await expect(page).toHaveURL(/posts\/fixture-post$/);
+});

@@ -1425,7 +1425,7 @@ export async function resolveDefaultSocialAccount(
   const preferred = await env.DB.prepare(
     `SELECT id, account_name
      FROM social_accounts
-     WHERE client_id = ? AND platform = ? AND status = 'connected'
+     WHERE client_id = ? AND platform = ? AND status = 'connected' AND COALESCE(health_status,'healthy') NOT IN ('reauth_required','degraded','disconnected') AND (token_expires_at IS NULL OR token_expires_at>unixepoch('now')*1000)
      ORDER BY is_default DESC, created_at ASC
      LIMIT 2`,
   )
@@ -1437,7 +1437,7 @@ export async function resolveDefaultSocialAccount(
   const explicitDefault = await env.DB.prepare(
     `SELECT id, account_name
      FROM social_accounts
-     WHERE client_id = ? AND platform = ? AND status = 'connected' AND is_default = 1
+     WHERE client_id = ? AND platform = ? AND status = 'connected' AND COALESCE(health_status,'healthy') NOT IN ('reauth_required','degraded','disconnected') AND (token_expires_at IS NULL OR token_expires_at>unixepoch('now')*1000) AND is_default = 1
      LIMIT 1`,
   )
     .bind(clientId, platform)
@@ -1461,12 +1461,12 @@ export async function ensurePostSocialDestination(
     const assigned = await env.DB.prepare(
       `SELECT id, account_name
        FROM social_accounts
-       WHERE id = ? AND client_id = ? AND platform = ? AND status = 'connected'`,
+       WHERE id = ? AND client_id = ? AND platform = ? AND status = 'connected' AND COALESCE(health_status,'healthy') NOT IN ('reauth_required','degraded','disconnected') AND (token_expires_at IS NULL OR token_expires_at>unixepoch('now')*1000)`,
     )
       .bind(post.social_account_id, post.client_id, post.platform)
       .first<{ id: string; account_name: string | null }>();
 
-    if (assigned) return assigned;
+    return assigned;
   }
 
   const fallback = await resolveDefaultSocialAccount(env, post.client_id, post.platform);

@@ -1,6 +1,6 @@
 import { IconButton } from "@/components/icon-button";
 import { Link, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { api } from "@/api/client";
 import { useCapabilities } from "@/auth/capabilities";
@@ -14,11 +14,23 @@ export default function GenerationScreen() {
   const [error, setError] = useState("");
   const [working, setWorking] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const loadVersion = useRef(0);
   async function load() {
+    const version = ++loadVersion.current;
     try {
-      setJobs((await api.getGenerationJobs()).data);
+      const [list, requested] = await Promise.all([
+        api.getGenerationJobs(),
+        jobId ? api.getGenerationJob(jobId) : Promise.resolve(null),
+      ]);
+      if (version !== loadVersion.current) return;
+      setJobs(
+        requested
+          ? [requested.data, ...list.data.filter((job) => job.id !== requested.data.id)]
+          : list.data,
+      );
       setError("");
     } catch (e) {
+      if (version !== loadVersion.current) return;
       setError(e instanceof Error ? e.message : "Unable to load generation.");
     } finally {
       setLoaded(true);
@@ -28,8 +40,11 @@ export default function GenerationScreen() {
     useCallback(() => {
       void load();
       const timer = setInterval(() => void load(), 5000);
-      return () => clearInterval(timer);
-    }, []),
+      return () => {
+        loadVersion.current++;
+        clearInterval(timer);
+      };
+    }, [jobId]),
   );
   async function action(id: string, kind: "retry" | "cancel") {
     setWorking(id);
@@ -70,6 +85,13 @@ export default function GenerationScreen() {
               <StatusBadge label={job.status} />
               <Text style={styles.text}>{job.client_name}</Text>
             </View>
+            <Text style={styles.text}>
+              {job.creation_options
+                ? JSON.parse(job.creation_options).mode === "social"
+                  ? "Single social post"
+                  : `${JSON.parse(job.creation_options).outputCount}-post campaign`
+                : "Campaign"}
+            </Text>
             <Text style={styles.text}>Stage: {job.stage || "queued"}</Text>
             <Text style={styles.text}>
               Graphics: {job.graphics_completed} of {job.graphics_total} complete ·{" "}
@@ -77,6 +99,13 @@ export default function GenerationScreen() {
             </Text>
             {!!job.error_message && <Text style={styles.error}>{job.error_message}</Text>}
             <View style={styles.row}>
+              {!job.campaign_id &&
+                job.post_ids &&
+                JSON.parse(job.post_ids).map((id: string) => (
+                  <Link key={id} href={`/posts/${id}`} asChild>
+                    <Button label="Open social post" secondary small />
+                  </Link>
+                ))}
               {job.campaign_id && (
                 <Link href={`/campaigns/${job.campaign_id}`} asChild>
                   <Button label="Open campaign" secondary small />

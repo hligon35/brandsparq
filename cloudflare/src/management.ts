@@ -1,3 +1,4 @@
+import { campaignBoundary, validCampaignDate } from "./campaign-workflow";
 import { validateSettings } from "./settings-validation";
 import { handleProfile } from "./profile";
 import type { SessionUser } from "./auth";
@@ -109,7 +110,7 @@ export async function handleManagementRoute(
            FROM campaigns c
            LEFT JOIN posts p ON p.campaign_id = c.id
            WHERE c.client_id = ?
-           GROUP BY c.id ORDER BY c.created_at DESC`,
+           GROUP BY c.id ORDER BY c.priority DESC,c.created_at DESC`,
         )
           .bind(clientId)
           .all()
@@ -122,7 +123,7 @@ export async function handleManagementRoute(
            FROM campaigns c
            JOIN clients cl ON cl.id = c.client_id
            LEFT JOIN posts p ON p.campaign_id = c.id
-           GROUP BY c.id ORDER BY c.created_at DESC`,
+           GROUP BY c.id ORDER BY c.priority DESC,c.created_at DESC`,
         ).all();
     const visible =
       allowedClients === null || clientId
@@ -155,7 +156,9 @@ export async function handleManagementRoute(
   }
 
   if (campaignMatch && request.method === "POST") {
-    const campaign = await env.DB.prepare("SELECT * FROM campaigns WHERE id = ?")
+    const campaign = await env.DB.prepare(
+      "SELECT c.*,cl.timezone FROM campaigns c JOIN clients cl ON cl.id=c.client_id WHERE c.id = ?",
+    )
       .bind(campaignMatch[1])
       .first<any>();
     if (!campaign) return { body: { error: "Campaign not found." }, status: 404 };
@@ -182,9 +185,12 @@ export async function handleManagementRoute(
       !Number.isInteger(priority) ||
       priority < 0 ||
       priority > 100 ||
-      (start && !Number.isFinite(Date.parse(start))) ||
-      (end && !Number.isFinite(Date.parse(end))) ||
-      (start && end && Date.parse(end) < Date.parse(start))
+      (start && !validCampaignDate(start)) ||
+      (end && !validCampaignDate(end)) ||
+      (start &&
+        end &&
+        campaignBoundary(end, campaign.timezone, true)! <=
+          campaignBoundary(start, campaign.timezone)!)
     )
       return {
         body: { error: "Check the campaign name, status, priority (0–100), and start/end dates." },
@@ -195,10 +201,10 @@ export async function handleManagementRoute(
       (payload.objective !== undefined && typeof payload.objective !== "string")
     )
       return { body: { error: "Objective and notes must be text." }, status: 400 };
-    await env.DB.prepare(
-      "UPDATE campaigns SET name=?,objective=?,status=?,starts_at=?,ends_at=?,priority=?,notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-    )
-      .bind(
+    const [updated] = await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE campaigns SET name=?,objective=?,status=?,starts_at=?,ends_at=?,priority=?,notes=?,workflow_revision=workflow_revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND workflow_revision=?",
+      ).bind(
         name,
         (payload.objective ?? campaign.objective ?? "").slice(0, 2000),
         status,
@@ -207,8 +213,17 @@ export async function handleManagementRoute(
         priority,
         (payload.notes ?? campaign.notes ?? "").slice(0, 10000),
         campaignMatch[1],
-      )
-      .run();
+        campaign.workflow_revision,
+      ),
+      env.DB.prepare("UPDATE clients SET schedule_revision=schedule_revision+1 WHERE id=?").bind(
+        campaign.client_id,
+      ),
+    ]);
+    if (!updated.meta.changes)
+      return {
+        body: { error: "Campaign changed while saving. Reload before editing again." },
+        status: 409,
+      };
     return { body: { ok: true } };
   }
 
@@ -275,6 +290,29 @@ export async function handleManagementRoute(
         status: 400,
       };
     }
+  }
+
+  const defaultMatch = url.pathname.match(/^\/v1\/social\/accounts\/([^/]+)\/default$/);
+  if (defaultMatch && request.method === "POST") {
+    const account = await env.DB.prepare("SELECT * FROM social_accounts WHERE id=?")
+      .bind(defaultMatch[1])
+      .first<any>();
+    if (!account) return { body: { error: "Social account not found." }, status: 404 };
+    const denied = await authorize(env, user, "social_manage", account.client_id);
+    if (denied) return { body: { error: denied }, status: 403 };
+    const result =
+      await env.DB.prepare(`UPDATE social_accounts SET is_default=CASE WHEN id=? THEN 1 ELSE 0 END,updated_at=CURRENT_TIMESTAMP
+      WHERE client_id=? AND platform=? AND EXISTS(SELECT 1 FROM social_accounts chosen WHERE chosen.id=? AND chosen.status='connected'
+        AND COALESCE(chosen.health_status,'healthy') NOT IN ('reauth_required','disconnected','degraded')
+        AND (chosen.token_expires_at IS NULL OR chosen.token_expires_at>?))`)
+        .bind(account.id, account.client_id, account.platform, account.id, Date.now())
+        .run();
+    return result.meta.changes
+      ? { body: { ok: true } }
+      : {
+          body: { error: "Reconnect or verify this account before making it the default." },
+          status: 409,
+        };
   }
 
   const verifyMatch = url.pathname.match(/^\/v1\/social\/accounts\/([^/]+)\/verify$/);

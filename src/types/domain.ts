@@ -66,6 +66,7 @@ export interface MarketingPost {
   prepublishResponse?: PrePublishDecision;
   socialAccountId?: string;
   socialAccountName?: string;
+  publishBlockReason?: string;
 }
 
 export interface NotificationDelivery {

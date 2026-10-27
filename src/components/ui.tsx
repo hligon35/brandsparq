@@ -100,6 +100,7 @@ export function Button({
   danger = false,
   small = false,
   style,
+  ...pressableProps
 }: {
   label: string;
   onPress?: () => void;
@@ -110,6 +111,7 @@ export function Button({
 }) {
   return (
     <Pressable
+      {...pressableProps}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: !onPress }}

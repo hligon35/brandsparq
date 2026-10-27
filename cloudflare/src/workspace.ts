@@ -31,7 +31,7 @@ export async function handleWorkspaceRoute(
   );
   if (generation && request.method === "GET") {
     const rows =
-      await env.DB.prepare(`SELECT g.id,g.client_id,c.name AS client_name,c.status AS client_status,g.status,g.stage,g.error_message,g.campaign_id,g.created_at,g.completed_at,
+      await env.DB.prepare(`SELECT g.id,g.client_id,c.name AS client_name,c.status AS client_status,g.status,g.stage,g.error_message,g.campaign_id,g.post_ids,g.creation_options,g.created_at,g.completed_at,
     (SELECT COUNT(*) FROM graphic_jobs WHERE generation_job_id=g.id) AS graphics_total,
     (SELECT COUNT(*) FROM graphic_jobs WHERE generation_job_id=g.id AND status='completed') AS graphics_completed,
     (SELECT COUNT(*) FROM graphic_jobs WHERE generation_job_id=g.id AND status='failed') AS graphics_failed
