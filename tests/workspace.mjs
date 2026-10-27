@@ -5,15 +5,18 @@ import worker from "../cloudflare/src/index.ts";
 
 export const digest = (value) => createHash("sha256").update(value).digest("hex");
 
+// Every fixture still applies every migration to a fresh database. Read the
+// immutable source SQL once per process rather than on every HTTP reset.
+const migrations = new URL("../cloudflare/migrations/", import.meta.url);
+const migrationSql = readdirSync(migrations)
+  .filter((name) => name.endsWith(".sql"))
+  .sort()
+  .map((name) => readFileSync(new URL(name, migrations), "utf8"));
+
 export function workspace(t) {
   const sqlite = new DatabaseSync(":memory:");
   t.after(() => sqlite.close());
-  const migrations = new URL("../cloudflare/migrations/", import.meta.url);
-  for (const name of readdirSync(migrations)
-    .filter((name) => name.endsWith(".sql"))
-    .sort()) {
-    sqlite.exec(readFileSync(new URL(name, migrations), "utf8"));
-  }
+  for (const sql of migrationSql) sqlite.exec(sql);
   const prepare = (sql, values = []) => ({
     bind(...args) {
       return prepare(sql, args);

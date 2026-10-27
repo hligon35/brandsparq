@@ -142,4 +142,17 @@ test("staging deploy forces same-origin API configuration and validates before d
   commitFixture();
   assert.throws(() => execFileSync(process.execPath, [script], { cwd: dir, env, stdio: "pipe" }));
   assert.deepEqual(JSON.parse(readFileSync(log, "utf8")), ["run", "validate"]);
+  writeFileSync(log, "");
+  writeFileSync(
+    fakeCli,
+    `require('node:fs').appendFileSync(${JSON.stringify(log)},JSON.stringify(process.argv.slice(2))+'\\n');require('node:fs').appendFileSync('cloudflare/wrangler.toml','\\n# changed during validation\\n');`,
+  );
+  commitFixture();
+  assert.throws(
+    () => execFileSync(process.execPath, [script], { cwd: dir, env, stdio: "pipe" }),
+    /source changed/,
+  );
+  assert.deepEqual(readFileSync(log, "utf8").trim().split("\n").map(JSON.parse), [
+    ["run", "validate"],
+  ]);
 });

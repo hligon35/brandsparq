@@ -192,7 +192,9 @@ test("Forge patch retains Expo signing compatibility and regressions are not all
     () =>
       assessAudit(
         {
-          metadata: { vulnerabilities: { high: 1 } },
+          metadata: {
+            vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0, total: 1 },
+          },
           vulnerabilities: {
             forge: {
               name: "node-forge",

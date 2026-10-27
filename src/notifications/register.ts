@@ -1,12 +1,13 @@
-import { rememberPushToken } from "./device";
+import { registerAndRememberPushToken } from "./device";
 import { Platform } from "react-native";
-import { api } from "@/api/client";
+import { capturePushRegistration } from "@/api/client";
 
 export async function registerThisDeviceForPush() {
   if (Platform.OS === "web") {
     throw new Error("Push registration is available in the installed iOS or Android app.");
   }
 
+  const registration = capturePushRegistration();
   const Notifications = await import("expo-notifications");
   const ConstantsModule = await import("expo-constants");
   const Constants = ConstantsModule.default;
@@ -40,7 +41,10 @@ export async function registerThisDeviceForPush() {
 
   const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
 
-  await api.registerPushToken(token, Platform.OS);
-  await rememberPushToken(token);
+  await registerAndRememberPushToken(
+    token,
+    (value) => registration.register(value, Platform.OS),
+    registration.isCurrent,
+  );
   return token;
 }

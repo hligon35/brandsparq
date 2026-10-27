@@ -1,16 +1,22 @@
+import { createDeviceRegistrationStore } from "./device-store";
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { api } from "@/api/client";
 const key = "brandsparq_push_device";
-export async function rememberPushToken(token: string) {
-  if (Platform.OS !== "web") await SecureStore.setItemAsync(key, token);
+const device = createDeviceRegistrationStore({
+  read: () => SecureStore.getItemAsync(key),
+  write: (token) => SecureStore.setItemAsync(key, token),
+  remove: () => SecureStore.deleteItemAsync(key),
+});
+export function registerAndRememberPushToken(
+  token: string,
+  register: (token: string) => Promise<unknown>,
+  isCurrent: () => boolean,
+) {
+  return device.register(token, register, isCurrent);
 }
-export async function unregisterThisDevice() {
-  if (Platform.OS === "web") return;
-  const token = await SecureStore.getItemAsync(key);
-  try {
-    if (token) await api.unregisterPushToken(token);
-  } finally {
-    await SecureStore.deleteItemAsync(key);
-  }
+export function unregisterThisDevice(
+  unregister: (token: string) => Promise<unknown> = api.unregisterPushToken,
+) {
+  return Platform.OS === "web" ? Promise.resolve() : device.unregister(unregister);
 }

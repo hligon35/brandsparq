@@ -1,3 +1,4 @@
+import { verifyCheckout } from "./lib/checkout.mjs";
 import { spawnSync, execFileSync } from "node:child_process";
 import "./staging-config.mjs";
 
@@ -15,6 +16,7 @@ for (const args of [
   ["run", "validate"],
   ["--prefix", "cloudflare", "run", "deploy:staging", "--", "--var", `RELEASE_COMMIT:${commit}`],
 ]) {
+  if (args.includes("deploy:staging")) verifyCheckout(commit);
   const result = spawnSync(process.execPath, [npmCli, ...args], { env, stdio: "inherit" });
   if (result.error) throw result.error;
   if (result.status !== 0) {

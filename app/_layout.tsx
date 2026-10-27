@@ -27,8 +27,11 @@ export default function RootLayout() {
 function RootNavigator() {
   const { user } = useAuth();
   const segments = useSegments();
+  const publicReview = segments.join("/") === "review/[token]";
   const secondary =
-    !!user && !["(tabs)", "login", "invite", "review", "+not-found"].includes(segments[0] || "");
+    !!user &&
+    !publicReview &&
+    !["(tabs)", "login", "invite", "+not-found"].includes(segments[0] || "");
   return (
     <>
       <StatusBar style="dark" />
@@ -50,6 +53,7 @@ function RootNavigator() {
           <Stack.Protected guard={!!user}>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="profile/index" options={{ title: "Profile" }} />
+            <Stack.Screen name="review/index" options={{ title: "Review" }} />
 
             <Stack.Screen name="generation/index" options={{ title: "Generation progress" }} />
             <Stack.Screen name="paused/index" options={{ title: "Paused content" }} />

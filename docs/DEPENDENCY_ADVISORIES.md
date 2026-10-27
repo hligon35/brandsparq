@@ -26,3 +26,17 @@ a changed affected leaf version, registry failure or expiry. A baseline pass doe
 not mean a clean root security audit. `-- --release` additionally requires valid
 version 2 release evidence and the explicit owner's decision, mitigations and
 next review date in the referenced private report. No owner decision was invented.
+
+## Code follow-up
+
+The Zod 4.6.6 override was evaluated and reverted after inspecting Expo's MCP
+transport: `@expo/mcp-tunnel` 0.2.3 combines CLI schemas with Zod 3 and uses
+`zod-to-json-schema` to serialize them. A major CLI override is not compatible
+with that optional path. No compatible published v3 patch was found.
+
+The audit gate now rejects incomplete advisory chains and inconsistent totals.
+Release evidence requires one explicit disposition per unresolved advisory, with
+`advisoryId`, `package`, `version`, `decision`, `approvedBy`, `recordedAt`,
+`nextReviewAt` and nonempty `mitigations`. The next review must be future, within
+seven days and before the November 8 review expiry. A boolean owner flag alone
+cannot authorize release. No actual owner risk decision has been recorded.

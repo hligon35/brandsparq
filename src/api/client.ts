@@ -1,3 +1,4 @@
+import { createApiTransport, readResponse } from "./transport";
 import * as ImageManipulator from "expo-image-manipulator";
 import { imageUploadType } from "@/shared/image-upload";
 import type { PilotConfiguration, PilotOverview } from "@/shared/pilot";
@@ -21,16 +22,9 @@ const API_URL =
     : (configuredApiUrl ??
       (Platform.OS === "web" ? "" : __DEV__ ? "http://localhost:8787" : PRODUCTION_API_URL));
 
-let sessionToken: string | null = null;
-let unauthorizedHandler: (() => void | Promise<void>) | null = null;
-
-export function setUnauthorizedHandler(handler: (() => void | Promise<void>) | null) {
-  unauthorizedHandler = handler;
-}
-
-export function setApiSessionToken(token: string | null) {
-  sessionToken = token;
-}
+const transport = createApiTransport(API_URL);
+export const setUnauthorizedHandler = transport.setUnauthorizedHandler;
+export const setApiSessionToken = transport.setToken;
 
 type AuthUser = {
   id: string;
@@ -91,60 +85,42 @@ function mapPost(row: ApiPost): MarketingPost {
   };
 }
 
-function authHeaders(extra?: HeadersInit): Headers {
-  const headers = new Headers(extra);
-  if (sessionToken) headers.set("authorization", `Bearer ${sessionToken}`);
-  return headers;
+const authHeaders = transport.headers;
+const jsonRequest = transport.json;
+// Cleanup requests retain the departing session even if another account signs in.
+export function captureSessionCleanup() {
+  const headers = authHeaders();
+  return {
+    signOut: () => jsonRequest("/v1/auth/logout", { method: "POST", headers }),
+    unregisterPushToken: (token: string) =>
+      jsonRequest("/v1/push-token/unregister", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ token }),
+      }),
+  };
 }
 
-const REQUEST_TIMEOUT_MS = 15_000;
-
-async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    return await fetch(input, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
+export function capturePushRegistration() {
+  const session = transport.captureSession();
+  return {
+    isCurrent: session.isCurrent,
+    register: (token: string, platform: string) => {
+      if (!session.isCurrent())
+        throw new Error("Your sign-in changed. Enable push notifications again.");
+      return jsonRequest("/v1/push-token", {
+        method: "POST",
+        headers: session.headers,
+        body: JSON.stringify({ token, platform }),
+      });
+    },
+  };
 }
-
-async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = authHeaders(init?.headers);
-  if (init?.body && !(init.body instanceof FormData)) {
-    headers.set("content-type", "application/json");
-  }
-
-  const method = (init?.method || "GET").toUpperCase();
-  let response: Response;
-  try {
-    response = await fetchWithTimeout(`${API_URL}${path}`, {
-      ...init,
-      headers,
-    });
-  } catch (error) {
-    if (method !== "GET") throw error;
-    response = await fetchWithTimeout(`${API_URL}${path}`, {
-      ...init,
-      headers,
-    });
-  }
-
-  if (!response.ok) {
-    if (response.status === 401 && unauthorizedHandler) {
-      await unauthorizedHandler();
-    }
-    const payload = await response.json().catch(() => null);
-    throw Object.assign(
-      new Error(
-        (payload as { error?: string } | null)?.error ?? `Request failed: ${response.status}`,
-      ),
-      { status: response.status },
-    );
-  }
-
-  return response.json() as Promise<T>;
-}
+const sourceBlob = (uri: string) =>
+  readResponse(uri, undefined, async (response) => {
+    if (!response.ok) throw new Error("Unable to read this image. Please choose it again.");
+    return response.blob();
+  });
 
 export const api = {
   getProfile: () =>
@@ -239,7 +215,8 @@ export const api = {
       body: JSON.stringify({ handoff }),
     }),
 
-  getSession: () => jsonRequest<{ user: AuthUser }>("/v1/auth/session"),
+  getSession: () =>
+    jsonRequest<{ user: AuthUser }>("/v1/auth/session", undefined, { timeoutMs: 8000, retries: 0 }),
 
   signOut: () => jsonRequest<{ ok: true }>("/v1/auth/logout", { method: "POST" }),
 
@@ -675,8 +652,7 @@ export const api = {
     width?: number,
     height?: number,
   ) {
-    const source = await fetchWithTimeout(uri);
-    const blob = await source.blob();
+    const blob = await sourceBlob(uri);
     const headers = authHeaders({
       "content-type": imageUploadType(blob.type, contentType),
       "x-client-id": clientId,
@@ -686,21 +662,14 @@ export const api = {
       ...(height ? { "x-image-height": String(height) } : {}),
     });
 
-    const response = await fetch(`${API_URL}/v1/assets/${encodeURIComponent(assetId)}/derivative`, {
-      method: "POST",
-      headers,
-      body: blob,
-    });
-
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      throw new Error(
-        (payload as { error?: string } | null)?.error ??
-          `Derivative upload failed: ${response.status}`,
-      );
-    }
-
-    return response.json() as Promise<{ ok: true; id: string }>;
+    return jsonRequest<{ ok: true; id: string }>(
+      `/v1/assets/${encodeURIComponent(assetId)}/derivative`,
+      {
+        method: "POST",
+        headers,
+        body: blob,
+      },
+    );
   },
 
   async uploadAsset(
@@ -720,8 +689,7 @@ export const api = {
       contentType = "image/jpeg";
       filename = filename.replace(/\.[^.]+$/, "") + ".jpg";
     }
-    const source = await fetchWithTimeout(uri);
-    const blob = await source.blob();
+    const blob = await sourceBlob(uri);
     const headers = authHeaders({
       "content-type": imageUploadType(blob.type, contentType),
       "x-client-id": clientId,
@@ -730,20 +698,12 @@ export const api = {
       ...(height ? { "x-image-height": String(height) } : {}),
     });
 
-    const response = await fetchWithTimeout(`${API_URL}/v1/assets`, {
+    const result = await jsonRequest<{ data: Asset }>("/v1/assets", {
       method: "POST",
       headers,
       body: blob,
     });
 
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      throw new Error(
-        (payload as { error?: string } | null)?.error ?? `Upload failed: ${response.status}`,
-      );
-    }
-
-    const result = (await response.json()) as { data: Asset };
     return result.data;
   },
 };

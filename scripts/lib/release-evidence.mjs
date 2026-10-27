@@ -1,3 +1,8 @@
+import { readFileSync } from "node:fs";
+import { requiredDispositions, verifyAdvisoryDispositions } from "./dependency-disposition.mjs";
+const requiredAdvisories = requiredDispositions(
+  JSON.parse(readFileSync(new URL("../../package-lock.json", import.meta.url), "utf8")),
+);
 import { verifyAcceptanceMatrix } from "./acceptance-matrix.mjs";
 export const RELEASE_GATES = [
   "ci",
@@ -75,6 +80,7 @@ export function verifyReleaseEvidence(report, { commit, now = Date.now() }) {
   if (report.gates.advisories.ownerAccepted !== true)
     throw new Error("Dependency disposition requires the release owner's recorded decision.");
   verifyAcceptanceMatrix(report, { now });
+  verifyAdvisoryDispositions(report.gates.advisories, requiredAdvisories, { now });
   return {
     releaseCommit: commit,
     operator: report.operator,

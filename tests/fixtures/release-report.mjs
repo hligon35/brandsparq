@@ -69,5 +69,17 @@ export function accepted() {
     corruptObjects: 0,
     foreignKeysVerified: true,
   });
+  report.gates.advisories.dispositions = [
+    {
+      advisoryId: "GHSA-mrhx-c7xc-m3w5",
+      package: "zod",
+      version: "3.25.76",
+      decision: "accepted",
+      approvedBy: "Fixture owner",
+      recordedAt: new Date().toISOString(),
+      nextReviewAt: new Date(Date.now() + 86400000).toISOString(),
+      mitigations: ["Fixture-only owner decision; no actual release authorization."],
+    },
+  ];
   return report;
 }
