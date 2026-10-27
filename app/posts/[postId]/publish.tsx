@@ -1,3 +1,4 @@
+import { publishActions } from "@/shared/publish-actions";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
@@ -85,6 +86,7 @@ export default function PublishDecisionScreen() {
     }
   }
 
+  const actions = publishActions(post);
   return (
     <PageScroll>
       <PageHeader
@@ -107,31 +109,57 @@ export default function PublishDecisionScreen() {
         <Text style={styles.sub}>{post.title}</Text>
       </Card>
 
+      <Card subtle>
+        <Text style={styles.sub}>{actions.message}</Text>
+      </Card>
       <View style={[styles.actions, wide && styles.actionsWide]}>
-        <View style={styles.action}>
+        {actions.keep && can("calendar_manage", post.clientId) && (
           <Button
             label={working ? "Updating…" : "Keep schedule"}
-            onPress={working || !can("calendar_manage", post.clientId) ? undefined : keep}
+            onPress={working ? undefined : keep}
           />
-        </View>
-        <View style={styles.action}>
+        )}
+        {actions.resume && can("calendar_manage", post.clientId) && (
+          <Button
+            label="Resume schedule"
+            onPress={
+              working
+                ? undefined
+                : async () => {
+                    setWorking(true);
+                    try {
+                      await api.pausedAction(post.id, "resume");
+                      await load();
+                    } catch (error) {
+                      Alert.alert(
+                        "Unable to resume",
+                        error instanceof Error ? error.message : "Try again.",
+                      );
+                    } finally {
+                      setWorking(false);
+                    }
+                  }
+            }
+          />
+        )}
+        {actions.reschedule && can("calendar_manage", post.clientId) && (
           <Button
             label="Reschedule"
             secondary
-            onPress={
-              can("calendar_manage", post.clientId)
-                ? () => router.push(`/posts/${post.id}/reschedule`)
-                : undefined
-            }
+            onPress={working ? undefined : () => router.push(`/posts/${post.id}/reschedule`)}
           />
-        </View>
-        <View style={styles.action}>
-          <Button
-            label="Publish now"
-            secondary
-            onPress={working || !can("publish", post.clientId) ? undefined : publishNow}
-          />
-        </View>
+        )}
+        {actions.publish && can("publish", post.clientId) && (
+          <Button label="Publish now" secondary onPress={working ? undefined : publishNow} />
+        )}
+        <Button
+          label="Open post"
+          secondary
+          onPress={working ? undefined : () => router.push(`/posts/${post.id}`)}
+        />
+        {post.status === "failed" && can("system_manage") && (
+          <Button label="Open System Health" onPress={() => router.push("/system")} />
+        )}
       </View>
 
       <Card subtle>

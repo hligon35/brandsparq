@@ -47,6 +47,11 @@ async function reset() {
   w.env.REVIEW_BASE_URL = base;
   w.env.GOOGLE_REDIRECT_URI = `${base}/v1/auth/google/callback`;
   w.env.ENVIRONMENT = "development";
+  w.env.META_APP_ID = "fixture-meta";
+  w.env.META_APP_SECRET = "fixture-meta-secret";
+  w.exec(
+    "INSERT INTO brand_profiles(id,client_id,voice,audience) VALUES('fixture-brand','client-a','Clear and helpful','Local customers')",
+  );
   w.exec(
     "INSERT INTO campaigns(id,client_id,name,objective,status,notes,priority) VALUES ('fixture-campaign','client-a','Community campaign','Awareness','active','Initial notes',3)",
   );
@@ -122,6 +127,17 @@ const server = http.createServer(async (incoming, outgoing) => {
       } else if (url.pathname === "/__test/unknown-outcome") {
         w.exec(
           "UPDATE posts SET status='failed',failure_code='PUBLISH_OUTCOME_UNKNOWN',failure_message='Provider response was lost.',approved_at=CURRENT_TIMESTAMP WHERE id='fixture-post'",
+        );
+      } else if (url.pathname === "/__test/old-generation") {
+        w.exec("UPDATE generation_jobs SET created_at='2000-01-01' WHERE id='fixture-generation'");
+        for (let i = 0; i < 51; i++)
+          w.exec(
+            "INSERT INTO generation_jobs(id,client_id,asset_ids) VALUES(?,'client-a','[]')",
+            `new-${i}`,
+          );
+      } else if (url.pathname === "/__test/published") {
+        w.exec(
+          "UPDATE posts SET status='published',approved_at=CURRENT_TIMESTAMP,platform_post_id='live' WHERE id='fixture-post'",
         );
       } else if (url.pathname === "/__test/expire") w.exec("UPDATE sessions SET expires_at=0");
       else if (url.pathname === "/__test/drain") {

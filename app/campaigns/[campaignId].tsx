@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { api } from "@/api/client";
 import { useCapabilities } from "@/auth/capabilities";
-import { Alert } from "@/components/feedback";
+import { Alert, confirmAction } from "@/components/feedback";
 import { Field, Choices, formStyles as styles } from "@/components/forms";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
 export default function CampaignDetailScreen() {
@@ -14,7 +14,7 @@ export default function CampaignDetailScreen() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const { markSaved } = useUnsavedChanges(
+  const { markSaved, dirty } = useUnsavedChanges(
     form,
     !!data && can("client_manage", data.campaign.client_id),
     setForm,
@@ -51,6 +51,41 @@ export default function CampaignDetailScreen() {
       Alert.alert("Campaign saved");
     } catch (e) {
       Alert.alert("Unable to save", e instanceof Error ? e.message : "Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  const [bulkResults, setBulkResults] = useState<{ postId: string; ok: boolean; error?: string }[]>(
+    [],
+  );
+  async function bulk(action: "pause" | "resume" | "cancel" | "approve") {
+    if (dirty) {
+      Alert.alert(
+        "Save campaign changes first",
+        "Save or discard your edits before applying a delivery action.",
+      );
+      return;
+    }
+    if (
+      !(await confirmAction(
+        `${action[0].toUpperCase() + action.slice(1)} campaign posts?`,
+        action === "approve"
+          ? "Approve eligible review posts using their chosen destinations and campaign dates. Ineligible posts will be reported."
+          : "Apply this action to eligible posts in this campaign. Published posts and active publishing claims are preserved; skipped or failed posts will be listed.",
+        "Apply action",
+      ))
+    )
+      return;
+    setSaving(true);
+    try {
+      const result = await api.campaignPostAction(campaignId, action);
+      setBulkResults(result.results);
+      await load();
+    } catch (error) {
+      Alert.alert(
+        "Unable to update campaign posts",
+        error instanceof Error ? error.message : "Try again.",
+      );
     } finally {
       setSaving(false);
     }
@@ -92,8 +127,11 @@ export default function CampaignDetailScreen() {
               />
             ))}
             <Text style={styles.text}>
-              Campaign status organizes your work. Pause scheduled posts from Calendar to stop
-              delivery.
+              Only active campaigns can schedule or deliver posts. Start and end dates bound
+              delivery in the client's time zone (the end date includes that day). Priority orders
+              campaign lists; it does not bypass calendar spacing or daily limits. Use the explicit
+              actions below to pause, resume or cancel scheduled posts. Active publishing cannot be
+              recalled.
             </Text>
             {editable && (
               <>
@@ -109,6 +147,49 @@ export default function CampaignDetailScreen() {
                 />
               </>
             )}
+          </Card>
+          <Card>
+            <Text style={styles.text}>Campaign delivery actions</Text>
+            {can("review", data.campaign.client_id) && (
+              <Button
+                label="Approve ready posts"
+                onPress={saving ? undefined : () => bulk("approve")}
+              />
+            )}
+            {can("calendar_manage", data.campaign.client_id) && (
+              <>
+                <Button
+                  label="Pause scheduled posts"
+                  secondary
+                  onPress={saving ? undefined : () => bulk("pause")}
+                />
+                <Button
+                  label="Resume approved paused posts"
+                  secondary
+                  onPress={saving ? undefined : () => bulk("resume")}
+                />
+                <Button
+                  label="Cancel scheduled posts"
+                  danger
+                  onPress={saving ? undefined : () => bulk("cancel")}
+                />
+              </>
+            )}
+            {!!bulkResults.length && (
+              <Text style={styles.text}>
+                {bulkResults.filter((result) => result.ok).length} updated ·{" "}
+                {bulkResults.filter((result) => !result.ok).length} skipped or failed
+              </Text>
+            )}
+            {bulkResults
+              .filter((result) => !result.ok)
+              .map((result) => (
+                <Text key={result.postId} style={styles.error}>
+                  {data.posts.find((post: any) => post.id === result.postId)?.title ||
+                    result.postId}
+                  : {result.error}
+                </Text>
+              ))}
           </Card>
           {data.posts.map((post: any) => (
             <Card key={post.id}>

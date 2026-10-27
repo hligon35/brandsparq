@@ -1,3 +1,4 @@
+import type { CreationOptions } from "./creation";
 import { resolveDefaultSocialAccount } from "./social";
 import { notifyPostOwners } from "./notifications";
 import {
@@ -95,6 +96,29 @@ const CAMPAIGN_SCHEMA = {
     },
   },
 };
+
+function validateCreationPlan(generated: GeneratedCampaign, options: CreationOptions | null) {
+  if (!options) return;
+  if (
+    !Array.isArray(generated?.posts) ||
+    generated.posts.length !== options.outputCount ||
+    generated.posts.some(
+      (post) =>
+        !post ||
+        !options.destinations.some((d) => d.platform === post.platform) ||
+        [post.headline, post.caption, post.cta, post.objective, post.visualDirection].some(
+          (value) => typeof value !== "string" || !value.trim(),
+        ) ||
+        !Array.isArray(post.hashtags) ||
+        post.hashtags.length > 12 ||
+        post.hashtags.some((tag) => typeof tag !== "string"),
+    ) ||
+    options.destinations.some((d) => !generated.posts.some((post) => post.platform === d.platform))
+  )
+    throw new Error(
+      "Generated output did not match the requested count or chosen platforms. Retry this job.",
+    );
+}
 
 const REWRITE_SCHEMA = {
   type: "object",
@@ -808,6 +832,9 @@ async function processGenerationJob(env: GenerationEnv, jobId: string, claimToke
       .run(),
   );
 
+  const options: CreationOptions | null = job.creation_options
+    ? JSON.parse(job.creation_options)
+    : null;
   const assetIds: string[] = JSON.parse(job.asset_ids || "[]");
   const assets = await loadAssets(env, assetIds);
   const imageInputs = [
@@ -832,7 +859,12 @@ async function processGenerationJob(env: GenerationEnv, jobId: string, claimToke
       {
         type: "input_text",
         text: [
-          "Create a coherent campaign of 3 to 5 social posts.",
+          options?.mode === "social"
+            ? "Create exactly one social post for the chosen destination."
+            : `Create a coherent campaign of ${options?.outputCount || "3 to 5"} social posts.`,
+          options
+            ? `Chosen platforms: ${options.destinations.map((d) => d.platform).join(", ")}. Include every chosen platform at least once; do not use other platforms.`
+            : "",
           `Current time: ${new Date().toISOString()}`,
           `Campaign objective: ${job.objective || "Auto"}`,
           platforms.length
@@ -849,8 +881,46 @@ async function processGenerationJob(env: GenerationEnv, jobId: string, claimToke
     const campaignCall = await createStructuredResponse<GeneratedCampaign>(env, {
       instructions: CREATIVE_DIRECTOR_INSTRUCTIONS,
       content,
-      schemaName: "brandsparq_campaign",
-      schema: CAMPAIGN_SCHEMA,
+      schemaName: options?.mode === "social" ? "brandsparq_social_post" : "brandsparq_campaign",
+      schema:
+        options?.mode === "social"
+          ? {
+              type: "object",
+              additionalProperties: false,
+              required: ["post"],
+              properties: {
+                post: {
+                  ...CAMPAIGN_SCHEMA.properties.posts.items,
+                  properties: {
+                    ...CAMPAIGN_SCHEMA.properties.posts.items.properties,
+                    platform: { type: "string", enum: options.destinations.map((d) => d.platform) },
+                  },
+                },
+              },
+            }
+          : options
+            ? {
+                ...CAMPAIGN_SCHEMA,
+                properties: {
+                  ...CAMPAIGN_SCHEMA.properties,
+                  posts: {
+                    ...CAMPAIGN_SCHEMA.properties.posts,
+                    minItems: options.outputCount,
+                    maxItems: options.outputCount,
+                    items: {
+                      ...CAMPAIGN_SCHEMA.properties.posts.items,
+                      properties: {
+                        ...CAMPAIGN_SCHEMA.properties.posts.items.properties,
+                        platform: {
+                          type: "string",
+                          enum: options.destinations.map((d) => d.platform),
+                        },
+                      },
+                    },
+                  },
+                },
+              }
+            : CAMPAIGN_SCHEMA,
       reasoningEffort: "low",
     }).catch(async (error) => {
       await logAiRun(env, {
@@ -863,10 +933,14 @@ async function processGenerationJob(env: GenerationEnv, jobId: string, claimToke
       throw error;
     });
 
-    generated = campaignCall.data;
+    generated =
+      options?.mode === "social"
+        ? { campaignName: "Social post", summary: "", posts: [(campaignCall.data as any).post] }
+        : campaignCall.data;
     campaignModel = campaignCall.model;
     campaignResponseId = campaignCall.responseId || null;
 
+    validateCreationPlan(generated, options);
     if (!generated.posts?.length) throw new Error("Generated campaign contains no posts.");
 
     await logAiRun(env, {
@@ -901,9 +975,17 @@ async function processGenerationJob(env: GenerationEnv, jobId: string, claimToke
   }
 
   if (!generated.posts?.length) throw new Error("Generated campaign contains no posts.");
+  try {
+    validateCreationPlan(generated, options);
+  } catch (error) {
+    await env.DB.prepare("UPDATE generation_jobs SET plan_json=NULL WHERE id=? AND claim_token=?")
+      .bind(jobId, claimToken)
+      .run();
+    throw error;
+  }
 
   let campaignId: string | undefined = job.campaign_id || undefined;
-  if (!campaignId) {
+  if (!campaignId && options?.mode !== "social") {
     campaignId = crypto.randomUUID();
     const now = new Date().toISOString();
     const [, attached] = await env.DB.batch([
@@ -981,7 +1063,9 @@ async function processGenerationJob(env: GenerationEnv, jobId: string, claimToke
           ? new Date(p.suggestedPublishAt).toISOString()
           : fallbackSlot(index);
 
-      const defaultSocial = await resolveDefaultSocialAccount(env, job.client_id, p.platform);
+      const defaultSocial = options
+        ? options.destinations.find((d) => d.platform === p.platform)
+        : await resolveDefaultSocialAccount(env, job.client_id, p.platform);
 
       requireGenerationWrite(
         await env.DB.prepare(
@@ -994,7 +1078,7 @@ async function processGenerationJob(env: GenerationEnv, jobId: string, claimToke
           .bind(
             postId,
             job.client_id,
-            campaignId,
+            campaignId || null,
             p.platform,
             p.headline,
             p.headline,
@@ -1139,7 +1223,7 @@ async function processGenerationJob(env: GenerationEnv, jobId: string, claimToke
         graphicJobIds.length ? "rendering" : "processing",
         graphicJobIds.length ? "graphics_queued" : "posts_created",
         campaignModel,
-        campaignId,
+        campaignId || null,
         JSON.stringify(postIds),
         JSON.stringify({
           ...generated,

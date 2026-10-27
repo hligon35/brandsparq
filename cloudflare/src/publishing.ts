@@ -1,3 +1,4 @@
+import { postCampaign, campaignOpen } from "./campaign-workflow";
 export interface PublishingEnv {
   DB: D1Database;
 }
@@ -97,6 +98,16 @@ export async function claimPublishJob(
     };
   }
 
+  const campaign = await postCampaign(env, row.post_id);
+  if (!campaignOpen(campaign))
+    return {
+      claimed: false,
+      eligible: true,
+      attempt: Number(row.attempt_count),
+      maxAttempts: Number(row.max_attempts),
+      postId: row.post_id,
+      executionKey: row.execution_key,
+    };
   const now = new Date().toISOString();
   const result = await env.DB.prepare(
     `UPDATE publish_jobs
@@ -111,6 +122,7 @@ export async function claimPublishJob(
          AND publish_jobs.execution_key='post:' || p.id || ':publish:v' || p.publish_version
          AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued')
          AND p.platform_post_id IS NULL
+         AND (? IS NULL OR EXISTS(SELECT 1 FROM campaigns ca WHERE ca.id=p.campaign_id AND ca.id=? AND ca.status='active' AND ca.workflow_revision=?))
          AND NOT EXISTS(SELECT 1 FROM social_publish_receipts r WHERE r.post_id=p.id AND r.status IN ('published','provider_processing'))
          AND (p.prepublish_response='publish_now' OR p.scheduled_publish_at IS NULL OR p.scheduled_publish_at<=?)
          AND EXISTS (SELECT 1 FROM pilot_settings cfg WHERE cfg.id='default' AND (
@@ -125,7 +137,18 @@ export async function claimPublishJob(
            )
          )))`,
   )
-    .bind(now, now, now, publishJobId, now, now, now)
+    .bind(
+      now,
+      now,
+      now,
+      publishJobId,
+      campaign?.id || null,
+      campaign?.id || null,
+      campaign?.workflow_revision ?? null,
+      now,
+      now,
+      now,
+    )
     .run();
 
   if (!result.meta.changes) {

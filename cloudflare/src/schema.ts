@@ -815,6 +815,12 @@ export const REQUIRED_SCHEMA = {
       notnull: 0,
       pk: 0,
     },
+    {
+      name: "workflow_revision",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
   ],
   client_reviewers: [
     {
@@ -1225,6 +1231,12 @@ export const REQUIRED_SCHEMA = {
     },
     {
       name: "control_token",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "creation_options",
       type: "TEXT",
       notnull: 0,
       pk: 0,

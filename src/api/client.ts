@@ -59,6 +59,7 @@ type ApiPost = {
   prepublish_response?: PrePublishDecision | null;
   social_account_id?: string | null;
   social_account_name?: string | null;
+  publish_block_reason?: string;
 };
 
 export function resolveApiUrl(value?: string | null) {
@@ -86,6 +87,7 @@ function mapPost(row: ApiPost): MarketingPost {
     prepublishResponse: row.prepublish_response ?? undefined,
     socialAccountId: row.social_account_id ?? undefined,
     socialAccountName: row.social_account_name ?? undefined,
+    publishBlockReason: row.publish_block_reason,
   };
 }
 
@@ -133,8 +135,11 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
       await unauthorizedHandler();
     }
     const payload = await response.json().catch(() => null);
-    throw new Error(
-      (payload as { error?: string } | null)?.error ?? `Request failed: ${response.status}`,
+    throw Object.assign(
+      new Error(
+        (payload as { error?: string } | null)?.error ?? `Request failed: ${response.status}`,
+      ),
+      { status: response.status },
     );
   }
 
@@ -450,6 +455,29 @@ export const api = {
       method: "POST",
       body: JSON.stringify(brand),
     }),
+
+  getCreationReadiness: (clientId: string) =>
+    jsonRequest<{ data: any }>(`/v1/clients/${clientId}/creation-readiness`),
+  createContent: (payload: {
+    clientId: string;
+    objective: string;
+    assetIds: string[];
+    requestKey: string;
+    mode: "social" | "campaign";
+    outputCount: number;
+    destinationIds: string[];
+  }) =>
+    jsonRequest<{ ok: true; jobId: string; status: string }>("/v1/creation-jobs", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  setDefaultSocialAccount: (id: string) =>
+    jsonRequest<{ ok: true }>(`/v1/social/accounts/${id}/default`, { method: "POST" }),
+  campaignPostAction: (id: string, action: "pause" | "resume" | "cancel" | "approve") =>
+    jsonRequest<{ ok: true; results: { postId: string; ok: boolean; error?: string }[] }>(
+      `/v1/campaigns/${id}/posts/${action}`,
+      { method: "POST" },
+    ),
 
   createGenerationJob: (
     clientId: string,

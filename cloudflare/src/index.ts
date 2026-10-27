@@ -1,3 +1,5 @@
+import { postCampaign, campaignOpen } from "./campaign-workflow";
+import { handleCreationRoute } from "./creation";
 import { validTimezone } from "./settings-validation";
 import { dispatchGeneration } from "./generation-dispatch";
 import { getPilot, pilotPublishError } from "./pilot";
@@ -214,7 +216,11 @@ function postSelect(where = "") {
 }
 
 async function getPost(env: Env, postId: string) {
-  return env.DB.prepare(postSelect("WHERE p.id = ?")).bind(postId).first<any>();
+  const row = await env.DB.prepare(postSelect("WHERE p.id = ?")).bind(postId).first<any>();
+  if (row && !campaignOpen(await postCampaign(env, postId)))
+    row.publish_block_reason =
+      "This campaign is inactive or outside its delivery dates. Check its status and dates before publishing now.";
+  return row;
 }
 
 async function signPostMedia(env: Env, requestUrl: string, userId: string, row: any) {
@@ -269,7 +275,7 @@ async function audit(
     .run();
 }
 
-export default {
+const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const policy = cors(request, env);
@@ -746,6 +752,9 @@ export default {
     }
 
     if (sessionUser) {
+      const creation = await handleCreationRoute(request, url, env, sessionUser);
+      if (creation)
+        return response(request, env, creation.body, { status: creation.status || 200 });
       const team = await handleTeamRoute(request, url, env, sessionUser);
       if (team) return response(request, env, team.body, { status: team.status || 200 });
       const workspace = await handleWorkspaceRoute(request, url, env, sessionUser);
@@ -998,6 +1007,117 @@ export default {
           .bind(payload.logoPreference, brandMatch[1])
           .run();
       return response(request, env, { ok: true, id });
+    }
+
+    const campaignAction = url.pathname.match(
+      /^\/v1\/campaigns\/([^/]+)\/posts\/(pause|resume|cancel|approve)$/,
+    );
+    if (campaignAction && request.method === "POST") {
+      const campaign = await env.DB.prepare("SELECT id,client_id,status FROM campaigns WHERE id=?")
+        .bind(campaignAction[1])
+        .first<any>();
+      if (!campaign)
+        return response(request, env, { error: "Campaign not found." }, { status: 404 });
+      const action = campaignAction[2];
+      const denied = await authorize(
+        env,
+        sessionUser!,
+        action === "approve" ? "review" : "calendar_manage",
+        campaign.client_id,
+      );
+      if (denied) return response(request, env, { error: denied }, { status: 403 });
+      if (["resume", "approve"].includes(action) && campaign.status !== "active")
+        return response(
+          request,
+          env,
+          { error: "Save this campaign as active before approving or resuming posts." },
+          { status: 409 },
+        );
+      const posts = await env.DB.prepare(
+        "SELECT id,status,publish_version,approved_at FROM posts WHERE campaign_id=? ORDER BY generation_index,id LIMIT 101",
+      )
+        .bind(campaign.id)
+        .all<any>();
+      if (posts.results.length > 100)
+        return response(
+          request,
+          env,
+          { error: "Use Calendar to process this campaign in smaller selections." },
+          { status: 409 },
+        );
+      const results = [];
+      for (const post of posts.results) {
+        const eligible =
+          action === "approve"
+            ? ["awaiting_approval", "edit_requested"].includes(post.status)
+            : action === "resume"
+              ? post.status === "paused" && !!post.approved_at
+              : action === "pause"
+                ? ["calendar_scheduled", "pre_publish", "rescheduled", "publish_queued"].includes(
+                    post.status,
+                  )
+                : [
+                    "calendar_scheduled",
+                    "pre_publish",
+                    "rescheduled",
+                    "publish_queued",
+                    "paused",
+                  ].includes(post.status);
+        if (!eligible) {
+          results.push({
+            postId: post.id,
+            ok: false,
+            error: "Skipped: post is not eligible for this action.",
+          });
+          continue;
+        }
+        try {
+          if (action === "pause" || (action === "cancel" && post.status !== "paused")) {
+            const changed = await stopScheduledPost(
+              env,
+              post.id,
+              action === "pause" ? "paused" : "canceled",
+              false,
+              `post:${post.id}:publish:v${post.publish_version}`,
+            );
+            if (changed)
+              await audit(
+                env,
+                post.id,
+                `campaign.post_${action}`,
+                { campaignId: campaign.id },
+                sessionUser!.id,
+              );
+            results.push({
+              postId: post.id,
+              ok: changed,
+              ...(!changed ? { error: "Post changed or publishing already started." } : {}),
+            });
+          } else {
+            const path = action === "approve" ? "approve" : action;
+            const result = await worker.fetch(
+              new Request(`${url.origin}/v1/posts/${post.id}/${path}`, {
+                method: "POST",
+                headers: { authorization: request.headers.get("authorization") || "" },
+              }),
+              env,
+            );
+            const data = await result.json<any>();
+            results.push({
+              postId: post.id,
+              ok: result.ok,
+              ...(!result.ok ? { error: data.error || "Unable to update post." } : {}),
+            });
+          }
+        } catch (error) {
+          results.push({
+            postId: post.id,
+            ok: false,
+            error: error instanceof Error ? error.message : "Unable to update post.",
+          });
+        }
+      }
+      return response(request, env, { ok: true, results });
     }
 
     if (request.method === "POST" && url.pathname === "/v1/generation-jobs") {
@@ -2138,6 +2258,16 @@ export default {
         );
       }
 
+      if (!campaignOpen(await postCampaign(env, postId)))
+        return response(
+          request,
+          env,
+          {
+            error:
+              "This campaign is inactive or outside its delivery dates. Activate it and check its dates before publishing.",
+          },
+          { status: 409 },
+        );
       const pilotContext = await getPilot(env);
       const pilotDenied = await pilotPublishError(env, sessionUser!, postId);
       if (pilotDenied) return response(request, env, { error: pilotDenied }, { status: 409 });
@@ -2366,12 +2496,14 @@ export default {
       const responsePolicy = ["auto_publish", "hold", "skip"].includes(row.no_response_policy)
         ? row.no_response_policy
         : "hold";
+      const campaignBlocked = !campaignOpen(await postCampaign(env, row.id));
       const policy =
-        pilot.mode !== "normal" &&
-        (pilot.mode !== "supervised" ||
-          !pilot.ends_at ||
-          pilot.ends_at <= nowIso ||
-          row.prepublish_response !== "publish_now")
+        campaignBlocked ||
+        (pilot.mode !== "normal" &&
+          (pilot.mode !== "supervised" ||
+            !pilot.ends_at ||
+            pilot.ends_at <= nowIso ||
+            row.prepublish_response !== "publish_now"))
           ? "hold"
           : row.prepublish_response
             ? "auto_publish"
@@ -2382,7 +2514,7 @@ export default {
           env,
           row.id,
           "paused",
-          pilot.mode === "normal",
+          !campaignBlocked && pilot.mode === "normal",
           `post:${row.id}:publish:v${row.publish_version}`,
         );
         if (!changed) continue;
@@ -2391,7 +2523,9 @@ export default {
           row.id,
           "publish_held",
           "Post held for confirmation",
-          "This post reached its scheduled time without a response, so BrandSparQ held it.",
+          campaignBlocked
+            ? "The campaign is inactive or outside its delivery dates. Activate it and check its dates before resuming."
+            : "This post reached its scheduled time without a response, so BrandSparQ held it.",
         );
         continue;
       }
@@ -2856,3 +2990,5 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env, JobMessage>;
+
+export default worker;
