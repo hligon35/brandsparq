@@ -365,6 +365,20 @@ export const api = {
       method: "POST",
     }),
 
+  reconcilePublish: (
+    postId: string,
+    payload: {
+      publishVersion: number;
+      outcome: "published" | "absent";
+      providerPostId?: string;
+      evidence: string;
+    },
+  ) =>
+    jsonRequest<{ ok: true }>(`/v1/system/posts/${postId}/reconcile`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   resolveSystemEvent: (eventId: string) =>
     jsonRequest<{ ok: true }>(`/v1/system/events/${eventId}/resolve`, {
       method: "POST",
@@ -437,10 +451,15 @@ export const api = {
       body: JSON.stringify(brand),
     }),
 
-  createGenerationJob: (clientId: string, objective: string, assetIds: string[]) =>
+  createGenerationJob: (
+    clientId: string,
+    objective: string,
+    assetIds: string[],
+    requestKey: string,
+  ) =>
     jsonRequest<{ ok: true; jobId: string; status: string }>("/v1/generation-jobs", {
       method: "POST",
-      body: JSON.stringify({ clientId, objective, assetIds }),
+      body: JSON.stringify({ clientId, objective, assetIds, requestKey }),
     }),
 
   async getPublicReview(token: string) {

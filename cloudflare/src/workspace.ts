@@ -1,7 +1,8 @@
 import { sendReviewLinks } from "./generation";
 import type { SessionUser } from "./auth";
 import { hasClientPermission, type Permission } from "./authz";
-import { findNextAvailableSlot } from "./scheduling";
+import { reserveSchedule } from "./scheduling";
+import { dispatchGeneration } from "./generation-dispatch";
 import type { ManagementEnv } from "./management";
 type Env = ManagementEnv & { GENERATION_QUEUE: Queue<any> };
 async function allowed(
@@ -65,28 +66,34 @@ export async function handleWorkspaceRoute(
         },
         status: 409,
       };
+    const controlToken = crypto.randomUUID();
     const changed = await env.DB.batch([
-      env.DB.prepare(`UPDATE generation_jobs SET status=?,claim_token=NULL,error_message=NULL,stage_updated_at=CURRENT_TIMESTAMP
-    WHERE id=? AND status=? AND NOT EXISTS(SELECT 1 FROM graphic_jobs WHERE generation_job_id=? AND status='processing')`).bind(
+      env.DB.prepare(`UPDATE generation_jobs SET status=?,stage=?,control_token=?,claim_token=NULL,error_message=NULL,stage_updated_at=CURRENT_TIMESTAMP
+    WHERE id=? AND status=? AND control_token IS ? AND claim_token IS NULL AND NOT EXISTS(SELECT 1 FROM graphic_jobs WHERE generation_job_id=? AND status='processing')`).bind(
         retry ? "queued" : "canceled",
+        retry ? "queued" : "canceled",
+        controlToken,
         job.id,
         job.status,
+        job.control_token,
         job.id,
       ),
-      env.DB.prepare(`UPDATE graphic_jobs SET status=?,attempt_count=CASE WHEN ? THEN 0 ELSE attempt_count END,claimed_at=NULL,updated_at=CURRENT_TIMESTAMP
-    WHERE generation_job_id=? AND status IN ('queued','retrying','failed','canceled') AND EXISTS(SELECT 1 FROM generation_jobs WHERE id=? AND status=?)`).bind(
+      env.DB.prepare(`UPDATE graphic_jobs SET status=?,attempt_count=CASE WHEN ? THEN 0 ELSE attempt_count END,claimed_at=NULL,claim_token=NULL,updated_at=CURRENT_TIMESTAMP
+    WHERE generation_job_id=? AND status IN ('queued','retrying','failed','canceled') AND EXISTS(SELECT 1 FROM generation_jobs WHERE id=? AND status=? AND control_token=?)`).bind(
         retry ? "queued" : "canceled",
         retry ? 1 : 0,
         job.id,
         job.id,
         retry ? "queued" : "canceled",
+        controlToken,
       ),
       env.DB.prepare(`UPDATE posts SET status=?,updated_at=CURRENT_TIMESTAMP WHERE generation_job_id=? AND approved_at IS NULL AND status IN ('review_ready','canceled','paused')
-    AND EXISTS(SELECT 1 FROM generation_jobs WHERE id=? AND status=?)`).bind(
+    AND EXISTS(SELECT 1 FROM generation_jobs WHERE id=? AND status=? AND control_token=?)`).bind(
         retry ? "review_ready" : "canceled",
         job.id,
         job.id,
         retry ? "queued" : "canceled",
+        controlToken,
       ),
     ]);
     if (!changed[0].meta.changes)
@@ -95,16 +102,11 @@ export async function handleWorkspaceRoute(
         status: 409,
       };
     if (retry) {
-      try {
-        await env.GENERATION_QUEUE.send({ kind: "generate", jobId: job.id });
-      } catch {
-        await env.DB.prepare(
-          "UPDATE generation_jobs SET status='failed',error_message='Unable to enqueue generation. Retry again.' WHERE id=? AND status='queued'",
-        )
-          .bind(job.id)
-          .run();
-        return { body: { error: "Unable to enqueue generation. Retry again." }, status: 502 };
-      }
+      if (!(await dispatchGeneration(env, job.id)))
+        return {
+          body: { error: "Unable to enqueue generation. Retry again.", jobId: job.id },
+          status: 502,
+        };
     }
     return { body: { ok: true } };
   }
@@ -151,31 +153,41 @@ export async function handleWorkspaceRoute(
         },
         status: 409,
       };
-    const time =
-      action === "resume"
-        ? await findNextAvailableSlot(
-            env,
-            post.client_id,
-            new Date(Date.now() + 3600000).toISOString(),
-            post.id,
-          )
-        : null;
-    const changed = await env.DB.prepare(
-      `UPDATE posts SET status=?,scheduled_publish_at=?,prepublish_alert_at=NULL,prepublish_response=NULL,publish_version=publish_version+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='paused'`,
-    )
-      .bind(
-        action === "resume"
-          ? "calendar_scheduled"
-          : action === "restore-review"
-            ? "awaiting_approval"
-            : "canceled",
-        time,
+    if (action === "resume") {
+      const time = await reserveSchedule(env, post.id, {
+        clientId: post.client_id,
+        status: post.status,
+        publishVersion: post.publish_version,
+        desiredAt: new Date(Date.now() + 3600000).toISOString(),
+        resume: true,
+      });
+      return time
+        ? { body: { ok: true, scheduledPublishAt: time } }
+        : {
+            body: { error: "Post changed or publishing has started. Refresh and try again." },
+            status: 409,
+          };
+    }
+    const [changed] = await env.DB.batch([
+      env.DB.prepare(`UPDATE posts SET status=?,scheduled_publish_at=NULL,prepublish_alert_at=NULL,prepublish_response=NULL,publish_version=publish_version+1,updated_at=CURRENT_TIMESTAMP
+        WHERE id=? AND status='paused' AND publish_version=?
+          AND platform_post_id IS NULL
+          AND NOT EXISTS(SELECT 1 FROM publish_jobs j WHERE j.post_id=posts.id AND j.status='publishing')`).bind(
+        action === "restore-review" ? "awaiting_approval" : "canceled",
         post.id,
-      )
-      .run();
+        post.publish_version,
+      ),
+      env.DB.prepare(`UPDATE publish_jobs SET status='canceled',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+        WHERE post_id=? AND status IN ('queued','retrying') AND EXISTS(SELECT 1 FROM posts p
+          WHERE p.id=publish_jobs.post_id AND p.status=? AND p.publish_version=?)`).bind(
+        post.id,
+        action === "restore-review" ? "awaiting_approval" : "canceled",
+        post.publish_version + 1,
+      ),
+    ]);
     if (!changed.meta.changes)
       return { body: { error: "Post changed. Refresh and try again." }, status: 409 };
-    return { body: { ok: true, scheduledPublishAt: time } };
+    return { body: { ok: true, scheduledPublishAt: null } };
   }
   const asset = url.pathname.match(/^\/v1\/clients\/([^/]+)\/brand-assets\/([^/]+)\/remove$/);
   if (asset && request.method === "POST") {

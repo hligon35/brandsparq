@@ -1,3 +1,4 @@
+import { validateSettings } from "./settings-validation";
 import { handleProfile } from "./profile";
 import type { SessionUser } from "./auth";
 import {
@@ -532,7 +533,9 @@ export async function handleManagementRoute(
     const denied = await authorize(env, user, "settings_manage");
     if (denied) return { body: { error: denied }, status: 403 };
 
-    const payload = await request.json<any>().catch(() => ({}) as any);
+    const payload = await request.json<any>().catch(() => null);
+    const invalid = validateSettings(payload);
+    if (invalid) return { body: { error: invalid }, status: 400 };
     const w = payload.workspace || {};
     const n = payload.notifications || {};
 
@@ -559,37 +562,58 @@ export async function handleManagementRoute(
         w.blackoutWindows ? JSON.stringify(w.blackoutWindows) : null,
         w.analyticsRefreshHours ?? null,
       ),
-      env.DB.prepare(
-        `INSERT INTO notification_preferences
+      ...(Object.keys(w).length
+        ? [
+            env.DB.prepare(
+              "UPDATE clients SET schedule_revision=schedule_revision+1 WHERE status='active'",
+            ),
+          ]
+        : []),
+      ...(payload.notifications !== undefined
+        ? [
+            env.DB.prepare(
+              `INSERT INTO notification_preferences
          (user_id, email_enabled, push_enabled, in_app_enabled, review_email_enabled,
           review_ready_enabled, prepublish_enabled, publish_success_enabled, publish_failure_enabled,
           prepublish_minutes, no_response_policy)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?,(SELECT default_prepublish_minutes FROM workspace_settings WHERE id='default')), COALESCE(?,(SELECT default_no_response_policy FROM workspace_settings WHERE id='default')))
          ON CONFLICT(user_id) DO UPDATE SET
-           email_enabled = excluded.email_enabled,
-           push_enabled = excluded.push_enabled,
-           in_app_enabled = excluded.in_app_enabled,
-           review_email_enabled = excluded.review_email_enabled,
-           review_ready_enabled = excluded.review_ready_enabled,
-           prepublish_enabled = excluded.prepublish_enabled,
-           publish_success_enabled = excluded.publish_success_enabled,
-           publish_failure_enabled = excluded.publish_failure_enabled,
-           prepublish_minutes = excluded.prepublish_minutes,
-           no_response_policy = excluded.no_response_policy,
+           email_enabled = CASE WHEN ? THEN notification_preferences.email_enabled ELSE excluded.email_enabled END,
+           push_enabled = CASE WHEN ? THEN notification_preferences.push_enabled ELSE excluded.push_enabled END,
+           in_app_enabled = CASE WHEN ? THEN notification_preferences.in_app_enabled ELSE excluded.in_app_enabled END,
+           review_email_enabled = CASE WHEN ? THEN notification_preferences.review_email_enabled ELSE excluded.review_email_enabled END,
+           review_ready_enabled = CASE WHEN ? THEN notification_preferences.review_ready_enabled ELSE excluded.review_ready_enabled END,
+           prepublish_enabled = CASE WHEN ? THEN notification_preferences.prepublish_enabled ELSE excluded.prepublish_enabled END,
+           publish_success_enabled = CASE WHEN ? THEN notification_preferences.publish_success_enabled ELSE excluded.publish_success_enabled END,
+           publish_failure_enabled = CASE WHEN ? THEN notification_preferences.publish_failure_enabled ELSE excluded.publish_failure_enabled END,
+           prepublish_minutes = CASE WHEN ? THEN notification_preferences.prepublish_minutes ELSE excluded.prepublish_minutes END,
+           no_response_policy = CASE WHEN ? THEN notification_preferences.no_response_policy ELSE excluded.no_response_policy END,
            updated_at = CURRENT_TIMESTAMP`,
-      ).bind(
-        user.id,
-        n.emailEnabled === false ? 0 : 1,
-        n.pushEnabled === false ? 0 : 1,
-        n.inAppEnabled === false ? 0 : 1,
-        n.reviewEmailEnabled === false ? 0 : 1,
-        n.reviewReadyEnabled === false ? 0 : 1,
-        n.prepublishEnabled === false ? 0 : 1,
-        n.publishSuccessEnabled === false ? 0 : 1,
-        n.publishFailureEnabled === false ? 0 : 1,
-        n.prepublishMinutes ?? w.defaultPrepublishMinutes ?? 30,
-        n.noResponsePolicy || w.defaultNoResponsePolicy || "auto_publish",
-      ),
+            ).bind(
+              user.id,
+              n.emailEnabled === false ? 0 : 1,
+              n.pushEnabled === false ? 0 : 1,
+              n.inAppEnabled === false ? 0 : 1,
+              n.reviewEmailEnabled === false ? 0 : 1,
+              n.reviewReadyEnabled === false ? 0 : 1,
+              n.prepublishEnabled === false ? 0 : 1,
+              n.publishSuccessEnabled === false ? 0 : 1,
+              n.publishFailureEnabled === false ? 0 : 1,
+              n.prepublishMinutes ?? null,
+              n.noResponsePolicy ?? null,
+              n.emailEnabled === undefined ? 1 : 0,
+              n.pushEnabled === undefined ? 1 : 0,
+              n.inAppEnabled === undefined ? 1 : 0,
+              n.reviewEmailEnabled === undefined ? 1 : 0,
+              n.reviewReadyEnabled === undefined ? 1 : 0,
+              n.prepublishEnabled === undefined ? 1 : 0,
+              n.publishSuccessEnabled === undefined ? 1 : 0,
+              n.publishFailureEnabled === undefined ? 1 : 0,
+              n.prepublishMinutes === undefined ? 1 : 0,
+              n.noResponsePolicy === undefined ? 1 : 0,
+            ),
+          ]
+        : []),
     ]);
     return { body: { ok: true } };
   }

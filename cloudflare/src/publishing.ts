@@ -15,21 +15,31 @@ export async function ensurePublishJob(
   scheduledFor?: string | null,
   supervisorId?: string,
   pilotRevision?: number,
+  expectedVersion?: number,
 ): Promise<{ jobId: string; executionKey: string; shouldEnqueue: boolean }> {
   const post = await env.DB.prepare("SELECT publish_version FROM posts WHERE id = ?")
     .bind(postId)
     .first<{ publish_version: number }>();
   if (!post) throw new Error("Post not found while creating publish job.");
 
-  const executionKey = `post:${postId}:publish:v${post.publish_version}`;
+  const executionKey = `post:${postId}:publish:v${expectedVersion ?? post.publish_version}`;
+  if (expectedVersion !== undefined && post.publish_version !== expectedVersion)
+    return { jobId: "", executionKey, shouldEnqueue: false };
   const candidateId = crypto.randomUUID();
 
   await env.DB.prepare(
     `INSERT OR IGNORE INTO publish_jobs
      (id, post_id, execution_key, status, scheduled_for)
-     VALUES (?, ?, ?, 'queued', ?)`,
+     SELECT ?,?,?,'queued',? FROM posts WHERE id=? AND publish_version=?`,
   )
-    .bind(candidateId, postId, executionKey, scheduledFor || null)
+    .bind(
+      candidateId,
+      postId,
+      executionKey,
+      scheduledFor || null,
+      postId,
+      expectedVersion ?? post.publish_version,
+    )
     .run();
 
   if (supervisorId)
@@ -50,9 +60,7 @@ export async function ensurePublishJob(
       claimed_at: string | null;
     }>();
 
-  if (!row) {
-    throw new Error("Unable to create or resolve publish job.");
-  }
+  if (!row) return { jobId: "", executionKey, shouldEnqueue: false };
 
   return {
     jobId: row.id,
@@ -102,6 +110,8 @@ export async function claimPublishJob(
        WHERE p.id=publish_jobs.post_id AND c.status='active'
          AND publish_jobs.execution_key='post:' || p.id || ':publish:v' || p.publish_version
          AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued')
+         AND p.platform_post_id IS NULL
+         AND NOT EXISTS(SELECT 1 FROM social_publish_receipts r WHERE r.post_id=p.id AND r.status IN ('published','provider_processing'))
          AND (p.prepublish_response='publish_now' OR p.scheduled_publish_at IS NULL OR p.scheduled_publish_at<=?)
          AND EXISTS (SELECT 1 FROM pilot_settings cfg WHERE cfg.id='default' AND (
            cfg.mode='normal' OR (cfg.mode='supervised' AND cfg.ends_at>?

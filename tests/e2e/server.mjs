@@ -119,6 +119,10 @@ const server = http.createServer(async (incoming, outgoing) => {
         w.exec(
           "INSERT INTO notifications(id,user_id,post_id,type,channel,status,title,deep_link) VALUES ('inbox-one','owner','fixture-post','review_ready','in_app','sent','Review your campaign','/posts/fixture-post'),('inbox-two','owner',NULL,'test','in_app','sent','Workspace update',NULL)",
         );
+      } else if (url.pathname === "/__test/unknown-outcome") {
+        w.exec(
+          "UPDATE posts SET status='failed',failure_code='PUBLISH_OUTCOME_UNKNOWN',failure_message='Provider response was lost.',approved_at=CURRENT_TIMESTAMP WHERE id='fixture-post'",
+        );
       } else if (url.pathname === "/__test/expire") w.exec("UPDATE sessions SET expires_at=0");
       else if (url.pathname === "/__test/drain") {
         const messages = w.published.splice(0).map((body) => ({
