@@ -9,7 +9,8 @@
       "releaseCommit": "",
       "evidenceUrl": "",
       "summary": "",
-      "conclusion": "pending"
+      "conclusion": "pending",
+      "runId": 0
     },
     "staging": {
       "status": "blocked",
@@ -29,7 +30,77 @@
       "releaseCommit": "",
       "evidenceUrl": "",
       "summary": "",
-      "accepted": []
+      "accepted": [],
+      "results": {
+        "facebook": {
+          "clientId": "",
+          "socialAccountId": "",
+          "providerPostId": "",
+          "providerPostUrl": "",
+          "checks": {
+            "oauth": {
+              "status": "blocked",
+              "recordedAt": "",
+              "evidenceUrl": "",
+              "summary": ""
+            },
+            "create_review_publish": {
+              "status": "blocked",
+              "recordedAt": "",
+              "evidenceUrl": "",
+              "summary": ""
+            },
+            "duplicate_delivery": {
+              "status": "blocked",
+              "recordedAt": "",
+              "evidenceUrl": "",
+              "summary": ""
+            },
+            "rate_limit": {
+              "status": "blocked",
+              "recordedAt": "",
+              "evidenceUrl": "",
+              "summary": ""
+            },
+            "token_revocation": {
+              "status": "blocked",
+              "recordedAt": "",
+              "evidenceUrl": "",
+              "summary": ""
+            },
+            "delayed_receipt": {
+              "status": "blocked",
+              "recordedAt": "",
+              "evidenceUrl": "",
+              "summary": ""
+            },
+            "uncertain_reconciliation": {
+              "status": "blocked",
+              "recordedAt": "",
+              "evidenceUrl": "",
+              "summary": ""
+            },
+            "disconnect_reconnect": {
+              "status": "blocked",
+              "recordedAt": "",
+              "evidenceUrl": "",
+              "summary": ""
+            },
+            "analytics": {
+              "status": "blocked",
+              "recordedAt": "",
+              "evidenceUrl": "",
+              "summary": ""
+            },
+            "webhook_signature_replay": {
+              "status": "blocked",
+              "recordedAt": "",
+              "evidenceUrl": "",
+              "summary": ""
+            }
+          }
+        }
+      }
     },
     "restore": {
       "status": "blocked",
@@ -41,7 +112,15 @@
       "restoreBucket": "",
       "elapsedSeconds": 0,
       "mediaChecksumsVerified": false,
-      "tokenDecryptionVerified": false
+      "tokenDecryptionVerified": false,
+      "disconnected": false,
+      "liveSessionsRevoked": false,
+      "sqlSha256": "",
+      "inventorySha256": "",
+      "mediaObjects": 0,
+      "missingObjects": null,
+      "corruptObjects": null,
+      "foreignKeysVerified": false
     },
     "android": {
       "status": "blocked",
@@ -51,7 +130,104 @@
       "physicalDevice": false,
       "device": "",
       "osVersion": "",
-      "buildId": ""
+      "buildId": "",
+      "buildProfile": "staging",
+      "channel": "staging",
+      "runtimeVersion": "",
+      "apiOrigin": "",
+      "fixtureBuild": false,
+      "checks": {
+        "cold_start": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "oauth_cold": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "oauth_warm": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "deep_links": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "session_restore": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "session_expiry": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "sign_out": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "photo_permission_denied": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "png_jpeg_heic_upload": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "background_generation": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "review_calendar": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "offline_reconnect": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "push_receipt_tap": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "ota_matching_runtime": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "ota_wrong_runtime": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        }
+      }
     },
     "ios": {
       "status": "blocked",
@@ -61,7 +237,104 @@
       "physicalDevice": false,
       "device": "",
       "osVersion": "",
-      "buildId": ""
+      "buildId": "",
+      "buildProfile": "staging",
+      "channel": "staging",
+      "runtimeVersion": "",
+      "apiOrigin": "",
+      "fixtureBuild": false,
+      "checks": {
+        "cold_start": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "oauth_cold": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "oauth_warm": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "deep_links": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "session_restore": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "session_expiry": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "sign_out": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "photo_permission_denied": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "png_jpeg_heic_upload": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "background_generation": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "review_calendar": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "offline_reconnect": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "push_receipt_tap": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "ota_matching_runtime": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        },
+        "ota_wrong_runtime": {
+          "status": "blocked",
+          "recordedAt": "",
+          "evidenceUrl": "",
+          "summary": ""
+        }
+      }
     },
     "advisories": {
       "status": "blocked",
@@ -70,5 +343,6 @@
       "summary": "",
       "ownerAccepted": false
     }
-  }
+  },
+  "attestationVersion": 2
 }

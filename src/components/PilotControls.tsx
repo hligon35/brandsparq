@@ -25,7 +25,7 @@ export function PilotControls() {
   function apply(next: PilotOverview) {
     setPilot(next);
     setDestinations(next.destinations);
-    setCommit(next.releaseCommit || "");
+    setCommit(next.deployedCommit || next.releaseCommit || "");
     setEnd(next.endsAt || "");
     setEvidence(next.evidence);
   }
@@ -101,6 +101,9 @@ export function PilotControls() {
                         : "Supervised pilot active"
                 }
               />
+              <Text style={styles.muted}>
+                Deployed release: {pilot.deployedCommit || "unavailable · activation blocked"}
+              </Text>
               <Text style={styles.muted}>
                 {pilot.mode === "normal"
                   ? "Existing workspace rules still apply. Enable a hold before preparing live acceptance."
@@ -228,7 +231,7 @@ export function PilotControls() {
                   ))}
                   <Button
                     label={saving ? "Saving…" : "Save supervised pilot"}
-                    onPress={saving ? undefined : () => save("supervised")}
+                    onPress={saving || !pilot.deployedCommit ? undefined : () => save("supervised")}
                   />
                 </View>
               )}

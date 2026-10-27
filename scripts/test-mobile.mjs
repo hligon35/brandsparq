@@ -2,11 +2,13 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 
 const platform = process.env.BRANDSPARQ_MOBILE_PLATFORM || "android";
+if (process.env.BRANDSPARQ_APP_ENV === "staging")
+  throw new Error("Fixture acceptance cannot target a staging or production app.");
 const command = process.platform === "win32" ? "maestro.bat" : "maestro";
 const version = spawnSync(command, ["--version"], { stdio: "ignore" });
 if (version.error || version.status !== 0) {
   console.error(
-    "Install Maestro and boot an emulator/simulator before running native E2E. See docs/SPRINT9.md.",
+    "Install Maestro and boot an emulator/simulator before running native E2E. Use the isolated e2e build (com.alphazonelabs.brandsparq.e2e). See docs/PHASE_FOUR_RELEASE_ACCEPTANCE.md.",
   );
   process.exit(1);
 }

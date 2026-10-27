@@ -1,6 +1,7 @@
 import { postCampaign, campaignOpen } from "./campaign-workflow";
 export interface PublishingEnv {
   DB: D1Database;
+  RELEASE_COMMIT?: string;
 }
 
 export type PublishQueueMessage = {
@@ -126,7 +127,7 @@ export async function claimPublishJob(
          AND NOT EXISTS(SELECT 1 FROM social_publish_receipts r WHERE r.post_id=p.id AND r.status IN ('published','provider_processing'))
          AND (p.prepublish_response='publish_now' OR p.scheduled_publish_at IS NULL OR p.scheduled_publish_at<=?)
          AND EXISTS (SELECT 1 FROM pilot_settings cfg WHERE cfg.id='default' AND (
-           cfg.mode='normal' OR (cfg.mode='supervised' AND cfg.ends_at>?
+           cfg.mode='normal' OR (cfg.mode='supervised' AND cfg.ends_at>? AND cfg.release_commit=?
              AND cfg.revision=publish_jobs.pilot_revision AND p.prepublish_response='publish_now'
              AND EXISTS (SELECT 1 FROM users u WHERE u.id=publish_jobs.supervised_by AND u.role='owner' AND u.status='active')
              AND EXISTS (SELECT 1 FROM pilot_destinations d JOIN social_accounts s ON s.id=d.social_account_id
@@ -147,6 +148,7 @@ export async function claimPublishJob(
       campaign?.workflow_revision ?? null,
       now,
       now,
+      env.RELEASE_COMMIT || null,
       now,
     )
     .run();

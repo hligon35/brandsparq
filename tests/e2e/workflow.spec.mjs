@@ -445,6 +445,11 @@ test("profile name saves and timezone and time pickers support selection", async
   await page.getByRole("button", { name: "Minute 30", exact: true }).click();
   await page.getByRole("button", { name: "Use time", exact: true }).click();
   await expect(page.getByRole("button", { name: "From: 10:30", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "From: 10:30", exact: true }).click();
+  await page.getByRole("button", { name: "Hour 23", exact: true }).click();
+  await page.getByRole("button", { name: "Minute 59", exact: true }).click();
+  await page.getByRole("button", { name: "Use time", exact: true }).click();
+  await expect(page.getByRole("button", { name: "From: 23:59", exact: true })).toBeVisible();
 });
 
 test("secondary screens keep primary navigation reachable", async ({ page }) => {

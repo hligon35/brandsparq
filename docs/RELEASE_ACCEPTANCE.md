@@ -1,3 +1,5 @@
+> Historical October 25 acceptance record. See [Phase 4 current status and runbook](PHASE_FOUR_RELEASE_ACCEPTANCE.md) for current gates, counts, blockers and version 2 evidence.
+
 # Release acceptance: October 25, 2026
 
 Branch: `fix/release-acceptance`. Initial base: `a34bd30`; integrated main through `233ab73` (campaign objective scrolling).

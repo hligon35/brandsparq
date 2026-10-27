@@ -34,10 +34,22 @@ module.exports = ({ config }) => {
     return nextConfig;
   }
 
+  if (
+    process.env.BRANDSPARQ_APP_ENV === "staging" ||
+    process.env.EXPO_PUBLIC_API_URL !== "http://127.0.0.1:8788"
+  )
+    throw new Error(
+      "Fixture builds require only the loopback fixture API and cannot use staging or production.",
+    );
   return {
     ...nextConfig,
+    name: "BrandSparQ E2E",
+    scheme: "brandsparq-e2e",
+    updates: { ...nextConfig.updates, enabled: false },
+    android: { ...nextConfig.android, package: `${config.android.package}.e2e` },
     ios: {
       ...nextConfig.ios,
+      bundleIdentifier: `${config.ios.bundleIdentifier}.e2e`,
       infoPlist: {
         ...nextConfig.ios?.infoPlist,
         NSAppTransportSecurity: {

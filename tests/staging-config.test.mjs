@@ -81,6 +81,29 @@ test("staging deploy forces same-origin API configuration and validates before d
     fakeCli,
     `require('node:fs').appendFileSync(${JSON.stringify(log)},JSON.stringify({args:process.argv.slice(2),api:process.env.EXPO_PUBLIC_API_URL})+'\\n');`,
   );
+  writeFileSync(join(dir, ".gitignore"), "commands.jsonl\ncloudflare/wrangler.staging.toml\n");
+  execFileSync("git", ["init", "-q"], { cwd: dir, stdio: "pipe" });
+  const commitFixture = () => {
+    execFileSync("git", ["add", "."], { cwd: dir, stdio: "pipe" });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.test",
+        "commit",
+        "-qm",
+        "Fixture",
+      ],
+      { cwd: dir, stdio: "pipe" },
+    );
+  };
+  commitFixture();
+  const releaseCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: dir,
+    encoding: "utf8",
+  }).trim();
   const env = {
     ...process.env,
     npm_execpath: fakeCli,
@@ -99,7 +122,15 @@ test("staging deploy forces same-origin API configuration and validates before d
     commands.map((command) => command.args),
     [
       ["run", "validate"],
-      ["--prefix", "cloudflare", "run", "deploy:staging"],
+      [
+        "--prefix",
+        "cloudflare",
+        "run",
+        "deploy:staging",
+        "--",
+        "--var",
+        `RELEASE_COMMIT:${releaseCommit}`,
+      ],
     ],
   );
   assert.ok(commands.every((command) => command.api === ""));
@@ -108,6 +139,7 @@ test("staging deploy forces same-origin API configuration and validates before d
     fakeCli,
     `require('node:fs').writeFileSync(${JSON.stringify(log)},JSON.stringify(process.argv.slice(2)));process.exit(2);`,
   );
+  commitFixture();
   assert.throws(() => execFileSync(process.execPath, [script], { cwd: dir, env, stdio: "pipe" }));
   assert.deepEqual(JSON.parse(readFileSync(log, "utf8")), ["run", "validate"]);
 });

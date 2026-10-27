@@ -5,7 +5,7 @@ import {
   type PilotOverview,
 } from "../../src/shared/pilot";
 
-type Env = { DB: D1Database };
+type Env = { DB: D1Database; RELEASE_COMMIT?: string };
 export async function getPilot(env: Env) {
   const row = await env.DB.prepare("SELECT * FROM pilot_settings WHERE id='default'").first<any>();
   if (!row)
@@ -32,6 +32,7 @@ export async function pilotOverview(env: Env): Promise<PilotOverview> {
     endsAt: row.ends_at,
     expired: row.mode === "supervised" && (!row.ends_at || Date.parse(row.ends_at) <= Date.now()),
     releaseCommit: row.release_commit,
+    deployedCommit: /^[a-f0-9]{40}$/.test(env.RELEASE_COMMIT || "") ? env.RELEASE_COMMIT : null,
     evidence: JSON.parse(row.evidence_json),
     destinations: destinations.results,
     availableDestinations: available.results,
@@ -44,6 +45,11 @@ export async function pilotPublishError(env: Env, user: SessionUser, postId: str
   if (config.mode === "normal") return null;
   if (config.mode !== "supervised" || !config.ends_at || Date.parse(config.ends_at) <= Date.now())
     return "Publishing is on hold. An owner must configure an accepted, unexpired pilot.";
+  if (
+    config.release_commit !== env.RELEASE_COMMIT ||
+    !/^[a-f0-9]{40}$/.test(env.RELEASE_COMMIT || "")
+  )
+    return "Publishing is held because pilot evidence does not match the deployed release.";
   if (user.role !== "owner") return "A workspace owner must supervise each pilot publish.";
   const destination =
     await env.DB.prepare(`SELECT 1 AS ok FROM posts p JOIN pilot_destinations d ON d.client_id=p.client_id AND d.social_account_id=p.social_account_id
@@ -122,6 +128,17 @@ export async function configurePilot(env: Env, user: SessionUser, inputValue: un
         status: 400,
       };
     if (
+      !/^[a-f0-9]{40}$/.test(env.RELEASE_COMMIT || "") ||
+      input.releaseCommit !== env.RELEASE_COMMIT
+    )
+      return {
+        body: {
+          error:
+            "Pilot acceptance must match the deployed release commit. Deploy through the guarded release command first.",
+        },
+        status: 409,
+      };
+    if (
       !Array.isArray(destinations) ||
       destinations.length < 1 ||
       destinations.length > 2 ||
@@ -166,7 +183,7 @@ export async function configurePilot(env: Env, user: SessionUser, inputValue: un
     "EXISTS(SELECT 1 FROM pilot_settings WHERE id='default' AND revision=? AND mutation_token=?)";
   const statements = [
     env.DB.prepare(
-      `UPDATE pilot_settings SET mode=?,revision=revision+1,ends_at=?,release_commit=?,evidence_json=?,updated_by=?,mutation_token=?,updated_at=CURRENT_TIMESTAMP WHERE id='default' AND revision=?`,
+      `UPDATE pilot_settings SET mode=?,revision=revision+1,ends_at=?,release_commit=?,evidence_json=?,updated_by=?,mutation_token=?,updated_at=CURRENT_TIMESTAMP WHERE id='default' AND revision=? AND (?='hold' OR NOT EXISTS(SELECT 1 FROM posts p WHERE p.status IN ('publishing','provider_processing') OR p.failure_code='PUBLISH_OUTCOME_UNKNOWN' OR EXISTS(SELECT 1 FROM publish_jobs j WHERE j.post_id=p.id AND j.status='publishing')))`,
     ).bind(
       input.mode,
       endsAt,
@@ -175,6 +192,7 @@ export async function configurePilot(env: Env, user: SessionUser, inputValue: un
       user.id,
       mutationToken,
       input.expectedRevision,
+      input.mode,
     ),
     env.DB.prepare(`UPDATE posts SET paused_from_status=status,status='paused',publish_version=publish_version+1,updated_at=CURRENT_TIMESTAMP
       WHERE status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued') AND ${fence}
@@ -230,6 +248,12 @@ export async function configurePilot(env: Env, user: SessionUser, inputValue: un
   );
   const [changed] = await env.DB.batch(statements);
   if (!changed.meta.changes)
-    return { body: { error: "Pilot settings changed. Refresh before saving." }, status: 409 };
+    return {
+      body: {
+        error:
+          "Pilot settings changed or publishing requires reconciliation. Refresh and resolve pending outcomes before activation.",
+      },
+      status: 409,
+    };
   return { body: { ok: true, data: await pilotOverview(env) } };
 }

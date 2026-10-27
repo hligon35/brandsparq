@@ -1,6 +1,6 @@
 {
   "name": "brandsparq",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -51,23 +51,26 @@
     "build:staging:ios": "npx eas-cli@latest build --platform ios --profile staging",
     "build:staging:android": "npx eas-cli@latest build --platform android --profile staging",
     "audit:dependencies": "node scripts/audit-dependencies.mjs",
-    "preflight:production": "node scripts/preflight-production.mjs"
+    "preflight:production": "node scripts/preflight-production.mjs",
+    "release:verify": "node scripts/verify-release.mjs",
+    "release:status": "node scripts/release-status.mjs",
+    "pilot:plan": "node scripts/prepare-pilot.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
-    "expo": "~58.0.19",
+    "expo": "~58.0.20",
     "expo-constants": "~58.0.13",
-    "expo-dev-client": "~58.0.15",
+    "expo-dev-client": "~58.0.16",
     "expo-font": "~58.0.10",
     "expo-image-manipulator": "~58.0.15",
     "expo-image-picker": "~58.0.10",
     "expo-linking": "~58.0.14",
     "expo-notifications": "~58.1.6",
-    "expo-router": "~58.0.26",
+    "expo-router": "~58.0.27",
     "expo-secure-store": "~58.0.2",
     "expo-status-bar": "~58.0.4",
     "expo-updates": "~58.0.18",
-    "expo-web-browser": "~58.0.6",
+    "expo-web-browser": "~58.0.7",
     "fast-png": "^8.0.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -78,7 +81,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
-    "@playwright/test": "1.56.1",
+    "@playwright/test": "1.64.1",
     "@types/react": "~19.3.0",
     "typescript": "~6.0.3"
   },

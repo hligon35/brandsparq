@@ -24,6 +24,7 @@ const env = {
   BRANDSPARQ_E2E_BUILD: "0",
 };
 for (const args of [
+  ["run", "release:verify"],
   ["run", "validate"],
   ["run", "audit:dependencies", "--", "--release"],
   ["run", "preflight:production"],
@@ -36,6 +37,8 @@ for (const args of [
     "deploy",
     "--config",
     "cloudflare/wrangler.toml",
+    "--var",
+    `RELEASE_COMMIT:${commit}`,
     ...(process.argv.includes("--dry-run") ? ["--dry-run"] : []),
   ],
 ]) {
