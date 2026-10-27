@@ -1,14 +1,73 @@
-export function assessAudit(
-  report,
-  lock,
-  { release = false, now = Date.now(), ownerAccepted = false } = {},
-) {
+const tracked = {
+  "GHSA-mrhx-c7xc-m3w5": { package: "zod", version: "3.25.76", expiresAt: "2026-11-08T00:00:00Z" },
+};
+
+export function requiredDispositions(lock) {
+  return Object.entries(tracked)
+    .filter(([, item]) =>
+      Object.entries(lock.packages || {}).some(
+        ([path, value]) => path.endsWith(`/${item.package}`) && value.version === item.version,
+      ),
+    )
+    .map(([id]) => id);
+}
+
+export function verifyAdvisoryDispositions(gate, ids, { now = Date.now() } = {}) {
+  const rows = gate?.dispositions;
+  if (gate?.ownerAccepted !== true || !Array.isArray(rows) || rows.length !== ids.length)
+    throw new Error(
+      "Record the owner's explicit disposition for every unresolved dependency advisory.",
+    );
+  for (const id of ids) {
+    const matches = rows.filter((row) => row.advisoryId === id);
+    const row = matches[0],
+      known = tracked[id];
+    const recorded = Date.parse(row?.recordedAt),
+      next = Date.parse(row?.nextReviewAt);
+    if (
+      !known ||
+      matches.length !== 1 ||
+      row.package !== known.package ||
+      row.version !== known.version ||
+      row.decision !== "accepted" ||
+      typeof row.approvedBy !== "string" ||
+      row.approvedBy.trim().length < 3 ||
+      !Array.isArray(row.mitigations) ||
+      !row.mitigations.length ||
+      row.mitigations.some((text) => typeof text !== "string" || text.trim().length < 10) ||
+      !Number.isFinite(recorded) ||
+      recorded > now ||
+      now - recorded > 7 * 86400000 ||
+      !Number.isFinite(next) ||
+      next <= now ||
+      next > now + 7 * 86400000 ||
+      next > Date.parse(known.expiresAt)
+    )
+      throw new Error(
+        `Record a current owner decision, exact version, mitigations and next review for ${id}.`,
+      );
+  }
+}
+
+export function assessAudit(report, lock, { release = false, now = Date.now(), disposition } = {}) {
   if (report.error || !report.metadata?.vulnerabilities || !report.vulnerabilities)
     throw new Error("Dependency audit did not return a complete report.");
-  const tracked = {
-    "GHSA-mrhx-c7xc-m3w5": { package: "zod", version: "3.25.76" },
-  };
+  const totals = report.metadata.vulnerabilities;
+  const levels = ["info", "low", "moderate", "high", "critical"];
+  if (
+    [...levels, "total"].some((name) => !Number.isSafeInteger(totals[name]) || totals[name] < 0) ||
+    levels.reduce((sum, name) => sum + totals[name], 0) !== totals.total
+  )
+    throw new Error("Dependency audit did not return complete, consistent vulnerability totals.");
   const unresolved = new Set();
+  function verifyChain(name, parents = new Set()) {
+    const node = report.vulnerabilities[name];
+    if (!node || !Array.isArray(node.via) || parents.has(name))
+      throw new Error("Dependency audit contains an incomplete advisory chain.");
+    const next = new Set([...parents, name]);
+    for (const issue of node.via) if (typeof issue === "string") verifyChain(issue, next);
+  }
+  for (const name of Object.keys(report.vulnerabilities)) verifyChain(name);
   for (const vulnerability of Object.values(report.vulnerabilities)) {
     for (const issue of vulnerability.via) {
       if (typeof issue === "string") continue;
@@ -17,18 +76,22 @@ export function assessAudit(
       if (
         !known ||
         known.package !== vulnerability.name ||
+        !Array.isArray(vulnerability.nodes) ||
+        !vulnerability.nodes.length ||
         vulnerability.nodes.some((node) => lock.packages[node]?.version !== known.version)
       )
         throw new Error(`Unreviewed dependency advisory: ${issue.url || vulnerability.name}`);
       unresolved.add(id);
     }
   }
+  if (
+    (totals.total > 0 && !unresolved.size) ||
+    (totals.total === 0 && Object.keys(report.vulnerabilities).length)
+  )
+    throw new Error("Dependency audit findings do not match the reviewed advisory graph.");
   if (unresolved.size && now >= Date.parse("2026-11-08T00:00:00Z"))
     throw new Error("Dependency dispositions expired; refresh the upstream review.");
-  if (release && unresolved.size && !ownerAccepted)
-    throw new Error(
-      "Remaining build/signing advisories require the release owner's evidence-backed disposition.",
-    );
+  if (release && unresolved.size) verifyAdvisoryDispositions(disposition, [...unresolved], { now });
   return {
     vulnerabilities: report.metadata.vulnerabilities,
     trackedAdvisories: [...unresolved],

@@ -28,39 +28,48 @@ test("login is accessible, fits the viewport, and restores a signed-in session a
   expect(errors).toEqual([]);
 });
 
-test("workspace routes stay inside narrow phone viewports", async ({ page }) => {
-  test.setTimeout(90000); // This scenario loads 36 pages across two viewport sizes.
-  await signIn(page);
-
-  const routes = [
-    "/",
-    "/review",
-    "/create",
-    "/calendar",
-    "/more",
-    "/clients",
-    "/clients/client-a",
-    "/clients/client-a/brand",
-    "/campaigns",
-    "/social",
-    "/analytics",
-    "/notifications",
-    "/settings",
-    "/access",
-    "/system",
-    "/posts/fixture-post",
-    "/posts/fixture-post/publish",
-    "/posts/fixture-post/reschedule",
-  ];
-
-  for (const viewport of [
-    { width: 320, height: 640 },
-    { width: 360, height: 780 },
-  ]) {
+for (const viewport of [
+  { width: 320, height: 640 },
+  { width: 360, height: 780 },
+]) {
+  test(`workspace routes stay inside ${viewport.width}px phone viewport`, async ({ page }) => {
+    test.setTimeout(45000); // Eighteen pages per viewport; total budget remains ninety seconds.
     await page.setViewportSize(viewport);
+    await signIn(page);
+    const routes = [
+      "/",
+      "/review",
+      "/create",
+      "/calendar",
+      "/more",
+      "/clients",
+      "/clients/client-a",
+      "/clients/client-a/brand",
+      "/campaigns",
+      "/social",
+      "/analytics",
+      "/notifications",
+      "/settings",
+      "/access",
+      "/system",
+      "/posts/fixture-post",
+      "/posts/fixture-post/publish",
+      "/posts/fixture-post/reschedule",
+    ];
     for (const route of routes) {
       await page.goto(route);
-      await expect(page.getByRole("heading").first()).toBeVisible();
+      const primaryHeading = {
+        "/": "Your workspace",
+        "/review": "Review",
+        "/create": "What are we making?",
+        "/calendar": "Calendar",
+        "/more": "More",
+      }[route];
+      await expect(
+        primaryHeading
+          ? page.getByRole("heading", { name: primaryHeading, exact: true }).first()
+          : page.getByRole("heading").first(),
+      ).toBeVisible();
       const layout = await page.evaluate(() => ({
         viewport: window.innerWidth,
         document: document.documentElement.scrollWidth,
@@ -85,8 +94,8 @@ test("workspace routes stay inside narrow phone viewports", async ({ page }) => 
         `${route} has undersized controls at ${viewport.width}px: ${JSON.stringify(layout.undersizedControls)}`,
       ).toEqual([]);
     }
-  }
-});
+  });
+}
 
 test("Brand Brain persists edits through the real authenticated API", async ({ page, request }) => {
   await signIn(page);
@@ -147,6 +156,9 @@ test("expired sessions return to login and clear the stale web token", async ({
   await request.post("/__test/expire");
   await page.goto("/review");
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
+  await expect(
+    page.getByText("The saved sign-in is no longer valid. Please sign in again.", { exact: true }),
+  ).toBeVisible();
   expect(await page.evaluate(() => sessionStorage.getItem("brandsparq_session"))).toBeNull();
 });
 

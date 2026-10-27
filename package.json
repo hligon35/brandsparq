@@ -28,7 +28,7 @@
     "format": "biome format . --write",
     "format:check": "biome format .",
     "smoke:staging": "node scripts/smoke-staging.mjs",
-    "build:cloudflare": "npm ci --prefix cloudflare && npm run build:web",
+    "build:cloudflare": "node scripts/build-cloudflare.mjs",
     "schema:generate": "node scripts/schema-manifest.mjs",
     "schema:check": "node scripts/schema-manifest.mjs --check",
     "configure:staging": "node --env-file-if-exists=.env.sandbox scripts/staging-config.mjs",

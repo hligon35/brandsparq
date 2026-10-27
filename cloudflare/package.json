@@ -5,7 +5,7 @@
     "dev": "wrangler dev",
     "deploy": "npm --prefix .. run deploy:production",
     "typecheck": "tsc --noEmit",
-    "build": "npm ci --prefix .. && npm --prefix .. run build:web",
+    "build": "npm --prefix .. run build:cloudflare",
     "deploy:staging": "wrangler deploy --config wrangler.staging.toml",
     "migrate:staging": "wrangler d1 migrations apply brandsparq-staging --remote --config wrangler.staging.toml && wrangler d1 execute brandsparq-staging --remote --config wrangler.staging.toml --file staging-init.sql"
   },

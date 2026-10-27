@@ -2,6 +2,10 @@
 
 ## Current status: implementation complete; live acceptance blocked
 
+The code follow-up and manual testing handoff are recorded in
+[PHASE_FOUR_CODE_GAPS.md](PHASE_FOUR_CODE_GAPS.md). The original verification
+results below are retained as the initial Phase 4 record.
+
 This branch is based on main after the Phase 3 merge (PR #19).
 No staging/production migration, deployment, OTA publication, real social post,
 external invitation or pilot activation was performed here.
@@ -88,7 +92,7 @@ external invitation or pilot activation was performed here.
   has been supplied. No actual restoration result can be recorded.
 - GitHub branch-protection inspection returns 403 `Resource not accessible by integration`. Cloudflare dashboard build/deployment policy is also unverified without account access.
 - The preceding PR's hosted workflow was blocked by GitHub's account billing lock.
-  Phase 4 has not been pushed in this session, so its hosted CI result is pending.
+  Phase 4 was pushed as PR #22. Its initial hosted validation job also did not start because of the billing lock; the Cloudflare build check failed without exposing diagnostic logs through GitHub.
 - Zod requires a compatible upstream fix or the owner's explicit current risk
   disposition. A passing baseline audit is not security clearance.
 

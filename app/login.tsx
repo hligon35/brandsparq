@@ -17,7 +17,7 @@ import { colors, radius, spacing } from "@/theme/tokens";
 
 export default function LoginScreen() {
   const { width } = useWindowDimensions();
-  const { user, signInWithGoogle, completeGoogleSignIn } = useAuth();
+  const { user, notice, signInWithGoogle, completeGoogleSignIn } = useAuth();
   const { handoff, auth_error: authError } = useLocalSearchParams<{
     handoff?: string;
     auth_error?: string;
@@ -83,6 +83,12 @@ export default function LoginScreen() {
           <View style={[styles.card, width < 360 && styles.cardCompact]}>
             <Text style={styles.title}>Sign in</Text>
             <Text style={styles.subtitle}>Continue with your authorized Google account.</Text>
+
+            {notice && (
+              <Text accessibilityRole="alert" style={styles.subtitle}>
+                {notice}
+              </Text>
+            )}
 
             <Pressable
               accessibilityRole="button"

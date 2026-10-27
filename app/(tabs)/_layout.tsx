@@ -122,20 +122,6 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="review"
-        options={{
-          title: "Review",
-          href: null,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons
-              name="checkmark-circle-outline"
-              color={typeof color === "string" ? color : colors.muted}
-              size={size}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="clients"
         options={{
           title: "Clients",

@@ -1,5 +1,6 @@
 import http from "node:http";
-import { readFileSync, existsSync } from "node:fs";
+import { loadStaticAssets } from "./static-assets.mjs";
+import { createSerialQueue } from "../../src/shared/serial-queue.ts";
 import path from "node:path";
 import worker from "../../cloudflare/src/index.ts";
 import { encryptSecret } from "../../cloudflare/src/security.ts";
@@ -8,7 +9,8 @@ import { syncAccountAnalytics } from "../../cloudflare/src/social.ts";
 
 const port = Number(process.env.BRANDSPARQ_TEST_PORT || 8788);
 const base = `http://127.0.0.1:${port}`;
-const dist = path.resolve("dist");
+const staticAsset = loadStaticAssets(path.resolve("dist"));
+const serializeBackend = createSerialQueue();
 let closeWorkspace;
 let w;
 
@@ -102,97 +104,101 @@ async function reset() {
 }
 await reset();
 
-const types = {
-  ".html": "text/html",
-  ".js": "application/javascript",
-  ".css": "text/css",
-  ".png": "image/png",
-  ".ico": "image/x-icon",
-  ".ttf": "font/ttf",
-  ".json": "application/json",
-};
 const server = http.createServer(async (incoming, outgoing) => {
   try {
     const url = new URL(incoming.url, base);
-    if (url.pathname.startsWith("/__test/")) {
-      if (incoming.method !== "POST") {
-        outgoing.writeHead(405).end();
-        return;
-      }
-      if (url.pathname === "/__test/reset") await reset();
-      else if (url.pathname === "/__test/inbox") {
-        w.exec(
-          "INSERT INTO notifications(id,user_id,post_id,type,channel,status,title,deep_link) VALUES ('inbox-one','owner','fixture-post','review_ready','in_app','sent','Review your campaign','/posts/fixture-post'),('inbox-two','owner',NULL,'test','in_app','sent','Workspace update',NULL)",
-        );
-      } else if (url.pathname === "/__test/large-inbox") {
-        for (let i = 0; i < 105; i++)
-          w.exec(
-            "INSERT INTO notifications(id,user_id,type,channel,status,title,created_at) VALUES(?,'owner','test','in_app','sent',?,'2026-01-01 12:00:00')",
-            `inbox-${String(i).padStart(3, "0")}`,
-            `History message ${i}`,
+    if (
+      url.pathname.startsWith("/__test/") ||
+      url.pathname === "/health" ||
+      url.pathname.startsWith("/v1/")
+    ) {
+      await serializeBackend(async () => {
+        if (url.pathname.startsWith("/__test/")) {
+          if (incoming.method !== "POST") {
+            outgoing.writeHead(405).end();
+            return;
+          }
+          if (url.pathname === "/__test/reset") await reset();
+          else if (url.pathname === "/__test/inbox") {
+            w.exec(
+              "INSERT INTO notifications(id,user_id,post_id,type,channel,status,title,deep_link) VALUES ('inbox-one','owner','fixture-post','review_ready','in_app','sent','Review your campaign','/posts/fixture-post'),('inbox-two','owner',NULL,'test','in_app','sent','Workspace update',NULL)",
+            );
+          } else if (url.pathname === "/__test/large-inbox") {
+            for (let i = 0; i < 105; i++)
+              w.exec(
+                "INSERT INTO notifications(id,user_id,type,channel,status,title,created_at) VALUES(?,'owner','test','in_app','sent',?,'2026-01-01 12:00:00')",
+                `inbox-${String(i).padStart(3, "0")}`,
+                `History message ${i}`,
+              );
+          } else if (url.pathname === "/__test/unknown-outcome") {
+            w.exec(
+              "UPDATE posts SET status='failed',failure_code='PUBLISH_OUTCOME_UNKNOWN',failure_message='Provider response was lost.',approved_at=CURRENT_TIMESTAMP WHERE id='fixture-post'",
+            );
+          } else if (url.pathname === "/__test/old-generation") {
+            w.exec(
+              "UPDATE generation_jobs SET created_at='2000-01-01' WHERE id='fixture-generation'",
+            );
+            for (let i = 0; i < 51; i++)
+              w.exec(
+                "INSERT INTO generation_jobs(id,client_id,asset_ids) VALUES(?,'client-a','[]')",
+                `new-${i}`,
+              );
+          } else if (url.pathname === "/__test/published") {
+            w.exec(
+              "UPDATE posts SET status='published',approved_at=CURRENT_TIMESTAMP,platform_post_id='live' WHERE id='fixture-post'",
+            );
+          } else if (url.pathname === "/__test/expire") w.exec("UPDATE sessions SET expires_at=0");
+          else if (url.pathname === "/__test/drain") {
+            const messages = w.published.splice(0).map((body) => ({
+              body,
+              attempts: 1,
+              ack() {},
+              retry() {
+                throw new Error("Unexpected publish retry");
+              },
+            }));
+            await worker.queue({ messages, queue: "brandsparq-publish" }, w.env);
+            await syncAccountAnalytics(w.env, "fixture-social");
+          } else if (url.pathname !== "/__test/state") {
+            outgoing.writeHead(404).end();
+            return;
+          }
+          outgoing.writeHead(200, { "content-type": "application/json" }).end(
+            JSON.stringify({
+              post: w.row("SELECT * FROM posts WHERE id='fixture-post'"),
+              notifications: w.sqlite.prepare("SELECT * FROM notifications").all(),
+              generationJobs: w.sqlite.prepare("SELECT * FROM generation_jobs").all(),
+            }),
           );
-      } else if (url.pathname === "/__test/unknown-outcome") {
-        w.exec(
-          "UPDATE posts SET status='failed',failure_code='PUBLISH_OUTCOME_UNKNOWN',failure_message='Provider response was lost.',approved_at=CURRENT_TIMESTAMP WHERE id='fixture-post'",
-        );
-      } else if (url.pathname === "/__test/old-generation") {
-        w.exec("UPDATE generation_jobs SET created_at='2000-01-01' WHERE id='fixture-generation'");
-        for (let i = 0; i < 51; i++)
-          w.exec(
-            "INSERT INTO generation_jobs(id,client_id,asset_ids) VALUES(?,'client-a','[]')",
-            `new-${i}`,
-          );
-      } else if (url.pathname === "/__test/published") {
-        w.exec(
-          "UPDATE posts SET status='published',approved_at=CURRENT_TIMESTAMP,platform_post_id='live' WHERE id='fixture-post'",
-        );
-      } else if (url.pathname === "/__test/expire") w.exec("UPDATE sessions SET expires_at=0");
-      else if (url.pathname === "/__test/drain") {
-        const messages = w.published.splice(0).map((body) => ({
-          body,
-          attempts: 1,
-          ack() {},
-          retry() {
-            throw new Error("Unexpected publish retry");
-          },
-        }));
-        await worker.queue({ messages, queue: "brandsparq-publish" }, w.env);
-        await syncAccountAnalytics(w.env, "fixture-social");
-      } else if (url.pathname !== "/__test/state") {
-        outgoing.writeHead(404).end();
-        return;
-      }
-      outgoing.writeHead(200, { "content-type": "application/json" }).end(
-        JSON.stringify({
-          post: w.row("SELECT * FROM posts WHERE id='fixture-post'"),
-          notifications: w.sqlite.prepare("SELECT * FROM notifications").all(),
-          generationJobs: w.sqlite.prepare("SELECT * FROM generation_jobs").all(),
-        }),
-      );
-      return;
-    }
-    if (url.pathname === "/health" || url.pathname.startsWith("/v1/")) {
-      const chunks = [];
-      for await (const chunk of incoming) chunks.push(chunk);
-      const body = Buffer.concat(chunks);
-      const request = new Request(url, {
-        method: incoming.method,
-        headers: incoming.headers,
-        ...(body.length ? { body } : {}),
+          return;
+        }
+        if (url.pathname === "/health" || url.pathname.startsWith("/v1/")) {
+          const chunks = [];
+          for await (const chunk of incoming) chunks.push(chunk);
+          const body = Buffer.concat(chunks);
+          const request = new Request(url, {
+            method: incoming.method,
+            headers: incoming.headers,
+            ...(body.length ? { body } : {}),
+          });
+          const response = await worker.fetch(request, w.env);
+          outgoing.writeHead(response.status, Object.fromEntries(response.headers));
+          outgoing.end(Buffer.from(await response.arrayBuffer()));
+          return;
+        }
       });
-      const response = await worker.fetch(request, w.env);
-      outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-      outgoing.end(Buffer.from(await response.arrayBuffer()));
       return;
     }
-    let file = path.resolve(dist, `.${decodeURIComponent(url.pathname)}`);
-    if (!file.startsWith(`${dist}${path.sep}`)) file = path.join(dist, "index.html");
-    if (!existsSync(file) || !path.extname(file)) file = path.join(dist, "index.html");
+    const asset = staticAsset(url.pathname, incoming.headers["if-none-match"]);
     outgoing
-      .writeHead(200, { "content-type": types[path.extname(file)] || "application/octet-stream" })
-      .end(readFileSync(file));
+      .writeHead(asset.status, asset.headers || { "content-type": "text/plain" })
+      .end(asset.body);
   } catch (error) {
     console.error(error);
+    if (outgoing.headersSent) {
+      outgoing.destroy();
+      return;
+    }
     outgoing
       .writeHead(500, { "content-type": "application/json" })
       .end(JSON.stringify({ error: error.message }));

@@ -72,7 +72,7 @@ test("release admission rejects missing, stale, wrong-commit and incomplete actu
 
 test("dependency checks track only the reviewed package/version and block unknown issues or unaccepted releases", () => {
   const report = {
-    metadata: { vulnerabilities: { high: 1 } },
+    metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0, total: 1 } },
     vulnerabilities: {
       zod: {
         name: "zod",

@@ -1,3 +1,4 @@
+import { verifyCheckout } from "./lib/checkout.mjs";
 import { readFileSync } from "node:fs";
 import { spawnSync, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -42,6 +43,7 @@ for (const args of [
     ...(process.argv.includes("--dry-run") ? ["--dry-run"] : []),
   ],
 ]) {
+  if (args.includes("deploy")) verifyCheckout(commit, root);
   const result = spawnSync(process.execPath, [npmCli, ...args], {
     cwd: root,
     env,
