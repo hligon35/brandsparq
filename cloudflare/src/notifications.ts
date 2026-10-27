@@ -103,7 +103,11 @@ async function sendEmail(
     : { ok: false, error: payload.message || `Resend returned ${response.status}.` };
 }
 
-async function sendExpoPush(token: string, input: NotifyInput): Promise<DeliveryResult> {
+async function sendExpoPush(
+  token: string,
+  input: NotifyInput,
+  notificationId: string,
+): Promise<DeliveryResult> {
   const response = await fetch("https://exp.host/--/api/v2/push/send", {
     method: "POST",
     signal: AbortSignal.timeout(15000),
@@ -117,6 +121,7 @@ async function sendExpoPush(token: string, input: NotifyInput): Promise<Delivery
       title: input.title,
       body: input.body,
       data: {
+        notificationId,
         type: input.type,
         postId: input.postId || undefined,
         userId: input.userId || undefined,
@@ -273,7 +278,7 @@ export async function deliverNotification(env: NotificationEnv, input: NotifyInp
       .all<{ expo_push_token: string }>();
 
     for (const row of pushTokens.results) {
-      const result = await safelyDeliver(() => sendExpoPush(row.expo_push_token, input));
+      const result = await safelyDeliver(() => sendExpoPush(row.expo_push_token, input, id));
       outcomes.push(result);
       await recordDelivery(env, id, "push", row.expo_push_token, result);
     }
@@ -411,7 +416,7 @@ export async function retryNotificationDeliveries(env: NotificationEnv) {
       const result = await safelyDeliver(() =>
         row.channel === "email"
           ? sendEmail(env, row.destination, input, `${row.notification_id}:email`)
-          : sendExpoPush(row.destination, input),
+          : sendExpoPush(row.destination, input, row.notification_id),
       );
       await env.DB.prepare(
         `UPDATE notification_deliveries SET status=?,provider_message_id=?,error_message=?,sent_at=?,retry_at=?,claim_until=NULL WHERE id=?`,

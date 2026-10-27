@@ -20,6 +20,13 @@ export default function ClientsScreen() {
   const [timezone, setTimezone] = useState("America/Indiana/Indianapolis");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [visibleCount, setVisibleCount] = useState(24);
+  const filtered = clients.filter((row) =>
+    `${row.name || ""} ${row.timezone || ""} ${row.status || ""}`
+      .toLowerCase()
+      .includes(search.toLowerCase()),
+  );
 
   async function load() {
     setError("");
@@ -120,8 +127,25 @@ export default function ClientsScreen() {
         </Card>
       ) : null}
 
+      <TextInput
+        accessibilityLabel="Search client workspaces"
+        placeholder="Search client workspaces"
+        value={search}
+        onChangeText={(value) => {
+          setSearch(value);
+          setVisibleCount(24);
+        }}
+        style={{
+          minHeight: 48,
+          padding: 12,
+          color: colors.text,
+          backgroundColor: colors.surface,
+          borderRadius: 12,
+        }}
+      />
+      <Text style={{ color: colors.muted }}>{filtered.length} matching client workspaces</Text>
       <View style={styles.grid}>
-        {clients.map((client) => (
+        {filtered.slice(0, visibleCount).map((client) => (
           <Card key={client.id} style={styles.gridItem}>
             <View
               style={[styles.clientColor, { backgroundColor: client.color || colors.primary }]}
@@ -191,6 +215,13 @@ export default function ClientsScreen() {
           <Text style={styles.errorTitle}>No clients yet</Text>
           <Text style={styles.sub}>Create your first client above.</Text>
         </Card>
+      )}
+      {filtered.length > visibleCount && (
+        <Button
+          label="Show more client workspaces"
+          secondary
+          onPress={() => setVisibleCount((count) => count + 24)}
+        />
       )}
     </PageScroll>
   );

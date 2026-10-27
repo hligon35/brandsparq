@@ -1,3 +1,5 @@
+import { pageOptions, pageResult } from "./pagination";
+import { latestMetricsJoin } from "./analytics";
 import { campaignBoundary, validCampaignDate } from "./campaign-workflow";
 import { validateSettings } from "./settings-validation";
 import { handleProfile } from "./profile";
@@ -433,11 +435,49 @@ export async function handleManagementRoute(
     const denied = await authorize(env, user, "read");
     if (denied) return { body: { error: denied }, status: 403 };
 
-    const rows = await env.DB.prepare(
-      `SELECT n.*, (SELECT i.read_at FROM notification_inbox i WHERE i.notification_id=n.id AND i.user_id=?) AS user_read_at FROM notifications n WHERE ${notificationScope} AND NOT EXISTS (SELECT 1 FROM notification_inbox i WHERE i.notification_id=n.id AND i.user_id=? AND i.dismissed_at IS NOT NULL) ORDER BY n.created_at DESC LIMIT 100`,
-    )
-      .bind(user.id, ...notificationBindings, user.id)
-      .all<any>();
+    let page;
+    try {
+      page = pageOptions(url, 100);
+    } catch (e) {
+      return { body: { error: (e as Error).message }, status: 400 };
+    }
+    const filter = url.searchParams.get("filter") || "all";
+    if (!["all", "unread", "failed"].includes(filter))
+      return { body: { error: "Invalid notification filter." }, status: 400 };
+    const inboxScope = `${notificationScope} AND NOT EXISTS (SELECT 1 FROM notification_inbox i WHERE i.notification_id=n.id AND i.user_id=? AND i.dismissed_at IS NOT NULL)`;
+    const unread =
+      (
+        await env.DB.prepare(`SELECT COUNT(*) AS count FROM notifications n WHERE ${inboxScope}
+      AND n.read_at IS NULL AND NOT EXISTS(SELECT 1 FROM notification_inbox i WHERE i.notification_id=n.id AND i.user_id=? AND i.read_at IS NOT NULL)`)
+          .bind(...notificationBindings, user.id, user.id)
+          .first<any>()
+      )?.count || 0;
+    const rows =
+      await env.DB.prepare(`SELECT n.*, (SELECT i.read_at FROM notification_inbox i WHERE i.notification_id=n.id AND i.user_id=?) AS user_read_at
+      FROM notifications n WHERE ${inboxScope}
+      AND (?='all' OR (?='failed' AND n.status IN ('failed','partial')) OR (?='unread' AND n.read_at IS NULL AND NOT EXISTS(SELECT 1 FROM notification_inbox i WHERE i.notification_id=n.id AND i.user_id=? AND i.read_at IS NOT NULL)))
+      AND (?='' OR instr(lower(COALESCE(n.title,'') || ' ' || COALESCE(n.body,'') || ' ' || n.type),lower(?))>0)
+      AND (? IS NULL OR n.created_at<? OR (n.created_at=? AND n.id<?))
+      ORDER BY n.created_at DESC,n.id DESC LIMIT ?`)
+        .bind(
+          user.id,
+          ...notificationBindings,
+          user.id,
+          filter,
+          filter,
+          filter,
+          user.id,
+          page.search,
+          page.search,
+          page.cursor?.createdAt || null,
+          page.cursor?.createdAt || null,
+          page.cursor?.createdAt || null,
+          page.cursor?.id || null,
+          page.limit + 1,
+        )
+        .all<any>();
+    const result = pageResult(rows.results, page.limit);
+    rows.results = result.data;
 
     const ids = rows.results.map((row: any) => row.id);
     let deliveries: any[] = [];
@@ -466,9 +506,7 @@ export async function handleManagementRoute(
       read_at: row.user_read_at || row.read_at,
       deliveries: byNotification.get(row.id) || [],
     }));
-    const unreadCount = data.filter((row: any) => !row.read_at).length;
-
-    return { body: { data, unreadCount } };
+    return { body: { data, unreadCount: unread, nextCursor: result.nextCursor } };
   }
 
   const readNotificationMatch = url.pathname.match(/^\/v1\/notifications\/([^/]+)\/read$/);
@@ -542,6 +580,12 @@ export async function handleManagementRoute(
     )
       .bind(user.id)
       .first<any>();
+    // Legacy clients render these operational controls inside Notifications. Always read the
+    // effective workspace defaults so a channel edit cannot reintroduce an obsolete personal policy.
+    if (preferences) {
+      preferences.prepublish_minutes = workspace?.default_prepublish_minutes ?? 30;
+      preferences.no_response_policy = workspace?.default_no_response_policy ?? "hold";
+    }
     return {
       body: {
         data: {
@@ -568,18 +612,37 @@ export async function handleManagementRoute(
   }
 
   if (request.method === "POST" && url.pathname === "/v1/settings") {
-    const denied = await authorize(env, user, "settings_manage");
-    if (denied) return { body: { error: denied }, status: 403 };
-
     const payload = await request.json<any>().catch(() => null);
+    const denied = await authorize(
+      env,
+      user,
+      (payload?.workspace && Object.keys(payload.workspace).length) ||
+        payload?.notifications?.noResponsePolicy !== undefined ||
+        payload?.notifications?.prepublishMinutes !== undefined
+        ? "settings_manage"
+        : "read",
+    );
+    if (denied) return { body: { error: denied }, status: 403 };
     const invalid = validateSettings(payload);
     if (invalid) return { body: { error: invalid }, status: 400 };
-    const w = payload.workspace || {};
     const n = payload.notifications || {};
+    // Older owner clients sent publishing controls in notifications. Translate them to workspace
+    // defaults while retaining their legacy columns for backwards-compatible reads.
+    const w = {
+      ...(payload.workspace || {}),
+      ...(n.noResponsePolicy !== undefined ? { defaultNoResponsePolicy: n.noResponsePolicy } : {}),
+      ...(n.prepublishMinutes !== undefined
+        ? { defaultPrepublishMinutes: n.prepublishMinutes }
+        : {}),
+    };
 
+    if (!Object.keys(w).length && payload.notifications === undefined)
+      return { body: { ok: true } };
     await env.DB.batch([
-      env.DB.prepare(
-        `UPDATE workspace_settings SET
+      ...(Object.keys(w).length
+        ? [
+            env.DB.prepare(
+              `UPDATE workspace_settings SET
          timezone = COALESCE(?, timezone),
          default_prepublish_minutes = COALESCE(?, default_prepublish_minutes),
          default_no_response_policy = COALESCE(?, default_no_response_policy),
@@ -590,16 +653,18 @@ export async function handleManagementRoute(
          analytics_refresh_hours = COALESCE(?, analytics_refresh_hours),
          updated_at = CURRENT_TIMESTAMP
          WHERE id = 'default'`,
-      ).bind(
-        w.timezone || null,
-        w.defaultPrepublishMinutes ?? null,
-        w.defaultNoResponsePolicy || null,
-        w.minPostSpacingMinutes ?? null,
-        w.maxPostsPerDay ?? null,
-        w.preferredWindows ? JSON.stringify(w.preferredWindows) : null,
-        w.blackoutWindows ? JSON.stringify(w.blackoutWindows) : null,
-        w.analyticsRefreshHours ?? null,
-      ),
+            ).bind(
+              w.timezone || null,
+              w.defaultPrepublishMinutes ?? null,
+              w.defaultNoResponsePolicy || null,
+              w.minPostSpacingMinutes ?? null,
+              w.maxPostsPerDay ?? null,
+              w.preferredWindows ? JSON.stringify(w.preferredWindows) : null,
+              w.blackoutWindows ? JSON.stringify(w.blackoutWindows) : null,
+              w.analyticsRefreshHours ?? null,
+            ),
+          ]
+        : []),
       ...(Object.keys(w).length
         ? [
             env.DB.prepare(
@@ -666,7 +731,9 @@ export async function handleManagementRoute(
       if (clientDenied) return { body: { error: clientDenied }, status: 403 };
     }
 
-    const days = Math.min(90, Math.max(7, Number(url.searchParams.get("days") || 30)));
+    const days = Number(url.searchParams.get("days") || 30);
+    if (![7, 30, 90].includes(days))
+      return { body: { error: "Choose 7, 30 or 90 days." }, status: 400 };
     const allowedClients = await accessibleClientIds(env.DB, user);
     if (!clientId && allowedClients !== null && allowedClients.length === 0) {
       return {
@@ -701,25 +768,26 @@ export async function handleManagementRoute(
       bindings = allowedClients;
     }
 
-    const latestMetrics = `
-      LEFT JOIN (
-        SELECT m1.* FROM post_metrics m1
-        JOIN (
-          SELECT post_id, MAX(measured_at) AS measured_at
-          FROM post_metrics GROUP BY post_id
-        ) latest ON latest.post_id=m1.post_id AND latest.measured_at=m1.measured_at
-      ) pm ON pm.post_id=p.id`;
+    // UTC publication cohort. All totals, rankings and trend points use these same posts.
+    const rangeStart = new Date();
+    rangeStart.setUTCHours(0, 0, 0, 0);
+    rangeStart.setUTCDate(rangeStart.getUTCDate() - days + 1);
+    const rangeEnd = new Date(rangeStart);
+    rangeEnd.setUTCDate(rangeEnd.getUTCDate() + days);
+    filter = `${filter || "WHERE 1=1"} AND p.status='published' AND datetime(p.published_at)>=datetime(?) AND datetime(p.published_at)<datetime(?)`;
+    bindings.push(rangeStart.toISOString(), rangeEnd.toISOString());
+    const latestMetrics = latestMetricsJoin;
 
     const overviewStatement = env.DB.prepare(
       `SELECT
-         COUNT(DISTINCT CASE WHEN p.status='published' THEN p.id END) AS posts,
-         SUM(COALESCE(pm.impressions,0)) AS impressions,
-         SUM(COALESCE(pm.reach,0)) AS reach,
-         SUM(COALESCE(pm.likes,0)) AS likes,
-         SUM(COALESCE(pm.comments,0)) AS comments,
-         SUM(COALESCE(pm.shares,0)) AS shares,
-         SUM(COALESCE(pm.clicks,0)) AS clicks,
-         SUM(COALESCE(pm.saves,0)) AS saves
+         COUNT(DISTINCT p.id) AS posts, COUNT(pm.id) AS measured_posts, MIN(pm.measured_at) AS oldest_measurement, MAX(pm.measured_at) AS latest_measurement,
+         COUNT(pm.impressions) AS impressions_measured_posts, SUM(pm.impressions) AS impressions,
+         COUNT(pm.reach) AS reach_measured_posts, SUM(pm.reach) AS reach,
+         COUNT(pm.likes) AS likes_measured_posts, SUM(pm.likes) AS likes,
+         COUNT(pm.comments) AS comments_measured_posts, SUM(pm.comments) AS comments,
+         COUNT(pm.shares) AS shares_measured_posts, SUM(pm.shares) AS shares,
+         COUNT(pm.clicks) AS clicks_measured_posts, SUM(pm.clicks) AS clicks,
+         COUNT(pm.saves) AS saves_measured_posts, SUM(pm.saves) AS saves
        FROM posts p
        ${latestMetrics}
        ${filter}`,
@@ -728,19 +796,40 @@ export async function handleManagementRoute(
       ? await overviewStatement.bind(...bindings).first<any>()
       : await overviewStatement.first<any>();
 
+    const refreshHours = Number(
+      (
+        await env.DB.prepare(
+          "SELECT analytics_refresh_hours FROM workspace_settings WHERE id='default'",
+        ).first<any>()
+      )?.analytics_refresh_hours || 6,
+    );
+    overview.measurement_status = !overview.posts
+      ? "empty"
+      : !overview.measured_posts
+        ? "unavailable"
+        : overview.measured_posts < overview.posts
+          ? "partial"
+          : Date.now() -
+                Date.parse(
+                  String(overview.oldest_measurement).replace(" ", "T") +
+                    (String(overview.oldest_measurement).includes("T") ? "" : "Z"),
+                ) >
+              refreshHours * 3600000
+            ? "stale"
+            : "current";
     const platformFilter = filter
       ? `${filter} AND p.status='published'`
       : "WHERE p.status='published'";
     const platformStatement = env.DB.prepare(
       `SELECT p.platform,
          COUNT(DISTINCT p.id) AS posts,
-         SUM(COALESCE(pm.impressions,0)) AS impressions,
-         SUM(COALESCE(pm.reach,0)) AS reach,
-         SUM(COALESCE(pm.likes,0)) AS likes,
-         SUM(COALESCE(pm.comments,0)) AS comments,
-         SUM(COALESCE(pm.shares,0)) AS shares,
-         SUM(COALESCE(pm.clicks,0)) AS clicks,
-         SUM(COALESCE(pm.saves,0)) AS saves
+         SUM(pm.impressions) AS impressions,
+         SUM(pm.reach) AS reach,
+         SUM(pm.likes) AS likes,
+         SUM(pm.comments) AS comments,
+         SUM(pm.shares) AS shares,
+         SUM(pm.clicks) AS clicks,
+         SUM(pm.saves) AS saves
        FROM posts p
        ${latestMetrics}
        ${platformFilter}
@@ -754,13 +843,13 @@ export async function handleManagementRoute(
     const topStatement = env.DB.prepare(
       `SELECT p.id,p.title,p.platform,p.client_id,c.name AS client_name,p.platform_url,
          p.published_at,
-         COALESCE(pm.impressions,0) AS impressions,
-         COALESCE(pm.reach,0) AS reach,
-         COALESCE(pm.likes,0) AS likes,
-         COALESCE(pm.comments,0) AS comments,
-         COALESCE(pm.shares,0) AS shares,
-         COALESCE(pm.clicks,0) AS clicks,
-         COALESCE(pm.saves,0) AS saves
+         pm.impressions AS impressions,
+         pm.reach AS reach,
+         pm.likes AS likes,
+         pm.comments AS comments,
+         pm.shares AS shares,
+         pm.clicks AS clicks,
+         pm.saves AS saves
        FROM posts p
        JOIN clients c ON c.id=p.client_id
        ${latestMetrics}
@@ -773,57 +862,25 @@ export async function handleManagementRoute(
       ? await topStatement.bind(...bindings).all<any>()
       : await topStatement.all<any>();
 
-    let snapshotQuery = `SELECT * FROM analytics_snapshots
-      WHERE datetime(captured_at) >= datetime('now', ?)`;
-    const snapshotBindings: any[] = [`-${days} days`];
-    if (clientId) {
-      snapshotQuery += " AND client_id=?";
-      snapshotBindings.push(clientId);
-    } else if (allowedClients !== null) {
-      snapshotQuery += ` AND client_id IN (${allowedClients.map(() => "?").join(",")})`;
-      snapshotBindings.push(...allowedClients);
-    }
-    snapshotQuery += " ORDER BY captured_at ASC";
-    const snapshots = (
-      await env.DB.prepare(snapshotQuery)
-        .bind(...snapshotBindings)
+    const history = (
+      await env.DB.prepare(`
+      WITH RECURSIVE days(day) AS (
+        SELECT date(?) UNION ALL SELECT date(day,'+1 day') FROM days WHERE day<date(?,'-1 day')
+      )
+      SELECT d.day, COUNT(p.id) AS posts,
+        SUM(pm.impressions) AS impressions, SUM(pm.reach) AS reach,
+        SUM(pm.likes) AS likes,SUM(pm.comments) AS comments,SUM(pm.shares) AS shares,
+        SUM(pm.clicks) AS clicks,SUM(pm.saves) AS saves
+      FROM days d LEFT JOIN posts p ON p.id IN (SELECT p.id FROM posts p ${filter})
+        AND date(p.published_at)<=d.day
+      LEFT JOIN post_metrics pm ON pm.rowid=(SELECT m.rowid FROM post_metrics m
+        WHERE m.post_id=p.id AND (m.impressions IS NOT NULL OR m.reach IS NOT NULL OR m.likes IS NOT NULL OR m.comments IS NOT NULL OR m.shares IS NOT NULL OR m.clicks IS NOT NULL OR m.saves IS NOT NULL) AND date(m.measured_at)<=d.day
+        ORDER BY datetime(m.measured_at) DESC,m.rowid DESC LIMIT 1)
+      GROUP BY d.day ORDER BY d.day
+    `)
+        .bind(rangeStart.toISOString(), rangeEnd.toISOString(), ...bindings)
         .all<any>()
     ).results;
-
-    const latestByClientDay = new Map<string, any>();
-    for (const row of snapshots) {
-      const day = String(row.captured_at).slice(0, 10);
-      latestByClientDay.set(`${row.client_id || "all"}:${day}`, row);
-    }
-    const historyMap = new Map<string, any>();
-    for (const row of latestByClientDay.values()) {
-      const day = String(row.captured_at).slice(0, 10);
-      const current = historyMap.get(day) || {
-        day,
-        posts: 0,
-        impressions: 0,
-        reach: 0,
-        likes: 0,
-        comments: 0,
-        shares: 0,
-        clicks: 0,
-        saves: 0,
-      };
-      for (const key of [
-        "posts",
-        "impressions",
-        "reach",
-        "likes",
-        "comments",
-        "shares",
-        "clicks",
-        "saves",
-      ]) {
-        current[key] += Number(row[key] || 0);
-      }
-      historyMap.set(day, current);
-    }
-    const history = [...historyMap.values()].sort((a, b) => a.day.localeCompare(b.day));
 
     let healthQuery = `SELECT r.id,r.social_account_id,r.status,r.started_at,r.completed_at,r.error_message,
        sa.platform,sa.account_name,sa.client_id,c.name AS client_name
@@ -838,7 +895,7 @@ export async function handleManagementRoute(
       healthQuery += ` WHERE sa.client_id IN (${allowedClients.map(() => "?").join(",")})`;
       healthBindings.push(...allowedClients);
     }
-    healthQuery += " ORDER BY r.started_at DESC LIMIT 20";
+    healthQuery += " ORDER BY r.started_at DESC,r.rowid DESC LIMIT 20";
     const syncHealth = healthBindings.length
       ? await env.DB.prepare(healthQuery)
           .bind(...healthBindings)
@@ -854,6 +911,13 @@ export async function handleManagementRoute(
           topPosts: topPosts.results,
           syncHealth: syncHealth.results,
           days,
+          range: {
+            start: rangeStart.toISOString(),
+            end: rangeEnd.toISOString(),
+            timezone: "UTC",
+            semantics:
+              "Lifetime measurements for posts published in the selected UTC range; trend shows measurements available by each day.",
+          },
         },
       },
     };
@@ -904,7 +968,7 @@ export async function handleManagementRoute(
       }
     }
 
-    return { body: { ok: true, results } };
+    return { body: { ok: results.every((row) => row.ok), results } };
   }
 
   const validateMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/schedule\/validate$/);

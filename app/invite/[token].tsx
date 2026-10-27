@@ -10,7 +10,7 @@ import { formStyles as styles } from "@/components/forms";
 import { Button, Card, PageHeader, PageScroll } from "@/components/ui";
 export default function InvitationScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
-  const { user, completeGoogleSignIn } = useAuth();
+  const { user, signOut, completeGoogleSignIn } = useAuth();
   const [data, setData] = useState<{ email: string; expiresAt: number }>();
   const [error, setError] = useState("");
   async function load() {
@@ -63,10 +63,23 @@ export default function InvitationScreen() {
               {new Date(data.expiresAt).toLocaleDateString()}.
             </Text>
             {user ? (
-              <Text style={styles.text}>
-                You are signed in as {user.email}. Sign out before accepting an invitation for
-                another account.
-              </Text>
+              <>
+                <Text style={styles.text}>
+                  You are signed in as {user.email}. Continue with {data.email} to accept this
+                  invitation.
+                </Text>
+                <Button
+                  label="Switch Google account"
+                  onPress={async () => {
+                    try {
+                      await signOut();
+                      await signIn();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Unable to switch accounts.");
+                    }
+                  }}
+                />
+              </>
             ) : (
               <Button label="Accept with Google" onPress={signIn} />
             )}

@@ -65,12 +65,30 @@ export default function AnalyticsScreen() {
     try {
       const accounts = (await api.getSocialAccounts(clientId === "all" ? undefined : clientId))
         .data;
+      const failures: Array<{ error?: string }> = [];
       if (clientId === "all") {
-        await api.syncAnalytics();
+        const result = await api.syncAnalytics();
+        failures.push(...result.results.filter((row) => !row.ok || row.status === "unsupported"));
       } else {
-        for (const account of accounts) await api.syncAnalytics(account.id);
+        for (const account of accounts.filter((row: any) => row.status === "connected")) {
+          try {
+            const result = await api.syncAnalytics(account.id);
+            failures.push(
+              ...result.results.filter((row) => !row.ok || row.status === "unsupported"),
+            );
+          } catch (e) {
+            failures.push({ error: e instanceof Error ? e.message : "Account sync failed." });
+          }
+        }
       }
       await load();
+      if (failures.length)
+        Alert.alert(
+          "Analytics needs attention",
+          failures
+            .map((row) => row.error || "Provider analytics unavailable for this account.")
+            .join("\n"),
+        );
     } catch (e) {
       Alert.alert("Analytics sync failed", e instanceof Error ? e.message : "Try again.");
     } finally {
@@ -165,13 +183,32 @@ export default function AnalyticsScreen() {
       {loading && <Text accessibilityLiveRegion="polite">Loading analytics…</Text>}
       {!loading && !error && (
         <>
+          <Card subtle>
+            <StatusBadge label={overview.measurement_status || "unavailable"} />
+            <Text style={styles.muted}>
+              Posts published in the selected {days} UTC days. Values are lifetime provider
+              measurements for those posts, not engagement earned only during the range.
+            </Text>
+            <Text style={styles.muted}>
+              {overview.measured_posts || 0} of {overview.posts || 0} posts measured.{" "}
+              {overview.oldest_measurement
+                ? `Oldest measurement: ${new Date(overview.oldest_measurement).toLocaleString()}.`
+                : "Metrics unavailable until a successful provider sync."}{" "}
+              Missing metrics display —; a measured zero displays 0.
+            </Text>
+          </Card>
           <View style={styles.grid}>
             {metrics.map(([label, key]) => (
               <Card key={key} style={styles.metricCard}>
                 <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
-                  {Number(overview[key] || 0).toLocaleString()}
+                  {overview[key] == null ? "—" : Number(overview[key]).toLocaleString()}
                 </Text>
                 <Text style={styles.label}>{label}</Text>
+                {key !== "posts" && (
+                  <Text style={styles.muted}>
+                    {overview[`${key}_measured_posts`] || 0}/{overview.posts || 0} measured
+                  </Text>
+                )}
               </Card>
             ))}
           </View>
@@ -179,7 +216,7 @@ export default function AnalyticsScreen() {
           <Card>
             <SectionTitle
               title="Performance trend"
-              subtitle={`Latest captured totals across the last ${days} days.`}
+              subtitle={`Measurements available by each UTC day for the same publication cohort. Gaps mean unavailable.`}
             />
             {history.length ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -187,7 +224,7 @@ export default function AnalyticsScreen() {
                   {history.map((row: any) => (
                     <View key={row.day} style={styles.barColumn}>
                       <Text style={styles.barValue}>
-                        {Number(row.impressions || 0).toLocaleString()}
+                        {row.impressions == null ? "—" : Number(row.impressions).toLocaleString()}
                       </Text>
                       <View style={styles.barTrack}>
                         <View
@@ -195,7 +232,7 @@ export default function AnalyticsScreen() {
                             styles.bar,
                             {
                               height:
-                                `${Math.max(5, (Number(row.impressions || 0) / maxImpressions) * 100)}%` as any,
+                                `${Math.max(row.impressions == null ? 0 : 5, (Number(row.impressions || 0) / maxImpressions) * 100)}%` as any,
                             },
                           ]}
                         />
@@ -220,7 +257,7 @@ export default function AnalyticsScreen() {
           <Card>
             <SectionTitle
               title="Platform performance"
-              subtitle="Current lifetime metrics from the latest provider measurements."
+              subtitle="Latest lifetime measurements for posts published in the selected range."
             />
             {(data?.byPlatform || []).map((row: any) => (
               <View key={row.platform} style={styles.platformRow}>
@@ -230,13 +267,13 @@ export default function AnalyticsScreen() {
                 </View>
                 <View style={styles.platformMetrics}>
                   <Text style={styles.platformMetric}>
-                    {Number(row.impressions || 0).toLocaleString()} imp.
+                    {row.impressions == null ? "—" : Number(row.impressions).toLocaleString()} imp.
                   </Text>
                   <Text style={styles.platformMetric}>
-                    {Number(row.reach || 0).toLocaleString()} reach
+                    {row.reach == null ? "—" : Number(row.reach).toLocaleString()} reach
                   </Text>
                   <Text style={styles.platformMetric}>
-                    {Number(row.likes || 0).toLocaleString()} likes
+                    {row.likes == null ? "—" : Number(row.likes).toLocaleString()} likes
                   </Text>
                 </View>
               </View>
@@ -264,7 +301,7 @@ export default function AnalyticsScreen() {
                 </View>
                 <View style={styles.topMetric}>
                   <Text style={styles.topMetricValue}>
-                    {Number(post.impressions || 0).toLocaleString()}
+                    {post.impressions == null ? "—" : Number(post.impressions).toLocaleString()}
                   </Text>
                   <Text style={styles.topMetricLabel}>impressions</Text>
                 </View>

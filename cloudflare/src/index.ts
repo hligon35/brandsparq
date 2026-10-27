@@ -2434,13 +2434,11 @@ const worker = {
 
     const upcoming = await env.DB.prepare(
       `SELECT p.id, p.client_id, p.platform, p.scheduled_publish_at, p.publish_version,
-              COALESCE(cs.prepublish_minutes, np.prepublish_minutes,
+              COALESCE(cs.prepublish_minutes,
                        ws.default_prepublish_minutes, 30) AS prepublish_minutes
        FROM posts p
        JOIN workspace_settings ws ON ws.id = 'default'
        LEFT JOIN client_settings cs ON cs.client_id = p.client_id
-       LEFT JOIN users u ON u.role = 'owner'
-       LEFT JOIN notification_preferences np ON np.user_id = u.id
        WHERE p.status IN ('calendar_scheduled','rescheduled')
          AND p.scheduled_publish_at IS NOT NULL
          AND p.prepublish_alert_at IS NULL
@@ -2475,13 +2473,11 @@ const worker = {
 
     const due = await env.DB.prepare(
       `SELECT p.id, p.prepublish_response, p.publish_version,
-              COALESCE(cs.no_response_policy, np.no_response_policy,
+              COALESCE(cs.no_response_policy,
                        ws.default_no_response_policy, 'auto_publish') AS no_response_policy
        FROM posts p
        JOIN workspace_settings ws ON ws.id = 'default'
        LEFT JOIN client_settings cs ON cs.client_id = p.client_id
-       LEFT JOIN users u ON u.role = 'owner'
-       LEFT JOIN notification_preferences np ON np.user_id = u.id
        WHERE p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued')
          AND p.scheduled_publish_at IS NOT NULL
          AND p.scheduled_publish_at <= ?

@@ -1,3 +1,4 @@
+import { useAuth } from "@/auth/context";
 import { Alert, confirmAction } from "@/components/feedback";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -9,6 +10,7 @@ import { colors, radius, spacing } from "@/theme/tokens";
 const roles = ["admin", "reviewer", "publisher", "viewer"];
 
 export default function AccessScreen() {
+  const { refreshUser, user: authUser } = useAuth();
   const [data, setData] = useState<{ users: any[]; clients: any[]; access: any[] }>({
     users: [],
     clients: [],
@@ -32,8 +34,12 @@ export default function AccessScreen() {
     }
   }
   useEffect(() => {
-    void load();
-  }, []);
+    if (authUser?.role === "owner") void load();
+    else {
+      setData({ users: [], clients: [], access: [] });
+      setInvitations([]);
+    }
+  }, [authUser?.role]);
 
   const user = useMemo(() => data.users.find((row) => row.id === selected), [data.users, selected]);
   const assigned = new Set(
@@ -41,12 +47,25 @@ export default function AccessScreen() {
   );
 
   async function role(next: string) {
-    if (!user) return;
+    if (!user || working) return;
+    if (
+      (next === "owner" || user.role === "owner") &&
+      !(await confirmAction(
+        next === "owner" ? "Grant workspace ownership?" : "Change owner role?",
+        `Change ${user.name || user.email} to ${next}? Owners can manage all clients and workspace access. At least one active owner must remain.`,
+        "Change role",
+      ))
+    )
+      return;
+    setWorking(true);
     try {
       await api.updateUserRole(user.id, next);
-      await load();
+      await refreshUser();
+      if (user.id !== authUser?.id || next === "owner") await load();
     } catch (e) {
       Alert.alert("Role update failed", e instanceof Error ? e.message : "Try again.");
+    } finally {
+      setWorking(false);
     }
   }
   async function toggle(clientId: string) {
@@ -88,6 +107,15 @@ export default function AccessScreen() {
     }
   }
 
+  if (authUser?.role !== "owner")
+    return (
+      <PageScroll>
+        <PageHeader title="Access Management" />
+        <Card>
+          <Text style={styles.muted}>Only workspace owners can manage access.</Text>
+        </Card>
+      </PageScroll>
+    );
   return (
     <PageScroll>
       <PageHeader
@@ -339,7 +367,7 @@ export default function AccessScreen() {
             </View>
           )}
 
-          {user.role !== "owner" && (
+          {user.role !== "owner" ? (
             <>
               <Choices
                 singleRow
@@ -352,6 +380,20 @@ export default function AccessScreen() {
                 label="Promote to owner"
                 secondary
                 onPress={working ? undefined : () => void role("owner")}
+              />
+            </>
+          ) : (
+            <>
+              <Text style={{ color: colors.muted }}>
+                Promote another active member before stepping down. Client access must then be
+                granted for the new role.
+              </Text>
+              <Choices
+                singleRow
+                values={roles}
+                value="owner"
+                onChange={(next) => void role(next)}
+                disabled={working}
               />
             </>
           )}

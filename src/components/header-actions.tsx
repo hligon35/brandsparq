@@ -1,3 +1,4 @@
+import { useInbox } from "@/notifications/inbox";
 import { useGuardedNavigation } from "@/hooks/useUnsavedChanges";
 import { type ComponentRef, useRef, useState } from "react";
 import { Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
@@ -8,6 +9,7 @@ import { Alert } from "@/components/feedback";
 import { IconButton } from "./icon-button";
 import { colors } from "@/theme/tokens";
 export function HeaderActions() {
+  const { unreadCount } = useInbox();
   const { user, signOut } = useAuth();
   const router = useRouter();
   const navigate = useGuardedNavigation();
@@ -43,11 +45,32 @@ export function HeaderActions() {
           <IconButton label="Open profile menu" icon="person-circle-outline" onPress={open} />
         )}
       </View>
-      <IconButton
-        label="Notifications"
-        icon="notifications-outline"
-        onPress={() => void navigate(() => router.push("/notifications"))}
-      />
+      <View>
+        <IconButton
+          label={unreadCount ? `Notifications, ${unreadCount} unread` : "Notifications"}
+          icon="notifications-outline"
+          onPress={() => void navigate(() => router.push("/notifications"))}
+        />
+        {unreadCount > 0 && (
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              right: 2,
+              top: 0,
+              backgroundColor: colors.danger,
+              borderRadius: 12,
+              minWidth: 20,
+              paddingHorizontal: 4,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ color: colors.white, fontSize: 10, fontWeight: "800" }}>
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </Text>
+          </View>
+        )}
+      </View>
       <Modal
         visible={!!position}
         transparent

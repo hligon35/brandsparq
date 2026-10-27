@@ -1,7 +1,7 @@
 import { IconButton } from "@/components/icon-button";
 import { Link, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
@@ -15,36 +15,59 @@ export default function GenerationScreen() {
   const [working, setWorking] = useState("");
   const [loaded, setLoaded] = useState(false);
   const loadVersion = useRef(0);
-  async function load() {
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [paging, setPaging] = useState(false);
+  const pagingRef = useRef(false);
+  async function load(more = false, refresh = false) {
+    if (refresh && pagingRef.current) return;
+    pagingRef.current = true;
+    setPaging(true);
     const version = ++loadVersion.current;
     try {
       const [list, requested] = await Promise.all([
-        api.getGenerationJobs(),
+        api.getGenerationJobs({
+          search: query,
+          status,
+          ...(more && nextCursor ? { cursor: nextCursor } : {}),
+        }),
         jobId ? api.getGenerationJob(jobId) : Promise.resolve(null),
       ]);
       if (version !== loadVersion.current) return;
-      setJobs(
-        requested
-          ? [requested.data, ...list.data.filter((job) => job.id !== requested.data.id)]
-          : list.data,
-      );
+      setJobs((old) => {
+        const rows =
+          more || refresh
+            ? [...old.filter((row) => !list.data.some((item) => item.id === row.id)), ...list.data]
+            : list.data;
+        return [
+          ...new Map(
+            [...(requested ? [requested.data] : []), ...rows].map((row) => [row.id, row]),
+          ).values(),
+        ];
+      });
+      if (!refresh) setNextCursor(list.nextCursor);
       setError("");
     } catch (e) {
       if (version !== loadVersion.current) return;
       setError(e instanceof Error ? e.message : "Unable to load generation.");
     } finally {
-      setLoaded(true);
+      if (version === loadVersion.current) {
+        setLoaded(true);
+        setPaging(false);
+        pagingRef.current = false;
+      }
     }
   }
   useFocusEffect(
     useCallback(() => {
       void load();
-      const timer = setInterval(() => void load(), 5000);
+      const timer = setInterval(() => void load(false, true), 5000);
       return () => {
         loadVersion.current++;
         clearInterval(timer);
       };
-    }, [jobId]),
+    }, [jobId, query, status]),
   );
   async function action(id: string, kind: "retry" | "cancel") {
     setWorking(id);
@@ -64,12 +87,30 @@ export default function GenerationScreen() {
         eyebrow="Creative production"
         title="Generation progress"
         subtitle="Follow campaign planning, graphics and review readiness. Updates every five seconds."
-        action={<IconButton label="Refresh generation" onPress={load} />}
+        action={<IconButton label="Refresh generation" onPress={() => void load()} />}
       />
+      <TextInput
+        accessibilityLabel="Search generation jobs"
+        placeholder="Search client or error"
+        value={query}
+        onChangeText={setQuery}
+        style={{ minHeight: 48, padding: 12 }}
+      />
+      <View style={styles.row}>
+        {["", "queued", "rendering", "completed", "failed", "canceled"].map((value) => (
+          <Button
+            key={value}
+            label={value || "All jobs"}
+            small
+            secondary={status !== value}
+            onPress={() => setStatus(value)}
+          />
+        ))}
+      </View>
       {!!error && (
         <Card>
           <Text style={styles.error}>{error}</Text>
-          <Button label="Try again" onPress={load} />
+          <Button label="Try again" onPress={() => void load()} />
         </Card>
       )}
       {!loaded ? (
@@ -133,6 +174,13 @@ export default function GenerationScreen() {
             </View>
           </Card>
         ))
+      )}
+      {!!nextCursor && (
+        <Button
+          label={paging ? "Loading…" : "Load more jobs"}
+          secondary
+          onPress={paging ? undefined : () => void load(true)}
+        />
       )}
     </PageScroll>
   );

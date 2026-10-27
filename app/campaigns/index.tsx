@@ -1,13 +1,20 @@
 import { Link } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
-import { Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
+import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
 import { colors, spacing } from "@/theme/tokens";
 
 export default function CampaignsScreen() {
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [visibleCount, setVisibleCount] = useState(24);
+  const filtered = campaigns.filter((row) =>
+    `${row.name || ""} ${row.client_name || ""} ${row.objective || ""}`
+      .toLowerCase()
+      .includes(search.toLowerCase()),
+  );
 
   async function load() {
     setError("");
@@ -39,8 +46,25 @@ export default function CampaignsScreen() {
           </Pressable>
         </Card>
       )}
+      <TextInput
+        accessibilityLabel="Search campaigns"
+        placeholder="Search campaigns"
+        value={search}
+        onChangeText={(value) => {
+          setSearch(value);
+          setVisibleCount(24);
+        }}
+        style={{
+          minHeight: 48,
+          padding: 12,
+          color: colors.text,
+          backgroundColor: colors.surface,
+          borderRadius: 12,
+        }}
+      />
+      <Text style={{ color: colors.muted }}>{filtered.length} matching campaigns</Text>
       <View style={styles.grid}>
-        {campaigns.map((campaign) => (
+        {filtered.slice(0, visibleCount).map((campaign) => (
           <Link key={campaign.id} href={`/campaigns/${campaign.id}`} asChild>
             <Pressable style={styles.item}>
               <Card style={styles.card}>
@@ -65,6 +89,13 @@ export default function CampaignsScreen() {
           </Card>
         )}
       </View>
+      {filtered.length > visibleCount && (
+        <Button
+          label="Show more campaigns"
+          secondary
+          onPress={() => setVisibleCount((count) => count + 24)}
+        />
+      )}
     </PageScroll>
   );
 }

@@ -1,3 +1,5 @@
+import { readDraft, saveDraft } from "@/shared/draft-storage";
+import { useAuth } from "@/auth/context";
 import { GuardedLink as Link, useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { uploadBatch, type UploadItem } from "@/shared/upload-batch";
 import { Choices } from "@/components/forms";
@@ -6,7 +8,7 @@ import { Alert, confirmAction } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ClientPicker } from "@/components/client-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/api/client";
@@ -20,6 +22,10 @@ const objectives = ["Auto", "Promote", "Awareness", "Announce"];
 
 export default function CreateScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+  const draftKey = `brandsparq_create_${user?.id || "anonymous"}`;
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [draftNotice, setDraftNotice] = useState("");
   const { clientId: requestedClientId } = useLocalSearchParams<{ clientId?: string }>();
   const can = useCapabilities();
   const [clients, setClients] = useState<Client[]>([]),
@@ -63,18 +69,101 @@ export default function CreateScreen() {
   };
   const { markSaved } = useUnsavedChanges(
     draft,
-    !!items.length || uploading || pendingCreation,
+    draftLoaded &&
+      (!!items.length ||
+        pendingCreation ||
+        uploading ||
+        objective !== "Auto" ||
+        !!destinationIds.length ||
+        creationMode !== "campaign" ||
+        outputCount !== 3),
     () => {
       operation.current++;
       pending.current = null;
       setPendingCreation(false);
       setItems([]);
+      void saveDraft(draftKey, null).catch(() => undefined);
     },
   );
+  function storedItems(values: typeof items) {
+    return values.map((item) => ({
+      ...item,
+      source: {
+        uri: Platform.OS === "web" ? "" : item.source.uri,
+        width: item.source.width,
+        height: item.source.height,
+        fileName: item.source.fileName,
+        mimeType: item.source.mimeType,
+      },
+    }));
+  }
+  const locked = !draftLoaded || uploading || pendingCreation;
   useEffect(() => {
-    markSaved({ ...draft, images: [] });
-  }, []);
-  const locked = uploading || pendingCreation;
+    let active = true;
+    void readDraft<any>(draftKey)
+      .then((saved) => {
+        if (!active) return;
+        if (saved) {
+          setClientId(saved.clientId || "");
+          setObjective(saved.objective || "Auto");
+          setCreationMode(saved.creationMode === "social" ? "social" : "campaign");
+          setOutputCount([3, 4, 5].includes(saved.outputCount) ? saved.outputCount : 3);
+          setDestinationIds(saved.destinationIds || []);
+          // Uploaded images can be reused. Browser blob URLs do not survive a reload.
+          const restored = (saved.items || []).filter(
+            (item: any) => Platform.OS !== "web" || (item.status === "ready" && item.originalId),
+          );
+          setItems(restored);
+          pending.current = saved.pending || null;
+          setPendingCreation(!!saved.pending);
+          setDraftNotice(
+            saved.pending
+              ? "Recovered an unconfirmed request. Retry uses the same request identity."
+              : "Draft restored. Reattach any photos that were not fully uploaded before leaving.",
+          );
+        }
+        markSaved({ ...draft, images: [] });
+        setDraftLoaded(true);
+      })
+      .catch(() => {
+        if (active) {
+          setDraftNotice("Saved draft could not be restored. Your workspace content is unchanged.");
+          setDraftLoaded(true);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [draftKey]);
+  useEffect(() => {
+    if (!draftLoaded || uploading || pendingCreation) return;
+    const timer = setTimeout(() => {
+      void saveDraft(draftKey, {
+        clientId,
+        objective,
+        creationMode,
+        outputCount,
+        destinationIds,
+        items: storedItems(items),
+        pending: pending.current,
+      }).catch(() =>
+        setDraftNotice(
+          "This draft could not be saved on this device. Keep this screen open until submission completes.",
+        ),
+      );
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [
+    draftLoaded,
+    clientId,
+    objective,
+    creationMode,
+    outputCount,
+    JSON.stringify(destinationIds),
+    JSON.stringify(items),
+    uploading,
+    pendingCreation,
+  ]);
   async function loadClients() {
     setClientError("");
     try {
@@ -102,7 +191,9 @@ export default function CreateScreen() {
       if (version !== loadVersion.current) return;
       setReadiness(next);
       setDestinationIds((current) =>
-        current.filter((id) => next.destinations.some((d: any) => d.id === id && d.ready)),
+        pending.current
+          ? current
+          : current.filter((id) => next.destinations.some((d: any) => d.id === id && d.ready)),
       );
     } catch (error) {
       if (version === loadVersion.current)
@@ -110,7 +201,6 @@ export default function CreateScreen() {
     }
   }
   useEffect(() => {
-    setDestinationIds([]);
     void loadReadiness();
     return () => {
       loadVersion.current++;
@@ -128,13 +218,16 @@ export default function CreateScreen() {
     )
       return;
     setItems((current) =>
-      current.map((item) => ({
-        ...item,
-        originalId: undefined,
-        status: "pending",
-        error: undefined,
-      })),
+      current
+        .filter((item) => !!item.source.uri)
+        .map((item) => ({
+          ...item,
+          originalId: undefined,
+          status: "pending",
+          error: undefined,
+        })),
     );
+    setDestinationIds([]);
     setClientId(id);
   }
   function toggleDestination(account: any) {
@@ -174,7 +267,7 @@ export default function CreateScreen() {
     }
   }
   async function upload() {
-    if (!clientId || !items.length || submitting.current) return;
+    if (!clientId || (!items.length && !pending.current) || submitting.current) return;
     submitting.current = true;
     const currentOperation = ++operation.current;
     setUploading(true);
@@ -233,9 +326,20 @@ export default function CreateScreen() {
         };
       }
       if (!alive.current || currentOperation !== operation.current) return;
+      await saveDraft(draftKey, {
+        clientId: pending.current.clientId,
+        objective: pending.current.objective,
+        creationMode: pending.current.mode,
+        outputCount: pending.current.outputCount,
+        destinationIds: pending.current.destinationIds,
+        items: storedItems(snapshot),
+        pending: pending.current,
+      });
+      if (!alive.current || currentOperation !== operation.current) return;
       const job = await api.createContent(pending.current);
       if (!alive.current || currentOperation !== operation.current) return;
       pending.current = null;
+      await saveDraft(draftKey, null).catch(() => undefined);
       setPendingCreation(false);
       setItems([]);
       markSaved({ ...draft, images: [] });
@@ -245,6 +349,15 @@ export default function CreateScreen() {
       const status = (error as { status?: number })?.status;
       if (status && status >= 400 && status < 500 && status !== 408) pending.current = null;
       setPendingCreation(!!pending.current);
+      await saveDraft(draftKey, {
+        clientId,
+        objective,
+        creationMode,
+        outputCount,
+        destinationIds,
+        items: storedItems(snapshot),
+        pending: pending.current,
+      }).catch(() => undefined);
       Alert.alert(
         "Content creation needs attention",
         error instanceof Error ? error.message : "Try again.",
@@ -261,6 +374,11 @@ export default function CreateScreen() {
         title="What are we making?"
         subtitle="Turn your ideas into content."
       />
+      {!!draftNotice && (
+        <Card subtle>
+          <Text>{draftNotice}</Text>
+        </Card>
+      )}
       <View style={styles.modeRow}>
         <Pressable
           accessibilityRole="button"
@@ -447,7 +565,14 @@ export default function CreateScreen() {
                 <View style={styles.previewGrid}>
                   {items.map((item) => (
                     <View key={item.key} style={{ gap: 6 }}>
-                      <Image source={{ uri: item.source.uri }} style={styles.preview} />
+                      {(item.source.uri && Platform.OS !== "web") ||
+                      (Platform.OS === "web" && !item.originalId) ? (
+                        <Image source={{ uri: item.source.uri }} style={styles.preview} />
+                      ) : (
+                        <Text style={styles.errorBody}>
+                          {item.source.fileName || "Uploaded image"}
+                        </Text>
+                      )}
                       <Text style={styles.errorBody}>{item.status}</Text>
                       {!!item.error && (
                         <Text style={[styles.errorBody, { maxWidth: 180 }]}>{item.error}</Text>
@@ -474,7 +599,7 @@ export default function CreateScreen() {
                   Preparing and uploading {uploadProgress.done} of {uploadProgress.total}…
                 </Text>
               )}
-              {!!assets.length && (
+              {(!!assets.length || pendingCreation) && (
                 <Button
                   label={
                     uploading

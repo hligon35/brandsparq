@@ -35,17 +35,14 @@ export default function SettingsScreen() {
     }
   }
   const [saving, setSaving] = useState(false);
-  const { markSaved } = useUnsavedChanges(
-    { workspace, notifications },
-    can("settings_manage"),
-    (saved) => {
-      setWorkspace(saved.workspace);
-      setNotifications(saved.notifications);
-    },
-  );
+  const { markSaved } = useUnsavedChanges({ workspace, notifications }, true, (saved) => {
+    setWorkspace(saved.workspace);
+    setNotifications(saved.notifications);
+  });
   const [loadError, setLoadError] = useState("");
   const [loaded, setLoaded] = useState(false);
-  const editable = loaded && can("settings_manage") && !saving;
+  const personalEditable = loaded && !saving;
+  const editable = personalEditable && can("settings_manage");
 
   function load() {
     setLoadError("");
@@ -71,8 +68,6 @@ export default function SettingsScreen() {
           prepublishEnabled: Boolean(data.notifications?.prepublish_enabled ?? 1),
           publishSuccessEnabled: Boolean(data.notifications?.publish_success_enabled ?? 1),
           publishFailureEnabled: Boolean(data.notifications?.publish_failure_enabled ?? 1),
-          prepublishMinutes: data.notifications?.prepublish_minutes ?? 30,
-          noResponsePolicy: data.notifications?.no_response_policy || "auto_publish",
         };
         setWorkspace(nextWorkspace);
         setNotifications(nextNotifications);
@@ -90,7 +85,7 @@ export default function SettingsScreen() {
   async function save() {
     setSaving(true);
     try {
-      await api.saveSettings({ workspace, notifications });
+      await api.saveSettings({ ...(can("settings_manage") ? { workspace } : {}), notifications });
       markSaved({ workspace, notifications });
       Alert.alert(
         "Settings saved",
@@ -103,12 +98,18 @@ export default function SettingsScreen() {
     }
   }
 
-  const numberField = (label: string, key: string, value: any, onChange: (v: number) => void) => (
+  const numberField = (
+    label: string,
+    key: string,
+    value: any,
+    onChange: (v: number) => void,
+    personal = false,
+  ) => (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
         style={styles.input}
-        editable={editable}
+        editable={personal ? personalEditable : editable}
         keyboardType="number-pad"
         value={String(value ?? "")}
         onChangeText={(v) => onChange(Number(v) || 0)}
@@ -121,7 +122,7 @@ export default function SettingsScreen() {
       <Text style={styles.toggleText}>{label}</Text>
       <Switch
         accessibilityLabel={label}
-        disabled={!editable}
+        disabled={!personalEditable}
         value={Boolean(notifications[key])}
         onValueChange={(value) => setNotifications({ ...notifications, [key]: value })}
         trackColor={{ true: colors.primary }}
@@ -224,11 +225,17 @@ export default function SettingsScreen() {
         {toggle("Pre-publish decisions", "prepublishEnabled")}
         {toggle("Publish confirmations", "publishSuccessEnabled")}
         {toggle("Publish failures", "publishFailureEnabled")}
+      </Card>
+      <Card>
+        <SectionTitle
+          title="Publishing safeguards"
+          subtitle="Workspace controls. Personal alert choices never change publishing behavior."
+        />
         {numberField(
           "Pre-publish alert (minutes)",
-          "prepublishMinutes",
-          notifications.prepublishMinutes,
-          (v) => setNotifications({ ...notifications, prepublishMinutes: v }),
+          "defaultPrepublishMinutes",
+          workspace.defaultPrepublishMinutes,
+          (v) => setWorkspace({ ...workspace, defaultPrepublishMinutes: v }),
         )}
         <View style={styles.field}>
           <Text style={styles.label}>No-response policy</Text>
@@ -238,12 +245,12 @@ export default function SettingsScreen() {
                 key={policy}
                 onPress={
                   editable
-                    ? () => setNotifications({ ...notifications, noResponsePolicy: policy })
+                    ? () => setWorkspace({ ...workspace, defaultNoResponsePolicy: policy })
                     : undefined
                 }
                 style={[
                   styles.policy,
-                  notifications.noResponsePolicy === policy && styles.policyActive,
+                  workspace.defaultNoResponsePolicy === policy && styles.policyActive,
                 ]}
               >
                 {policy.replace("_", " ")}
@@ -253,7 +260,10 @@ export default function SettingsScreen() {
         </View>
       </Card>
 
-      <Button label={saving ? "Saving…" : "Save settings"} onPress={!editable ? undefined : save} />
+      <Button
+        label={saving ? "Saving…" : "Save settings"}
+        onPress={!personalEditable ? undefined : save}
+      />
     </PageScroll>
   );
 }

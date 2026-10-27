@@ -11,7 +11,7 @@ import {
   useState,
   useRef,
 } from "react";
-import { ActivityIndicator, Platform, View } from "react-native";
+import { ActivityIndicator, AppState, Platform, View } from "react-native";
 import { colors } from "@/theme/tokens";
 import { api, setApiSessionToken, setUnauthorizedHandler } from "@/api/client";
 import { clearSessionToken, getSessionToken, setSessionToken } from "@/auth/session";
@@ -40,11 +40,13 @@ const AuthContext = createContext<AuthValue | null>(null);
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const handoffRequest = useRef<{ handoff: string; promise: Promise<void> } | null>(null);
+  const sessionEpoch = useRef(0);
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
     setUnauthorizedHandler(async () => {
+      sessionEpoch.current++;
       setApiSessionToken(null);
       await clearSessionToken();
       setUser(null);
@@ -69,6 +71,34 @@ export function AuthProvider({ children }: PropsWithChildren) {
       }
     })();
   }, []);
+
+  // Refresh capabilities when the app returns to the foreground and while it stays open.
+  // A late refresh from an old session must never restore a signed-out user.
+  const currentUser = useRef(user);
+  currentUser.current = user;
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    const epoch = sessionEpoch.current;
+    const refresh = async () => {
+      try {
+        const result = await api.getSession();
+        if (active && epoch === sessionEpoch.current && currentUser.current?.id === user.id)
+          setUser(result.user);
+      } catch {
+        /* Authorization failures are handled centrally; transient failures retain the UI. */
+      }
+    };
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void refresh();
+    });
+    const timer = setInterval(() => void refresh(), 60000);
+    return () => {
+      active = false;
+      subscription.remove();
+      clearInterval(timer);
+    };
+  }, [user?.id]);
 
   const completeGoogleSignIn = useCallback((handoff: string) => {
     if (handoffRequest.current?.handoff === handoff) return handoffRequest.current.promise;
@@ -122,11 +152,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
       ready,
       user,
       async refreshUser() {
-        setUser((await api.getSession()).user);
+        const epoch = sessionEpoch.current;
+        const result = await api.getSession();
+        if (epoch === sessionEpoch.current) setUser(result.user);
       },
       signInWithGoogle,
       completeGoogleSignIn,
       async signOut() {
+        sessionEpoch.current++;
         try {
           await unregisterThisDevice().catch(() => undefined);
           await api.signOut();

@@ -172,7 +172,10 @@ export const api = {
       body: JSON.stringify({ confirmation: "DELETE" }),
     }),
 
-  getGenerationJobs: () => jsonRequest<{ data: any[] }>("/v1/generation-jobs"),
+  getGenerationJobs: (options: { cursor?: string; search?: string; status?: string } = {}) =>
+    jsonRequest<{ data: any[]; nextCursor: string | null }>(
+      `/v1/generation-jobs?${new URLSearchParams(options).toString()}`,
+    ),
   getGenerationJob: (id: string) => jsonRequest<{ data: any }>(`/v1/generation-jobs/${id}`),
   generationAction: (id: string, action: "retry" | "cancel") =>
     jsonRequest<{ ok: true }>(`/v1/generation-jobs/${id}/${action}`, { method: "POST" }),
@@ -319,7 +322,12 @@ export const api = {
       body: JSON.stringify({ socialAccountId }),
     }),
 
-  getNotifications: () => jsonRequest<{ data: any[]; unreadCount: number }>("/v1/notifications"),
+  getNotifications: (
+    options: { cursor?: string; search?: string; filter?: string; limit?: string } = {},
+  ) =>
+    jsonRequest<{ data: any[]; unreadCount: number; nextCursor: string | null }>(
+      `/v1/notifications?${new URLSearchParams(options).toString()}`,
+    ),
 
   deleteNotifications: (ids: string[]) =>
     jsonRequest<{ ok: true }>("/v1/notifications/delete", {
@@ -431,7 +439,10 @@ export const api = {
   },
 
   syncAnalytics: (accountId?: string) =>
-    jsonRequest<{ ok: true }>("/v1/analytics/sync", {
+    jsonRequest<{
+      ok: boolean;
+      results: Array<{ accountId: string; ok: boolean; status?: string; error?: string }>;
+    }>("/v1/analytics/sync", {
       method: "POST",
       body: JSON.stringify({ accountId }),
     }),
