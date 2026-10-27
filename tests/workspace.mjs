@@ -129,6 +129,8 @@ export function workspace(t) {
       status,
       new Date(Date.now() + 86400000).toISOString(),
     );
+    if (status === "published")
+      exec("UPDATE posts SET published_at=CURRENT_TIMESTAMP WHERE id=?", id);
     if (
       [
         "calendar_scheduled",

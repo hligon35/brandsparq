@@ -3527,6 +3527,12 @@ export const REQUIRED_SCHEMA = {
       notnull: 1,
       pk: 0,
     },
+    {
+      name: "personal_preferences_version",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
   ],
 } as const;
 export const REQUIRED_INDEXES = [

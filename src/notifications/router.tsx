@@ -1,9 +1,13 @@
+import { pushNotificationTarget } from "@/shared/notification-route";
+import { api } from "@/api/client";
+import { useInbox } from "@/notifications/inbox";
 import { useGuardedNavigation } from "@/hooks/useUnsavedChanges";
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import { useAuth } from "@/auth/context";
 export function NotificationRouter() {
+  const { refresh } = useInbox();
   const { user } = useAuth();
   const router = useRouter();
   const navigate = useGuardedNavigation();
@@ -12,6 +16,7 @@ export function NotificationRouter() {
     if (Platform.OS === "web" || !user) return;
     let active = true;
     let subscription: { remove(): void } | undefined;
+    let received: { remove(): void } | undefined;
     void import("expo-notifications")
       .then(async (Notifications) => {
         if (!active) return;
@@ -28,17 +33,19 @@ export function NotificationRouter() {
           const request = response.notification.request;
           if (handled.current === request.identifier) return;
           const data = request.content.data;
-          const postId = data?.postId;
-          if (data?.userId !== user.id) return;
-          // Route only known internal post IDs; never execute arbitrary push-provided URLs.
-          if (typeof postId !== "string" || !/^[a-zA-Z0-9-]{1,128}$/.test(postId)) return;
+          const target = pushNotificationTarget(data || {}, user.id);
+          if (!target) return;
           void navigate(() => {
             handled.current = request.identifier;
-            router.push(
-              data?.type === "pre_publish" ? `/posts/${postId}/publish` : `/posts/${postId}`,
-            );
+            if (target.notificationId)
+              void api
+                .markNotificationRead(target.notificationId)
+                .then(refresh)
+                .catch(() => undefined);
+            router.push(target.path as Href);
           });
         };
+        received = Notifications.addNotificationReceivedListener(() => void refresh());
         subscription = Notifications.addNotificationResponseReceivedListener(open);
         open(await Notifications.getLastNotificationResponseAsync());
       })
@@ -46,6 +53,7 @@ export function NotificationRouter() {
     return () => {
       active = false;
       subscription?.remove();
+      received?.remove();
     };
   }, [user?.id]);
   return null;

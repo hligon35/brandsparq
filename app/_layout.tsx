@@ -1,3 +1,4 @@
+import { InboxProvider } from "@/notifications/inbox";
 import { UnsavedChangesProvider } from "@/hooks/useUnsavedChanges";
 import { HeaderActions } from "@/components/header-actions";
 import { NotificationRouter } from "@/notifications/router";
@@ -12,11 +13,13 @@ import { FeedbackHost } from "@/components/feedback";
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <UnsavedChangesProvider>
-        <RootNavigator />
-        <FeedbackHost />
-        <NotificationRouter />
-      </UnsavedChangesProvider>
+      <InboxProvider>
+        <UnsavedChangesProvider>
+          <RootNavigator />
+          <FeedbackHost />
+          <NotificationRouter />
+        </UnsavedChangesProvider>
+      </InboxProvider>
     </AuthProvider>
   );
 }

@@ -1,3 +1,4 @@
+import { pageOptions, pageResult } from "./pagination";
 import { sendReviewLinks } from "./generation";
 import type { SessionUser } from "./auth";
 import { hasClientPermission, type Permission } from "./authz";
@@ -30,6 +31,18 @@ export async function handleWorkspaceRoute(
     /^\/v1\/generation-jobs(?:\/([^/]+)(?:\/(retry|cancel))?)?$/,
   );
   if (generation && request.method === "GET") {
+    let page;
+    try {
+      page = pageOptions(url);
+    } catch (e) {
+      return { body: { error: (e as Error).message }, status: 400 };
+    }
+    const status = url.searchParams.get("status") || "";
+    if (
+      status &&
+      !["queued", "retrying", "rendering", "completed", "failed", "canceled"].includes(status)
+    )
+      return { body: { error: "Invalid generation status." }, status: 400 };
     const rows =
       await env.DB.prepare(`SELECT g.id,g.client_id,c.name AS client_name,c.status AS client_status,g.status,g.stage,g.error_message,g.campaign_id,g.post_ids,g.creation_options,g.created_at,g.completed_at,
     (SELECT COUNT(*) FROM graphic_jobs WHERE generation_job_id=g.id) AS graphics_total,
@@ -37,14 +50,31 @@ export async function handleWorkspaceRoute(
     (SELECT COUNT(*) FROM graphic_jobs WHERE generation_job_id=g.id AND status='failed') AS graphics_failed
     FROM generation_jobs g JOIN clients c ON c.id=g.client_id
     WHERE (? IS NULL OR g.id=?) AND (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=g.client_id))
-    ORDER BY g.created_at DESC,g.id LIMIT 50`)
-        .bind(generation[1] || null, generation[1] || null, user.role, user.id)
+    AND (?='' OR instr(lower(c.name || ' ' || COALESCE(g.error_message,'')),lower(?))>0)
+    AND (?='' OR g.status=?)
+    AND (? IS NULL OR g.created_at<? OR (g.created_at=? AND g.id<?))
+    ORDER BY g.created_at DESC,g.id DESC LIMIT ?`)
+        .bind(
+          generation[1] || null,
+          generation[1] || null,
+          user.role,
+          user.id,
+          page.search,
+          page.search,
+          status,
+          status,
+          page.cursor?.createdAt || null,
+          page.cursor?.createdAt || null,
+          page.cursor?.createdAt || null,
+          page.cursor?.id || null,
+          page.limit + 1,
+        )
         .all<any>();
     if (generation[1])
       return rows.results[0]
         ? { body: { data: rows.results[0] } }
         : { body: { error: "Generation job not found." }, status: 404 };
-    return { body: { data: rows.results } };
+    return { body: pageResult(rows.results, page.limit) };
   }
   if (generation?.[2] && request.method === "POST") {
     const job = await env.DB.prepare("SELECT * FROM generation_jobs WHERE id=?")

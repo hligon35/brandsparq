@@ -1,3 +1,4 @@
+import { latestMetricsJoin } from "./analytics";
 import { hasClientPermission } from "./authz";
 import { decryptSecret, encryptSecret, hashSecret } from "./security";
 
@@ -1135,167 +1136,215 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
     .bind(runId, accountId)
     .run();
 
+  const analyticsFetch = (input: string, init: RequestInit = {}) =>
+    fetch(input, { ...init, signal: AbortSignal.timeout(15000) });
   try {
     const posts = await env.DB.prepare(
       `SELECT id, platform_post_id FROM posts
        WHERE social_account_id = ? AND status = 'published' AND platform_post_id IS NOT NULL
-       ORDER BY published_at DESC LIMIT 50`,
+       ORDER BY published_at DESC,id`,
     )
       .bind(accountId)
       .all<{ id: string; platform_post_id: string }>();
 
-    const token = await accountToken(env, account);
-
-    for (const post of posts.results) {
-      let metrics: any = {};
-      if (account.platform === "x") {
-        const result = await fetch(
-          `https://api.x.com/2/tweets/${post.platform_post_id}?tweet.fields=public_metrics`,
-          { headers: { authorization: `Bearer ${token}` } },
-        );
-        if (result.ok) {
-          const payload = await result.json<any>();
-          const m = payload.data?.public_metrics || {};
-          metrics = {
-            impressions: m.impression_count,
-            likes: m.like_count,
-            comments: m.reply_count,
-            shares: m.retweet_count,
-            raw: payload,
-          };
-        }
-      } else if (account.platform === "instagram") {
-        const result = await fetch(
-          `https://graph.facebook.com/v23.0/${post.platform_post_id}/insights?metric=views,reach,likes,comments,saved,shares&access_token=${encodeURIComponent(token)}`,
-        );
-        if (result.ok) {
-          const payload = await result.json<any>();
-          const byName = Object.fromEntries(
-            (payload.data || []).map((m: any) => [
-              m.name,
-              m.values?.[0]?.value ?? m.total_value?.value,
-            ]),
-          );
-          metrics = {
-            impressions: byName.views ?? byName.impressions,
-            reach: byName.reach,
-            likes: byName.likes,
-            comments: byName.comments,
-            shares: byName.shares,
-            saves: byName.saved,
-            raw: payload,
-          };
-        }
-      } else if (account.platform === "facebook") {
-        const insights = await fetch(
-          `https://graph.facebook.com/v23.0/${post.platform_post_id}/insights?metric=post_media_view,post_total_media_view_unique,post_clicks,post_reactions_by_type_total&access_token=${encodeURIComponent(token)}`,
-        );
-        const engagement = await fetch(
-          `https://graph.facebook.com/v23.0/${post.platform_post_id}?fields=comments.limit(0).summary(true),shares&access_token=${encodeURIComponent(token)}`,
-        );
-        if (insights.ok || engagement.ok) {
-          const insightPayload = insights.ok ? await insights.json<any>() : {};
-          const engagementPayload = engagement.ok ? await engagement.json<any>() : {};
-          const byName = Object.fromEntries(
-            (insightPayload.data || []).map((m: any) => [
-              m.name,
-              m.values?.[0]?.value ?? m.total_value?.value,
-            ]),
-          );
-          const reactions = byName.post_reactions_by_type_total || {};
-          const likes =
-            typeof reactions === "number"
-              ? reactions
-              : Object.values(reactions).reduce(
-                  (sum: number, value: any) => sum + Number(value || 0),
-                  0,
-                );
-          metrics = {
-            impressions: byName.post_media_view,
-            reach: byName.post_total_media_view_unique,
-            likes,
-            comments: engagementPayload?.comments?.summary?.total_count,
-            shares: engagementPayload?.shares?.count,
-            clicks: byName.post_clicks,
-            raw: { insights: insightPayload, engagement: engagementPayload },
-          };
-        }
-      } else if (account.platform === "tiktok") {
-        const result = await fetch(
-          "https://open.tiktokapis.com/v2/video/query/?fields=id,like_count,comment_count,share_count,view_count",
-          {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${token}`,
-              "content-type": "application/json",
-            },
-            body: JSON.stringify({
-              filters: { video_ids: [String(post.platform_post_id)] },
-            }),
-          },
-        );
-        if (result.ok) {
-          const payload = await result.json<any>();
-          const video = payload?.data?.videos?.[0] || {};
-          metrics = {
-            impressions: video.view_count,
-            reach: video.view_count,
-            likes: video.like_count,
-            comments: video.comment_count,
-            shares: video.share_count,
-            raw: payload,
-          };
-        }
-      } else if (account.platform === "linkedin" && account.account_type === "organization") {
-        const postUrn = String(post.platform_post_id);
-        const parameter = postUrn.includes(":ugcPost:") ? "ugcPosts" : "shares";
-        const orgUrn = `urn:li:organization:${account.external_account_id}`;
-        const query = new URL("https://api.linkedin.com/rest/organizationalEntityShareStatistics");
-        query.searchParams.set("q", "organizationalEntity");
-        query.searchParams.set("organizationalEntity", orgUrn);
-        query.searchParams.set(parameter, `List(${postUrn})`);
-        const result = await fetch(query.toString(), {
-          headers: {
-            authorization: `Bearer ${token}`,
-            "LinkedIn-Version": "202610",
-            "X-Restli-Protocol-Version": "2.0.0",
-          },
-        });
-        if (result.ok) {
-          const payload = await result.json<any>();
-          const stats = payload?.elements?.[0]?.totalShareStatistics || {};
-          metrics = {
-            impressions: stats.impressionCount,
-            reach: stats.uniqueImpressionsCount ?? stats.uniqueImpressionsCounts,
-            likes: stats.likeCount,
-            comments: stats.commentCount,
-            shares: stats.shareCount,
-            clicks: stats.clickCount,
-            raw: payload,
-          };
-        }
-      }
-
+    if (account.platform === "linkedin" && account.account_type !== "organization") {
       await env.DB.prepare(
-        `INSERT INTO post_metrics
-         (id, post_id, platform, impressions, reach, likes, comments, shares, clicks, saves, raw_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        "UPDATE analytics_sync_runs SET status='unsupported', completed_at=?, error_message=? WHERE id=?",
       )
         .bind(
-          crypto.randomUUID(),
-          post.id,
-          account.platform,
-          metrics.impressions ?? null,
-          metrics.reach ?? null,
-          metrics.likes ?? null,
-          metrics.comments ?? null,
-          metrics.shares ?? null,
-          metrics.clicks ?? null,
-          metrics.saves ?? null,
-          JSON.stringify(metrics.raw || { status: "not_available_for_provider" }),
+          new Date().toISOString(),
+          "LinkedIn member analytics are unavailable for this integration.",
+          runId,
         )
         .run();
+      return { runId, status: "unsupported" };
     }
+    const token = posts.results.length ? await accountToken(env, account) : "";
+    const failures: string[] = [];
+    for (const post of posts.results) {
+      try {
+        let metrics: any = {};
+        if (account.platform === "x") {
+          const result = await analyticsFetch(
+            `https://api.x.com/2/tweets/${post.platform_post_id}?tweet.fields=public_metrics`,
+            { headers: { authorization: `Bearer ${token}` } },
+          );
+          if (result.ok) {
+            const payload = await result.json<any>();
+            const m = payload.data?.public_metrics || {};
+            metrics = {
+              impressions: m.impression_count,
+              likes: m.like_count,
+              comments: m.reply_count,
+              shares: m.retweet_count,
+              raw: payload,
+            };
+          }
+        } else if (account.platform === "instagram") {
+          const result = await analyticsFetch(
+            `https://graph.facebook.com/v23.0/${post.platform_post_id}/insights?metric=views,reach,likes,comments,saved,shares&access_token=${encodeURIComponent(token)}`,
+          );
+          if (result.ok) {
+            const payload = await result.json<any>();
+            const byName = Object.fromEntries(
+              (payload.data || []).map((m: any) => [
+                m.name,
+                m.values?.[0]?.value ?? m.total_value?.value,
+              ]),
+            );
+            metrics = {
+              impressions: byName.views ?? byName.impressions,
+              reach: byName.reach,
+              likes: byName.likes,
+              comments: byName.comments,
+              shares: byName.shares,
+              saves: byName.saved,
+              raw: payload,
+            };
+          }
+        } else if (account.platform === "facebook") {
+          const insights = await analyticsFetch(
+            `https://graph.facebook.com/v23.0/${post.platform_post_id}/insights?metric=post_media_view,post_total_media_view_unique,post_clicks,post_reactions_by_type_total&access_token=${encodeURIComponent(token)}`,
+          );
+          const engagement = await analyticsFetch(
+            `https://graph.facebook.com/v23.0/${post.platform_post_id}?fields=comments.limit(0).summary(true),shares&access_token=${encodeURIComponent(token)}`,
+          );
+          if (insights.ok && engagement.ok) {
+            const insightPayload = insights.ok ? await insights.json<any>() : {};
+            const engagementPayload = engagement.ok ? await engagement.json<any>() : {};
+            const byName = Object.fromEntries(
+              (insightPayload.data || []).map((m: any) => [
+                m.name,
+                m.values?.[0]?.value ?? m.total_value?.value,
+              ]),
+            );
+            const reactions = byName.post_reactions_by_type_total;
+            const likes =
+              reactions == null
+                ? undefined
+                : typeof reactions === "number"
+                  ? reactions
+                  : Object.values(reactions).reduce(
+                      (sum: number, value: any) => sum + Number(value || 0),
+                      0,
+                    );
+            metrics = {
+              impressions: byName.post_media_view,
+              reach: byName.post_total_media_view_unique,
+              likes,
+              comments: engagementPayload?.comments?.summary?.total_count,
+              shares: engagementPayload?.shares?.count,
+              clicks: byName.post_clicks,
+              raw: { insights: insightPayload, engagement: engagementPayload },
+            };
+          }
+        } else if (account.platform === "tiktok") {
+          const result = await analyticsFetch(
+            "https://open.tiktokapis.com/v2/video/query/?fields=id,like_count,comment_count,share_count,view_count",
+            {
+              method: "POST",
+              headers: {
+                authorization: `Bearer ${token}`,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                filters: { video_ids: [String(post.platform_post_id)] },
+              }),
+            },
+          );
+          if (result.ok) {
+            const payload = await result.json<any>();
+            const video = payload?.data?.videos?.[0] || {};
+            metrics = {
+              impressions: video.view_count,
+              reach: video.view_count,
+              likes: video.like_count,
+              comments: video.comment_count,
+              shares: video.share_count,
+              raw: payload,
+            };
+          }
+        } else if (account.platform === "linkedin" && account.account_type === "organization") {
+          const postUrn = String(post.platform_post_id);
+          const parameter = postUrn.includes(":ugcPost:") ? "ugcPosts" : "shares";
+          const orgUrn = `urn:li:organization:${account.external_account_id}`;
+          const query = new URL(
+            "https://api.linkedin.com/rest/organizationalEntityShareStatistics",
+          );
+          query.searchParams.set("q", "organizationalEntity");
+          query.searchParams.set("organizationalEntity", orgUrn);
+          query.searchParams.set(parameter, `List(${postUrn})`);
+          const result = await analyticsFetch(query.toString(), {
+            headers: {
+              authorization: `Bearer ${token}`,
+              "LinkedIn-Version": "202610",
+              "X-Restli-Protocol-Version": "2.0.0",
+            },
+          });
+          if (result.ok) {
+            const payload = await result.json<any>();
+            const stats = payload?.elements?.[0]?.totalShareStatistics || {};
+            metrics = {
+              impressions: stats.impressionCount,
+              reach: stats.uniqueImpressionsCount ?? stats.uniqueImpressionsCounts,
+              likes: stats.likeCount,
+              comments: stats.commentCount,
+              shares: stats.shareCount,
+              clicks: stats.clickCount,
+              raw: payload,
+            };
+          }
+        }
+
+        const metricKeys = [
+          "impressions",
+          "reach",
+          "likes",
+          "comments",
+          "shares",
+          "clicks",
+          "saves",
+        ];
+        if (
+          !metricKeys.some(
+            (key) => typeof metrics[key] === "number" && Number.isFinite(metrics[key]),
+          )
+        )
+          throw new Error("Provider returned no usable analytics. Previous measurements retained.");
+        for (const key of metricKeys)
+          if (
+            metrics[key] !== undefined &&
+            (typeof metrics[key] !== "number" || !Number.isFinite(metrics[key]) || metrics[key] < 0)
+          )
+            throw new Error("Provider returned invalid analytics. Previous measurements retained.");
+        await env.DB.prepare(
+          `INSERT INTO post_metrics
+         (id, post_id, platform, impressions, reach, likes, comments, shares, clicks, saves, raw_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+          .bind(
+            crypto.randomUUID(),
+            post.id,
+            account.platform,
+            metrics.impressions ?? null,
+            metrics.reach ?? null,
+            metrics.likes ?? null,
+            metrics.comments ?? null,
+            metrics.shares ?? null,
+            metrics.clicks ?? null,
+            metrics.saves ?? null,
+            JSON.stringify(metrics.raw || { status: "not_available_for_provider" }),
+          )
+          .run();
+      } catch {
+        failures.push(post.id);
+      }
+    }
+    // Successful posts retain their new samples; failed posts keep their last good sample.
+    if (failures.length)
+      throw new Error(
+        `Analytics unavailable for ${failures.length} of ${posts.results.length} posts. Previous measurements retained; retry the sync.`,
+      );
 
     const completedAt = new Date().toISOString();
     await env.DB.prepare(
@@ -1315,13 +1364,7 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
          SUM(COALESCE(pm.clicks,0)) AS clicks,
          SUM(COALESCE(pm.saves,0)) AS saves
        FROM posts p
-       LEFT JOIN (
-         SELECT m1.* FROM post_metrics m1
-         JOIN (
-           SELECT post_id,MAX(measured_at) AS measured_at
-           FROM post_metrics GROUP BY post_id
-         ) latest ON latest.post_id=m1.post_id AND latest.measured_at=m1.measured_at
-       ) pm ON pm.post_id=p.id
+       ${latestMetricsJoin}
        WHERE p.client_id=? AND p.platform=? AND p.status='published'`,
     )
       .bind(account.client_id, account.platform)
@@ -1370,13 +1413,7 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
          SUM(COALESCE(pm.clicks,0)) AS clicks,
          SUM(COALESCE(pm.saves,0)) AS saves
        FROM posts p
-       LEFT JOIN (
-         SELECT m1.* FROM post_metrics m1
-         JOIN (
-           SELECT post_id,MAX(measured_at) AS measured_at
-           FROM post_metrics GROUP BY post_id
-         ) latest ON latest.post_id=m1.post_id AND latest.measured_at=m1.measured_at
-       ) pm ON pm.post_id=p.id
+       ${latestMetricsJoin}
        WHERE p.client_id=?`,
     )
       .bind(account.client_id)
@@ -1414,7 +1451,7 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
     throw error;
   }
 
-  return { runId };
+  return { runId, status: "completed" };
 }
 
 export async function resolveDefaultSocialAccount(

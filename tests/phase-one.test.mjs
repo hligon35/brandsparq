@@ -517,7 +517,7 @@ test("editing workspace rules preserves omitted preferences and advances calenda
   assert.equal(prefs.no_response_policy, "hold");
   assert.equal(
     w.row("SELECT schedule_revision FROM clients WHERE id='client-a'").schedule_revision,
-    1,
+    2,
   );
 });
 

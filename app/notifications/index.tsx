@@ -1,7 +1,8 @@
+import { useInbox } from "@/notifications/inbox";
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, type Href } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Alert } from "@/components/feedback";
 import { api } from "@/api/client";
 import { notificationRoute } from "@/shared/notification-route";
@@ -11,50 +12,72 @@ import { colors } from "@/theme/tokens";
 
 export default function NotificationsScreen() {
   const router = useRouter();
+  const { refresh: refreshInbox } = useInbox();
   const [items, setItems] = useState<any[]>([]);
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const version = useRef(0);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
-  async function load() {
+  async function load(more = false) {
+    const current = ++version.current;
     setLoading(true);
     try {
-      setItems((await api.getNotifications()).data);
+      const result = await api.getNotifications({
+        search: query,
+        filter,
+        ...(more && nextCursor ? { cursor: nextCursor } : {}),
+      });
+      if (current !== version.current) return;
+      setItems((old) =>
+        more
+          ? [...old, ...result.data.filter((row) => !old.some((item) => item.id === row.id))]
+          : result.data,
+      );
+      setNextCursor(result.nextCursor);
+      setUnreadCount(result.unreadCount);
+      void refreshInbox();
+      if (!more) setSelected([]);
     } catch (e) {
       Alert.alert("Unable to load notifications", e instanceof Error ? e.message : "Try again.");
     } finally {
-      setLoading(false);
+      if (current === version.current) setLoading(false);
     }
   }
   useEffect(() => {
-    void load();
-  }, []);
-  const unread = items.filter((item) => !item.read_at).length;
-  const visible = useMemo(
-    () =>
-      items.filter((item) =>
-        filter === "unread"
-          ? !item.read_at
-          : filter === "failed"
-            ? ["failed", "partial"].includes(item.status)
-            : true,
-      ),
-    [items, filter],
-  );
+    const timer = setTimeout(() => void load(), 200);
+    return () => {
+      clearTimeout(timer);
+      version.current++;
+    };
+  }, [query, filter]);
+  const unread = unreadCount;
+  const visible = items;
   async function open(item: any) {
     if (busy) return;
     setBusy(true);
+    const route = notificationRoute(item);
+    if (route) router.push(route as Href);
     try {
       await api.markNotificationRead(item.id);
       setItems((old) =>
-        old.map((row) =>
-          row.id === item.id ? { ...row, read_at: new Date().toISOString() } : row,
-        ),
+        filter === "unread"
+          ? old.filter((row) => row.id !== item.id)
+          : old.map((row) =>
+              row.id === item.id ? { ...row, read_at: new Date().toISOString() } : row,
+            ),
       );
-      const route = notificationRoute(item);
-      if (route) router.push(route as Href);
-    } catch (e) {
-      Alert.alert("Unable to open notification", e instanceof Error ? e.message : "Try again.");
+      setSelected((old) => old.filter((id) => id !== item.id));
+      void refreshInbox();
+      setUnreadCount((old) => Math.max(0, old - Number(!item.read_at)));
+    } catch {
+      Alert.alert(
+        "Read status not saved",
+        "The notification remains new. You can still open its destination and retry marking it read later.",
+      );
     } finally {
       setBusy(false);
     }
@@ -65,6 +88,7 @@ export default function NotificationsScreen() {
       await api.deleteNotifications(selected);
       setItems((old) => old.filter((item) => !selected.includes(item.id)));
       setSelected([]);
+      await load();
     } catch (e) {
       Alert.alert("Unable to delete notifications", e instanceof Error ? e.message : "Try again.");
     } finally {
@@ -91,8 +115,24 @@ export default function NotificationsScreen() {
       <PageHeader
         title="Notifications"
         subtitle={`${unread} new · Tap a notification to open it.`}
-        action={<IconButton label="Refresh notifications" busy={loading} onPress={load} />}
+        action={
+          <IconButton label="Refresh notifications" busy={loading} onPress={() => void load()} />
+        }
       />
+      <TextInput
+        accessibilityLabel="Search notifications"
+        placeholder="Search notifications"
+        value={query}
+        onChangeText={setQuery}
+        style={{
+          minHeight: 48,
+          padding: 12,
+          color: colors.text,
+          backgroundColor: colors.surface,
+          borderRadius: 12,
+        }}
+      />
+      <Text style={styles.time}>Select all selects this loaded list (up to 100 at a time).</Text>
       <View style={styles.toolbar}>
         {["all", "unread", "failed"].map((value) => (
           <Pressable
@@ -120,7 +160,7 @@ export default function NotificationsScreen() {
                   setSelected((old) =>
                     allSelected
                       ? old.filter((id) => !visible.some((item) => item.id === id))
-                      : [...new Set([...old, ...visible.map((item) => item.id)])],
+                      : [...new Set([...old, ...visible.map((item) => item.id)])].slice(0, 100),
                   )
           }
         />
@@ -146,7 +186,9 @@ export default function NotificationsScreen() {
               disabled={busy}
               onPress={() =>
                 setSelected((old) =>
-                  old.includes(item.id) ? old.filter((id) => id !== item.id) : [...old, item.id],
+                  old.includes(item.id)
+                    ? old.filter((id) => id !== item.id)
+                    : [...old, item.id].slice(0, 100),
                 )
               }
               style={styles.checkbox}
@@ -180,6 +222,13 @@ export default function NotificationsScreen() {
           )}
         </Card>
       ))}
+      {!!nextCursor && (
+        <Button
+          label={loading ? "Loading…" : "Load more notifications"}
+          secondary
+          onPress={loading ? undefined : () => void load(true)}
+        />
+      )}
       {!visible.length && (
         <Card>
           <Text style={styles.body}>

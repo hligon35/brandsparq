@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { readDraft, saveDraft } from "@/shared/draft-storage";
+import { useUnsavedChanges, useGuardedNavigation } from "@/hooks/useUnsavedChanges";
+import { useEffect, useRef, useState } from "react";
 import { Image, StyleSheet, Text, TextInput, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -8,7 +10,7 @@ import { Alert } from "@/components/feedback";
 import { Button, Card, PageHeader, PageScroll } from "@/components/ui";
 import { colors } from "@/theme/tokens";
 export default function ProfileScreen() {
-  const { refreshUser, signOut } = useAuth();
+  const { user, refreshUser, signOut } = useAuth();
   const [name, setName] = useState(""),
     [email, setEmail] = useState(""),
     [currentEmail, setCurrentEmail] = useState(""),
@@ -19,18 +21,65 @@ export default function ProfileScreen() {
     [busy, setBusy] = useState(false),
     [loaded, setLoaded] = useState(false),
     [confirm, setConfirm] = useState("");
-  async function load() {
-    const { data } = await api.getProfile();
-    setName(data.name || "");
-    setEmail(data.email);
-    setCurrentEmail(data.email);
-    setAvatar(data.avatar_url);
+
+  const draftKey = `brandsparq_profile_${user?.id || "anonymous"}`;
+  const baseline = useRef({ name: "", email: "", avatar: null as string | null });
+  const [draftNotice, setDraftNotice] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const navigate = useGuardedNavigation();
+  const { markSaved } = useUnsavedChanges({ name, email, avatar }, loaded, (saved) => {
+    setName(saved.name);
+    setEmail(saved.email);
+    setAvatar(saved.avatar);
     setAvatarDirty(false);
-    setLoaded(true);
+    void saveDraft(draftKey, null).catch(() => undefined);
+  });
+  async function load() {
+    setLoadError("");
+    try {
+      const { data } = await api.getProfile();
+      setName(data.name || "");
+      setEmail(data.email);
+      setCurrentEmail(data.email);
+      setAvatar(data.avatar_url);
+      setAvatarDirty(false);
+
+      baseline.current = { name: data.name || "", email: data.email, avatar: data.avatar_url };
+      markSaved(baseline.current);
+      const draft = await readDraft<typeof baseline.current>(draftKey).catch(() => null);
+      if (draft) {
+        setName(draft.name);
+        setEmail(draft.email);
+        setAvatar(draft.avatar);
+        setAvatarDirty(draft.avatar !== data.avatar_url);
+        setDraftNotice("Unsaved profile draft restored.");
+      }
+      setLoaded(true);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Unable to load profile.");
+    }
   }
   useEffect(() => {
-    void load().catch((e) => Alert.alert("Unable to load profile", e.message));
+    void load();
   }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    const timer = setTimeout(
+      () =>
+        void saveDraft(
+          draftKey,
+          JSON.stringify({ name, email, avatar }) === JSON.stringify(baseline.current)
+            ? null
+            : { name, email, avatar },
+        ).catch(() =>
+          setDraftNotice(
+            "Your draft could not be saved on this device. Save your changes before closing the app.",
+          ),
+        ),
+      300,
+    );
+    return () => clearTimeout(timer);
+  }, [name, email, avatar, loaded, draftKey]);
   async function act(action: () => Promise<void>) {
     setBusy(true);
     try {
@@ -62,6 +111,18 @@ export default function ProfileScreen() {
   return (
     <PageScroll>
       <PageHeader title="Profile" subtitle="Manage your account and verified email address." />
+      {!!draftNotice && (
+        <Card subtle>
+          <Text>{draftNotice}</Text>
+        </Card>
+      )}
+      {!!loadError && (
+        <Card>
+          <Text accessibilityRole="alert">{loadError}</Text>
+          <Button label="Try again" onPress={load} />
+        </Card>
+      )}
+      {!loaded && !loadError && <Text>Loading profile…</Text>}
       <Card>
         <View style={{ alignItems: "center", gap: 12 }}>
           {avatar ? (
@@ -110,7 +171,7 @@ export default function ProfileScreen() {
         <Text style={styles.label}>Name</Text>
         <TextInput
           accessibilityLabel="Profile name"
-          editable={!busy}
+          editable={loaded && !busy}
           value={name}
           onChangeText={setName}
           style={styles.input}
@@ -124,6 +185,14 @@ export default function ProfileScreen() {
                   act(async () => {
                     await api.saveProfile(name, avatarDirty ? avatar : undefined);
                     setAvatarDirty(false);
+
+                    // Saving profile fields must not mark an unverified email edit as saved.
+                    baseline.current = { name, email: currentEmail, avatar };
+                    markSaved(baseline.current);
+                    await saveDraft(
+                      draftKey,
+                      email === currentEmail ? null : { name, email, avatar },
+                    ).catch(() => undefined);
                     await refreshUser();
                     Alert.alert("Profile saved");
                   })
@@ -134,7 +203,7 @@ export default function ProfileScreen() {
         <Text style={styles.label}>Email</Text>
         <TextInput
           accessibilityLabel="Profile email"
-          editable={!busy}
+          editable={loaded && !busy}
           value={email}
           onChangeText={(value) => {
             setEmail(value);
@@ -181,7 +250,18 @@ export default function ProfileScreen() {
                       act(async () => {
                         await api.verifyProfileEmail(code);
                         await refreshUser();
-                        await load();
+                        const { data } = await api.getProfile();
+                        setCurrentEmail(data.email);
+                        setEmail(data.email);
+                        baseline.current = { ...baseline.current, email: data.email };
+                        markSaved(baseline.current);
+                        await saveDraft(
+                          draftKey,
+                          JSON.stringify({ name, email: data.email, avatar }) ===
+                            JSON.stringify(baseline.current)
+                            ? null
+                            : { name, email: data.email, avatar },
+                        ).catch(() => undefined);
                         setCodeSent(false);
                         setCode("");
                         Alert.alert("Email updated");
@@ -191,7 +271,11 @@ export default function ProfileScreen() {
           </>
         )}
       </Card>
-      <Button label="Sign out" secondary onPress={busy ? undefined : () => act(signOut)} />
+      <Button
+        label="Sign out"
+        secondary
+        onPress={busy ? undefined : () => void navigate(() => void act(signOut))}
+      />
       <Card>
         <Text style={styles.label}>Delete account</Text>
         <Text style={styles.body}>

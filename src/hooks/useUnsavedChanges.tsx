@@ -1,5 +1,6 @@
 import {
   createContext,
+  useEffect,
   useCallback,
   useContext,
   useRef,
@@ -69,6 +70,15 @@ export function useUnsavedChanges<T>(value: T, enabled = true, restore?: (value:
   restoreRef.current = restore;
   const [discarded, setDiscarded] = useState(false);
   const dirty = enabled && saved !== null && serialized !== saved && !discarded;
+  useEffect(() => {
+    if (!dirty || typeof window === "undefined") return;
+    const prevent = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", prevent);
+    return () => window.removeEventListener("beforeunload", prevent);
+  }, [dirty]);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   const pending = useRef<Promise<boolean> | null>(null);
