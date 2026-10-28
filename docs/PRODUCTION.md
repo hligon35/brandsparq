@@ -57,6 +57,31 @@ X_CLIENT_SECRET
 
 Use a different long random value for `SOCIAL_TOKEN_KEY` than `AUTH_PEPPER`.
 
+### Meta Facebook Login for Business
+
+Set `META_LOGIN_CONFIG_ID` on the Worker to the Configuration ID from
+**Facebook Login for Business → Configurations**. This is a server variable;
+do not put it in Expo's public environment. It can be stored as a Worker text
+variable or secret. The App ID and App Secret must belong to the same Meta app.
+
+When this variable is set, the authorization request sends `config_id` and
+requests an authorization code. Permissions come from the Meta configuration,
+so the request does not send an overriding `scope` list. Without this variable,
+the legacy Facebook Login request continues to use explicit scopes.
+
+Configure a **User access token** login configuration for the current
+Page-discovery flow. Include the permissions needed by enabled features:
+`pages_show_list`, `pages_read_engagement`, `instagram_basic`,
+`instagram_content_publish`, and `business_management`; include
+`pages_manage_posts` when Facebook Page publishing is enabled. The Instagram
+professional account must be linked to a Facebook Page accessible to the user.
+In development mode, test with an accepted app-role user and permitted assets.
+
+After deploying the updated Worker and setting the variable, start a fresh
+connection attempt. No native app rebuild or database migration is needed for
+this server-only change. A successful real provider login still needs to be
+verified separately from automated tests.
+
 ## OAuth callback URLs
 
 Google:
