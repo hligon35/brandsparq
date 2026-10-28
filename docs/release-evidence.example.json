@@ -342,18 +342,7 @@
       "evidenceUrl": "",
       "summary": "",
       "ownerAccepted": false,
-      "dispositions": [
-        {
-          "advisoryId": "GHSA-mrhx-c7xc-m3w5",
-          "package": "zod",
-          "version": "3.25.76",
-          "decision": "pending",
-          "approvedBy": "",
-          "recordedAt": "",
-          "nextReviewAt": "",
-          "mitigations": []
-        }
-      ]
+      "dispositions": []
     }
   },
   "attestationVersion": 2

@@ -1,7 +1,9 @@
+import { verifyToolchainPatches } from "./toolchain-patches.mjs";
 import { readFileSync } from "node:fs";
 import { requiredDispositions, verifyAdvisoryDispositions } from "./dependency-disposition.mjs";
 const requiredAdvisories = requiredDispositions(
   JSON.parse(readFileSync(new URL("../../package-lock.json", import.meta.url), "utf8")),
+  { remediated: verifyToolchainPatches() },
 );
 import { verifyAcceptanceMatrix } from "./acceptance-matrix.mjs";
 export const RELEASE_GATES = [

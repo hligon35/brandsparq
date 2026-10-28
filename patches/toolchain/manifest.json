@@ -1,0 +1,68 @@
+{
+  "formatVersion": 1,
+  "patches": [
+    {
+      "path": "deepmerge/index.js",
+      "file": "deepmerge__index.js",
+      "package": "deepmerge",
+      "version": "4.3.1",
+      "advisoryId": "GHSA-gcqx-w48m-w2h4",
+      "originalSha256": "12440c84957c1990ea2d5e33dc0091722dc1dc1585c6d20e0c780e568ffa9d30",
+      "patchedSha256": "fe4ae7092f9f51a8fd36a4a7de8597aaf11e8b90166c48c21391a6cfc5adb25d"
+    },
+    {
+      "path": "deepmerge/dist/cjs.js",
+      "file": "deepmerge__dist__cjs.js",
+      "package": "deepmerge",
+      "version": "4.3.1",
+      "advisoryId": "GHSA-gcqx-w48m-w2h4",
+      "originalSha256": "2e5160f84a1141bd927264afe4d15766f1e6cf07daef182b37ff53fea121de7d",
+      "patchedSha256": "d2b9db6030edf08e0b5dc3a8631b51be4e385b91d2f500de3c2eccdb1ee9be65"
+    },
+    {
+      "path": "deepmerge/dist/umd.js",
+      "file": "deepmerge__dist__umd.js",
+      "package": "deepmerge",
+      "version": "4.3.1",
+      "advisoryId": "GHSA-gcqx-w48m-w2h4",
+      "originalSha256": "f33e6596482d1fb5c7c427f8ef92f2aa849eea9223acd974176b2fb27ddbf73a",
+      "patchedSha256": "c76bb24453c5d19d47a16d26db2424c9e3494ac2c97c477c61ac7a00c01db816"
+    },
+    {
+      "path": "zod/v3/types.js",
+      "file": "zod__v3__types.js",
+      "package": "zod",
+      "version": "3.25.76",
+      "advisoryId": "GHSA-mrhx-c7xc-m3w5",
+      "originalSha256": "9763a2938f0e7f983363ef4bf6530e7583e3f2d54f8a4a6684efad58febc6e8e",
+      "patchedSha256": "a9afd020dda5ce86ec9731963e89602984183a90a0db2768cbbc466680d40faa"
+    },
+    {
+      "path": "zod/v3/types.cjs",
+      "file": "zod__v3__types.cjs",
+      "package": "zod",
+      "version": "3.25.76",
+      "advisoryId": "GHSA-mrhx-c7xc-m3w5",
+      "originalSha256": "06487cc05ed45c5dd29789bf0aa75734d1ce06592a7f2665ba4ca90a68e8a3e1",
+      "patchedSha256": "44cfbb250c2c0f1c806222abef66c1dca343ec68489ea70938c942f5de6675f4"
+    },
+    {
+      "path": "zod/v4/core/schemas.js",
+      "file": "zod__v4__core__schemas.js",
+      "package": "zod",
+      "version": "3.25.76",
+      "advisoryId": "GHSA-mrhx-c7xc-m3w5",
+      "originalSha256": "d466582c022b08a3f9eb1a65d5970d8ca25064d73a5a838d76414ae36440a76b",
+      "patchedSha256": "71df14ffec1d4b661328dd367a520b0e8a62f1f2eb439b4a781f925c163ac1c0"
+    },
+    {
+      "path": "zod/v4/core/schemas.cjs",
+      "file": "zod__v4__core__schemas.cjs",
+      "package": "zod",
+      "version": "3.25.76",
+      "advisoryId": "GHSA-mrhx-c7xc-m3w5",
+      "originalSha256": "f5d17a7db487c943c9d07cc624010ebb6d93683eabd14339846f4912cc88b51f",
+      "patchedSha256": "ec282c01aeab73ee3cdb8d6a2b4b7bed3a776cb65b7fee3f46b1d525a663ee6f"
+    }
+  ]
+}

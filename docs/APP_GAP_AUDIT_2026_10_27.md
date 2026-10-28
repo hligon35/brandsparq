@@ -2,7 +2,7 @@
 
 Date: October 27, 2026. Scope: intended BrandSparQ workflow—client setup, Brand Brain and media, AI creation/revision, review, scheduling, social publishing, notifications, analytics, profile/access, recovery and release safeguards.
 
-> Historical baseline: Phase 1 implementation now addresses G01–G05 and G09. See [GAP_CLOSURE_PHASE_ONE.md](GAP_CLOSURE_PHASE_ONE.md) for implementation and verification status. The reproduction probes below deliberately describe the original audited commit.
+> Historical baseline: Phases 1–3 implement the coding fixes for G01–G14. Current verification and remaining operational gates are recorded in [GAP_CLOSURE_PHASE_FOUR.md](GAP_CLOSURE_PHASE_FOUR.md). Phase 1 addresses G01–G05 and G09. See [GAP_CLOSURE_PHASE_ONE.md](GAP_CLOSURE_PHASE_ONE.md) for implementation and verification status. The reproduction probes below deliberately describe the original audited commit.
 
 ## Conclusion
 
