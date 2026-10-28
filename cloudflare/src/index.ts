@@ -1,3 +1,4 @@
+import { renderFinalCopy, finalCopyError } from "../../src/shared/final-copy";
 import { saveBrandProfile } from "./brand";
 import { validRevision, revisionRequired, revisionConflict } from "./revisions";
 import { postCampaign, campaignOpen } from "./campaign-workflow";
@@ -277,6 +278,89 @@ async function audit(
     .run();
 }
 
+async function runMaintenance(env: Env) {
+  try {
+    await retryNotificationDeliveries(env);
+    await checkExpoPushReceipts(env);
+  } catch (error) {
+    await recordSystemEvent(env, {
+      severity: "warning",
+      category: "notifications",
+      eventType: "push_receipt_check_failed",
+      message: error instanceof Error ? error.message.slice(0, 1000) : "Push receipt check failed.",
+    }).catch(() => undefined);
+  }
+
+  try {
+    await recoverStaleWork(env);
+  } catch (error) {
+    await recordSystemEvent(env, {
+      severity: "error",
+      category: "recovery",
+      eventType: "scheduled_recovery_failed",
+      message: error instanceof Error ? error.message.slice(0, 1000) : "Scheduled recovery failed.",
+    }).catch(() => undefined);
+  }
+
+  const healthCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+  const healthAccounts = await env.DB.prepare(
+    `SELECT id FROM social_accounts
+       WHERE status='connected'
+         AND (health_checked_at IS NULL OR health_checked_at < ? OR token_expires_at<=?)
+       ORDER BY COALESCE(health_checked_at, created_at) ASC
+       LIMIT 10`,
+  )
+    .bind(healthCutoff, Date.now() + 5 * 60000)
+    .all<{ id: string }>();
+
+  for (const account of healthAccounts.results) {
+    try {
+      await verifySocialAccount(env, account.id);
+    } catch (error) {
+      await recordSystemEvent(env, {
+        severity: "warning",
+        category: "social",
+        eventType: "social_health_check_failed",
+        entityType: "social_account",
+        entityId: account.id,
+        message:
+          error instanceof Error ? error.message.slice(0, 1000) : "Social health check failed.",
+      }).catch(() => undefined);
+    }
+  }
+
+  const settings = await env.DB.prepare(
+    "SELECT analytics_refresh_hours FROM workspace_settings WHERE id = 'default'",
+  ).first<{ analytics_refresh_hours: number }>();
+  const refreshMs = Number(settings?.analytics_refresh_hours || 6) * 60 * 60 * 1000;
+  const accounts = await env.DB.prepare(
+    `SELECT sa.id,
+          MAX(CASE WHEN ar.status = 'completed' THEN ar.completed_at END) AS last_sync
+       FROM social_accounts sa
+       LEFT JOIN analytics_sync_runs ar ON ar.social_account_id = sa.id
+       WHERE sa.status = 'connected'
+       GROUP BY sa.id`,
+  ).all<{ id: string; last_sync: string | null }>();
+
+  for (const account of accounts.results) {
+    const last = account.last_sync ? Date.parse(account.last_sync) : 0;
+    if (!last || Date.now() - last >= refreshMs) {
+      try {
+        await syncAccountAnalytics(env, account.id);
+      } catch (error) {
+        await recordSystemEvent(env, {
+          severity: "warning",
+          category: "analytics",
+          eventType: "analytics_sync_failed",
+          entityType: "social_account",
+          entityId: account.id,
+          message: error instanceof Error ? error.message.slice(0, 1000) : "Analytics sync failed.",
+        }).catch(() => undefined);
+      }
+    }
+  }
+}
+
 const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -475,6 +559,7 @@ const worker = {
           headline?: string;
           caption?: string;
           comment?: string;
+          hashtags?: string[];
           expectedRevision?: number;
         }>()
         .catch(() => ({}) as any);
@@ -482,25 +567,46 @@ const worker = {
       if (!validRevision(payload.expectedRevision))
         return response(request, env, revisionRequired.body, { status: 428 });
       const headline = payload.headline?.trim().slice(0, 300);
-      const caption = payload.caption?.trim().slice(0, 5000);
+      if (
+        payload.caption !== undefined &&
+        (typeof payload.caption !== "string" || payload.caption.length > 70000)
+      )
+        return response(
+          request,
+          env,
+          { error: "Enter valid publication copy under 70,000 characters." },
+          { status: 400 },
+        );
+      const caption = payload.caption;
       const comment = payload.comment?.trim().slice(0, 2000);
 
+      if (
+        payload.hashtags !== undefined &&
+        (!Array.isArray(payload.hashtags) ||
+          payload.hashtags.length > 30 ||
+          payload.hashtags.some(
+            (t: unknown) => typeof t !== "string" || !/^#?[\p{L}\p{N}_]+$/u.test(t as string),
+          ))
+      )
+        return response(request, env, { error: "Enter up to 30 valid hashtags." }, { status: 400 });
       const editToken = crypto.randomUUID();
       const changed = await env.DB.batch([
         env.DB.prepare(
-          `UPDATE posts SET content_revision=content_revision+1,review_edit_token=?,
+          `UPDATE posts SET content_revision=content_revision+1,review_edit_token=?,hashtags=COALESCE(?,hashtags),
            headline = COALESCE(NULLIF(?, ''), headline),
            title = COALESCE(NULLIF(?, ''), title),
-           caption = COALESCE(NULLIF(?, ''), caption),
+           caption = CASE WHEN ? THEN ? ELSE caption END,
            reviewer_comment = COALESCE(NULLIF(?, ''), reviewer_comment),
            status = 'awaiting_approval',
            updated_at = CURRENT_TIMESTAMP
            WHERE id = ? AND content_revision=? AND status IN ('awaiting_approval','edit_requested')`,
         ).bind(
           editToken,
+          payload.hashtags === undefined ? null : JSON.stringify(payload.hashtags),
           headline || null,
           headline || null,
-          caption || null,
+          payload.caption !== undefined ? 1 : 0,
+          caption ?? null,
           comment || null,
           row.post_id,
           payload.expectedRevision,
@@ -650,7 +756,7 @@ const worker = {
       const tokenHash = await hashReviewToken(publicApproveMatch[1], env);
       const row = await env.DB.prepare(
         `SELECT rt.id AS review_token_id, rt.post_id, rt.expires_at, rt.used_at,
-                p.status, p.content_revision, p.publish_version, p.client_id, p.platform, p.social_account_id, p.suggested_publish_at
+                p.caption,p.hashtags,p.status, p.content_revision, p.publish_version, p.client_id, p.platform, p.social_account_id, p.suggested_publish_at
          FROM review_tokens rt
          JOIN posts p ON p.id = rt.post_id
          WHERE rt.token_hash = ? AND rt.revoked_at IS NULL`,
@@ -688,6 +794,11 @@ const worker = {
         return response(request, env, revisionRequired.body, { status: 428 });
       if (payload.expectedRevision !== row.content_revision)
         return response(request, env, revisionConflict.body, { status: 409 });
+      const copyError = finalCopyError(
+        row.platform,
+        renderFinalCopy(row.caption || "", row.hashtags),
+      );
+      if (copyError) return response(request, env, { error: copyError }, { status: 409 });
       const destination = await ensurePostSocialDestination(env, {
         id: row.post_id,
         client_id: row.client_id,
@@ -1956,16 +2067,35 @@ const worker = {
       if (!validRevision(payload.expectedRevision))
         return response(request, env, revisionRequired.body, { status: 428 });
       const headline = payload.headline?.trim().slice(0, 300);
-      const caption = payload.caption?.trim().slice(0, 5000);
+      if (
+        payload.caption !== undefined &&
+        (typeof payload.caption !== "string" || payload.caption.length > 70000)
+      )
+        return response(
+          request,
+          env,
+          { error: "Enter valid publication copy under 70,000 characters." },
+          { status: 400 },
+        );
+      const caption = payload.caption;
       const comment = payload.comment?.trim().slice(0, 2000);
 
+      if (
+        payload.hashtags !== undefined &&
+        (!Array.isArray(payload.hashtags) ||
+          payload.hashtags.length > 30 ||
+          payload.hashtags.some(
+            (t: unknown) => typeof t !== "string" || !/^#?[\p{L}\p{N}_]+$/u.test(t as string),
+          ))
+      )
+        return response(request, env, { error: "Enter up to 30 valid hashtags." }, { status: 400 });
       const editToken = crypto.randomUUID();
       const changed = await env.DB.batch([
         env.DB.prepare(
-          `UPDATE posts SET content_revision=content_revision+1,review_edit_token=?,
+          `UPDATE posts SET content_revision=content_revision+1,review_edit_token=?,hashtags=COALESCE(?,hashtags),
            headline=COALESCE(NULLIF(?,''),headline),
            title=COALESCE(NULLIF(?,''),title),
-           caption=COALESCE(NULLIF(?,''),caption),
+           caption=CASE WHEN ? THEN ? ELSE caption END,
            reviewer_comment=COALESCE(NULLIF(?,''),reviewer_comment),
            status='awaiting_approval',
            revision_job_id=NULL,
@@ -1973,9 +2103,11 @@ const worker = {
            WHERE id=? AND content_revision=? AND status IN ('awaiting_approval','edit_requested')`,
         ).bind(
           editToken,
+          payload.hashtags === undefined ? null : JSON.stringify(payload.hashtags),
           headline || null,
           headline || null,
-          caption || null,
+          payload.caption !== undefined ? 1 : 0,
+          caption ?? null,
           comment || null,
           editPostMatch[1],
           payload.expectedRevision,
@@ -2054,7 +2186,7 @@ const worker = {
     if (request.method === "POST" && approvalMatch) {
       const postId = approvalMatch[1];
       const post = await env.DB.prepare(
-        "SELECT id, status, content_revision, publish_version, client_id, platform, social_account_id, suggested_publish_at FROM posts WHERE id = ?",
+        "SELECT id,caption,hashtags, status, content_revision, publish_version, client_id, platform, social_account_id, suggested_publish_at FROM posts WHERE id = ?",
       )
         .bind(postId)
         .first<any>();
@@ -2087,6 +2219,11 @@ const worker = {
         return response(request, env, revisionRequired.body, { status: 428 });
       if (payload.expectedRevision !== post.content_revision)
         return response(request, env, revisionConflict.body, { status: 409 });
+      const copyError = finalCopyError(
+        post.platform,
+        renderFinalCopy(post.caption || "", post.hashtags),
+      );
+      if (copyError) return response(request, env, { error: copyError }, { status: 409 });
       const destination = await ensurePostSocialDestination(env, post);
       if (!destination) {
         return response(
@@ -2401,37 +2538,12 @@ const worker = {
     return response(request, env, { error: "Not found" }, { status: 404 });
   },
 
-  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
-    try {
-      await retryNotificationDeliveries(env);
-      await checkExpoPushReceipts(env);
-    } catch (error) {
-      await recordSystemEvent(env, {
-        severity: "warning",
-        category: "notifications",
-        eventType: "push_receipt_check_failed",
-        message:
-          error instanceof Error ? error.message.slice(0, 1000) : "Push receipt check failed.",
-      }).catch(() => undefined);
-    }
-
-    try {
-      await recoverStaleWork(env);
-    } catch (error) {
-      await recordSystemEvent(env, {
-        severity: "error",
-        category: "recovery",
-        eventType: "scheduled_recovery_failed",
-        message:
-          error instanceof Error ? error.message.slice(0, 1000) : "Scheduled recovery failed.",
-      }).catch(() => undefined);
-    }
-
+  async scheduled(_event: ScheduledController, env: Env, ctx?: ExecutionContext): Promise<void> {
     const now = new Date();
     const nowIso = now.toISOString();
 
     const upcoming = await env.DB.prepare(
-      `SELECT p.id, p.client_id, p.platform, p.scheduled_publish_at, p.publish_version,
+      `SELECT p.id,p.status, p.client_id, p.platform, p.scheduled_publish_at, p.publish_version,
               COALESCE(cs.prepublish_minutes,
                        ws.default_prepublish_minutes, 30) AS prepublish_minutes
        FROM posts p
@@ -2440,6 +2552,8 @@ const worker = {
        WHERE p.status IN ('calendar_scheduled','rescheduled')
          AND p.scheduled_publish_at IS NOT NULL
          AND p.prepublish_alert_at IS NULL
+         AND julianday(p.scheduled_publish_at)-COALESCE(cs.prepublish_minutes,ws.default_prepublish_minutes,30)/1440.0<=julianday('now')
+       ORDER BY julianday(p.scheduled_publish_at)-COALESCE(cs.prepublish_minutes,ws.default_prepublish_minutes,30)/1440.0,p.id
        LIMIT 100`,
     ).all<any>();
 
@@ -2458,14 +2572,30 @@ const worker = {
         const deepLink = env.PUBLIC_BASE_URL
           ? `${env.PUBLIC_BASE_URL.replace(/\/$/, "")}/posts/${row.id}/publish`
           : undefined;
-        await notifyPostOwners(
-          env,
-          row.id,
-          "pre_publish",
-          "Post ready for final publish decision",
-          `Your ${row.platform} post is scheduled for ${new Date(row.scheduled_publish_at).toLocaleString()}. Keep the schedule, reschedule it, or publish now.`,
-          deepLink,
-        );
+        try {
+          await notifyPostOwners(
+            env,
+            row.id,
+            "pre_publish",
+            "Post ready for final publish decision",
+            `Your ${row.platform} post is scheduled for ${new Date(row.scheduled_publish_at).toLocaleString()}. Keep the schedule, reschedule it, or publish now.`,
+            deepLink,
+          );
+        } catch (error) {
+          await env.DB.prepare(
+            "UPDATE posts SET status=?,prepublish_alert_at=NULL WHERE id=? AND status='pre_publish' AND prepublish_alert_at=? AND publish_version=?",
+          )
+            .bind(row.status, row.id, nowIso, row.publish_version)
+            .run();
+          await recordSystemEvent(env, {
+            severity: "warning",
+            category: "notifications",
+            eventType: "prepublish_alert_failed",
+            entityType: "post",
+            entityId: row.id,
+            message: "Pre-publish alert could not be recorded; it will be retried.",
+          }).catch(() => undefined);
+        }
       }
     }
 
@@ -2615,64 +2745,8 @@ const worker = {
       }).catch(() => undefined);
     }
 
-    const healthCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
-    const healthAccounts = await env.DB.prepare(
-      `SELECT id FROM social_accounts
-       WHERE status='connected'
-         AND (health_checked_at IS NULL OR health_checked_at < ?)
-       ORDER BY COALESCE(health_checked_at, created_at) ASC
-       LIMIT 10`,
-    )
-      .bind(healthCutoff)
-      .all<{ id: string }>();
-
-    for (const account of healthAccounts.results) {
-      try {
-        await verifySocialAccount(env, account.id);
-      } catch (error) {
-        await recordSystemEvent(env, {
-          severity: "warning",
-          category: "social",
-          eventType: "social_health_check_failed",
-          entityType: "social_account",
-          entityId: account.id,
-          message:
-            error instanceof Error ? error.message.slice(0, 1000) : "Social health check failed.",
-        }).catch(() => undefined);
-      }
-    }
-
-    const settings = await env.DB.prepare(
-      "SELECT analytics_refresh_hours FROM workspace_settings WHERE id = 'default'",
-    ).first<{ analytics_refresh_hours: number }>();
-    const refreshMs = Number(settings?.analytics_refresh_hours || 6) * 60 * 60 * 1000;
-    const accounts = await env.DB.prepare(
-      `SELECT sa.id,
-          MAX(CASE WHEN ar.status = 'completed' THEN ar.completed_at END) AS last_sync
-       FROM social_accounts sa
-       LEFT JOIN analytics_sync_runs ar ON ar.social_account_id = sa.id
-       WHERE sa.status = 'connected'
-       GROUP BY sa.id`,
-    ).all<{ id: string; last_sync: string | null }>();
-
-    for (const account of accounts.results) {
-      const last = account.last_sync ? Date.parse(account.last_sync) : 0;
-      if (!last || Date.now() - last >= refreshMs) {
-        try {
-          await syncAccountAnalytics(env, account.id);
-        } catch (error) {
-          await recordSystemEvent(env, {
-            severity: "warning",
-            category: "analytics",
-            eventType: "analytics_sync_failed",
-            entityType: "social_account",
-            entityId: account.id,
-            message:
-              error instanceof Error ? error.message.slice(0, 1000) : "Analytics sync failed.",
-          }).catch(() => undefined);
-        }
-      }
-    }
+    if (ctx) ctx.waitUntil(runMaintenance(env));
+    else await runMaintenance(env);
   },
 
   async queue(batch: MessageBatch<JobMessage>, env: Env): Promise<void> {

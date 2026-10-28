@@ -1,3 +1,5 @@
+import { renderFinalCopy, finalCopyError } from "../../src/shared/final-copy";
+import { providerFetch } from "./provider-http";
 import { latestMetricsJoin } from "./analytics";
 import { hasClientPermission } from "./authz";
 import { decryptSecret, encryptSecret, hashSecret } from "./security";
@@ -423,7 +425,7 @@ async function discoverLinkedInOrganizations(
 
   if (!hasOrgScope) return [];
 
-  const aclResponse = await fetch(
+  const aclResponse = await providerFetch(
     "https://api.linkedin.com/v2/organizationalEntityAcls?q=roleAssignee&state=APPROVED",
     { headers: { authorization: `Bearer ${input.accessToken}` } },
   );
@@ -439,7 +441,7 @@ async function discoverLinkedInOrganizations(
   for (const organizationId of organizationIds) {
     let name = `LinkedIn Organization ${organizationId}`;
     try {
-      const orgResponse = await fetch(
+      const orgResponse = await providerFetch(
         `https://api.linkedin.com/v2/organizations/${organizationId}`,
         { headers: { authorization: `Bearer ${input.accessToken}` } },
       );
@@ -576,11 +578,11 @@ export async function socialOAuthCallback(
     tokenUrl.searchParams.set("client_secret", env.META_APP_SECRET!);
     tokenUrl.searchParams.set("redirect_uri", redirectUri);
     tokenUrl.searchParams.set("code", code);
-    const tokenResponse = await fetch(tokenUrl);
+    const tokenResponse = await providerFetch(tokenUrl);
     if (!tokenResponse.ok) throw new Error("Meta token exchange failed.");
     const token = await tokenResponse.json<any>();
 
-    const accountsResponse = await fetch(
+    const accountsResponse = await providerFetch(
       `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&access_token=${encodeURIComponent(token.access_token)}`,
     );
     if (!accountsResponse.ok) throw new Error("Meta account discovery failed.");
@@ -621,14 +623,14 @@ export async function socialOAuthCallback(
       client_secret: env.LINKEDIN_CLIENT_SECRET!,
       redirect_uri: env.LINKEDIN_REDIRECT_URI || `${url.origin}/v1/social/linkedin/callback`,
     });
-    const tokenResponse = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
+    const tokenResponse = await providerFetch("https://www.linkedin.com/oauth/v2/accessToken", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body,
     });
     if (!tokenResponse.ok) throw new Error("LinkedIn token exchange failed.");
     const token = await tokenResponse.json<any>();
-    const profileResponse = await fetch("https://api.linkedin.com/v2/userinfo", {
+    const profileResponse = await providerFetch("https://api.linkedin.com/v2/userinfo", {
       headers: { authorization: `Bearer ${token.access_token}` },
     });
     if (!profileResponse.ok) throw new Error("LinkedIn profile discovery failed.");
@@ -662,14 +664,14 @@ export async function socialOAuthCallback(
       grant_type: "authorization_code",
       redirect_uri: env.TIKTOK_REDIRECT_URI || `${url.origin}/v1/social/tiktok/callback`,
     });
-    const tokenResponse = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
+    const tokenResponse = await providerFetch("https://open.tiktokapis.com/v2/oauth/token/", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body,
     });
     if (!tokenResponse.ok) throw new Error("TikTok token exchange failed.");
     const token = await tokenResponse.json<any>();
-    const userResponse = await fetch(
+    const userResponse = await providerFetch(
       "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url",
       { headers: { authorization: `Bearer ${token.access_token}` } },
     );
@@ -698,7 +700,7 @@ export async function socialOAuthCallback(
       code_verifier: saved.code_verifier,
     });
     const basic = env.X_CLIENT_SECRET ? btoa(`${env.X_CLIENT_ID}:${env.X_CLIENT_SECRET}`) : null;
-    const tokenResponse = await fetch("https://api.x.com/2/oauth2/token", {
+    const tokenResponse = await providerFetch("https://api.x.com/2/oauth2/token", {
       method: "POST",
       headers: {
         "content-type": "application/x-www-form-urlencoded",
@@ -708,7 +710,7 @@ export async function socialOAuthCallback(
     });
     if (!tokenResponse.ok) throw new Error("X token exchange failed.");
     const token = await tokenResponse.json<any>();
-    const userResponse = await fetch("https://api.x.com/2/users/me", {
+    const userResponse = await providerFetch("https://api.x.com/2/users/me", {
       headers: { authorization: `Bearer ${token.access_token}` },
     });
     if (!userResponse.ok) throw new Error("X account discovery failed.");
@@ -804,7 +806,7 @@ async function accountToken(env: SocialEnv, account: SocialAccountRow) {
       "Connection changed or refresh is already running. Retry shortly.",
     );
   const refreshFetch = (url: string, init: RequestInit) =>
-    fetch(url, { ...init, signal: AbortSignal.timeout(30000) });
+    providerFetch(url, { ...init, signal: AbortSignal.timeout(30000) });
   try {
     let tokenResponse: Response;
 
@@ -942,7 +944,7 @@ function uncertainPublication(message: string) {
 async function submitPost(url: string, init: RequestInit) {
   let response: Response;
   try {
-    response = await fetch(url, { ...init, signal: AbortSignal.timeout(60000) });
+    response = await providerFetch(url, { ...init, signal: AbortSignal.timeout(60000) });
   } catch {
     throw uncertainPublication("Provider submission response was lost.");
   }
@@ -972,6 +974,10 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
     .first<any>();
 
   if (!post) throw new Error("Post or social account not found.");
+  const finalCopy = renderFinalCopy(post.caption || "", post.hashtags);
+  const copyError = finalCopyError(post.platform, finalCopy);
+  if (copyError)
+    throw new SocialProviderError(copyError, { category: "permanent", retryable: false });
   const account = { ...post, id: post.social_account_id } as SocialAccountRow;
   const token = await accountToken(env, account);
   const mediaUrl = await createPublicMediaUrl(env, post);
@@ -981,14 +987,14 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
   let raw: unknown = null;
 
   if (post.platform === "instagram") {
-    const create = await fetch(
+    const create = await providerFetch(
       `https://graph.facebook.com/v23.0/${post.external_account_id}/media`,
       {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           image_url: mediaUrl,
-          caption: post.caption || "",
+          caption: finalCopy,
           access_token: token,
         }),
       },
@@ -1017,7 +1023,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           url: mediaUrl,
-          caption: post.caption || "",
+          caption: finalCopy,
           access_token: token,
         }),
       },
@@ -1030,23 +1036,26 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       post.account_type === "organization"
         ? `urn:li:organization:${post.external_account_id}`
         : `urn:li:person:${post.external_account_id}`;
-    const init = await fetch("https://api.linkedin.com/rest/images?action=initializeUpload", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
-        "LinkedIn-Version": "202610",
-        "X-Restli-Protocol-Version": "2.0.0",
+    const init = await providerFetch(
+      "https://api.linkedin.com/rest/images?action=initializeUpload",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          "LinkedIn-Version": "202610",
+          "X-Restli-Protocol-Version": "2.0.0",
+        },
+        body: JSON.stringify({ initializeUploadRequest: { owner } }),
       },
-      body: JSON.stringify({ initializeUploadRequest: { owner } }),
-    });
+    );
     await requireProviderOk(init, "LinkedIn upload initialization failed");
     const initPayload = await init.json<any>();
     const uploadUrl = initPayload.value?.uploadUrl;
     const imageUrn = initPayload.value?.image;
-    const imageResponse = await fetch(mediaUrl);
+    const imageResponse = await providerFetch(mediaUrl);
     const imageBlob = await imageResponse.blob();
-    const upload = await fetch(uploadUrl, {
+    const upload = await providerFetch(uploadUrl, {
       method: "PUT",
       headers: { authorization: `Bearer ${token}`, "content-type": imageBlob.type || "image/jpeg" },
       body: imageBlob,
@@ -1063,7 +1072,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       },
       body: JSON.stringify({
         author: owner,
-        commentary: post.caption || "",
+        commentary: finalCopy,
         visibility: "PUBLIC",
         distribution: {
           feedDistribution: "MAIN_FEED",
@@ -1087,7 +1096,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       },
       body: JSON.stringify({
         post_info: {
-          title: (post.caption || post.title || "").slice(0, 2200),
+          title: finalCopy,
           privacy_level: post.default_visibility || "PUBLIC_TO_EVERYONE",
           disable_comment: false,
           auto_add_music: false,
@@ -1105,12 +1114,12 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
     raw = await publicationPayload(publish);
     providerPostId = (raw as any).data?.publish_id || null;
   } else {
-    const imageResponse = await fetch(mediaUrl);
+    const imageResponse = await providerFetch(mediaUrl);
     const imageBlob = await imageResponse.blob();
     const form = new FormData();
     form.append("media", imageBlob, "brandsparq.jpg");
     form.append("media_category", "tweet_image");
-    const media = await fetch("https://api.x.com/2/media/upload", {
+    const media = await providerFetch("https://api.x.com/2/media/upload", {
       method: "POST",
       headers: { authorization: `Bearer ${token}` },
       body: form,
@@ -1125,7 +1134,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        text: (post.caption || post.title || "").slice(0, 280),
+        text: finalCopy,
         media: { media_ids: [mediaId] },
       }),
     });
@@ -1220,7 +1229,7 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
     .run();
 
   const analyticsFetch = (input: string, init: RequestInit = {}) =>
-    fetch(input, { ...init, signal: AbortSignal.timeout(15000) });
+    providerFetch(input, { ...init, signal: AbortSignal.timeout(15000) });
   try {
     const posts = await env.DB.prepare(
       `SELECT id, platform_post_id FROM posts
@@ -1537,11 +1546,25 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
   return { runId, status: "completed" };
 }
 
+export async function renewClientDestinations(
+  env: SocialEnv,
+  clientId: string,
+  accountId?: string | null,
+) {
+  const rows =
+    await env.DB.prepare(`SELECT * FROM social_accounts WHERE client_id=? AND status='connected'
+ AND (? IS NULL OR id=?) AND token_expires_at IS NOT NULL AND token_expires_at<=? AND refresh_token_ciphertext IS NOT NULL`)
+      .bind(clientId, accountId || null, accountId || null, Date.now() + 5 * 60000)
+      .all<SocialAccountRow>();
+  for (const account of rows.results) await accountToken(env, account);
+}
+
 export async function resolveDefaultSocialAccount(
   env: SocialEnv,
   clientId: string,
   platform: Platform,
 ) {
+  await renewClientDestinations(env, clientId);
   const preferred = await env.DB.prepare(
     `SELECT id, account_name
      FROM social_accounts
@@ -1579,6 +1602,7 @@ export async function ensurePostSocialDestination(
   },
 ) {
   if (post.social_account_id) {
+    await renewClientDestinations(env, post.client_id, post.social_account_id);
     const assigned = await env.DB.prepare(
       `SELECT id, account_name
        FROM social_accounts
@@ -1622,20 +1646,20 @@ export async function verifySocialAccount(env: SocialEnv, accountId: string) {
     let response: Response;
 
     if (account.platform === "facebook" || account.platform === "instagram") {
-      response = await fetch(
+      response = await providerFetch(
         `https://graph.facebook.com/v23.0/${account.external_account_id}?fields=id,name&access_token=${encodeURIComponent(token)}`,
       );
     } else if (account.platform === "linkedin") {
-      response = await fetch("https://api.linkedin.com/v2/userinfo", {
+      response = await providerFetch("https://api.linkedin.com/v2/userinfo", {
         headers: { authorization: `Bearer ${token}` },
       });
     } else if (account.platform === "tiktok") {
-      response = await fetch(
+      response = await providerFetch(
         "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name",
         { headers: { authorization: `Bearer ${token}` } },
       );
     } else {
-      response = await fetch("https://api.x.com/2/users/me", {
+      response = await providerFetch("https://api.x.com/2/users/me", {
         headers: { authorization: `Bearer ${token}` },
       });
     }
@@ -1746,14 +1770,17 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
     };
   }
 
-  const response = await fetch("https://open.tiktokapis.com/v2/post/publish/status/fetch/", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json; charset=UTF-8",
+  const response = await providerFetch(
+    "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json; charset=UTF-8",
+      },
+      body: JSON.stringify({ publish_id: receipt.provider_post_id }),
     },
-    body: JSON.stringify({ publish_id: receipt.provider_post_id }),
-  });
+  );
   await requireProviderOk(response, "TikTok publish status check failed");
   const payload = await response.json<any>();
   const providerStatus = String(

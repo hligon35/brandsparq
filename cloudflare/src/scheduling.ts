@@ -1,3 +1,4 @@
+import { renderFinalCopy, finalCopyError } from "../../src/shared/final-copy";
 import { postCampaign } from "./campaign-workflow";
 export interface SchedulingEnv {
   DB: D1Database;
@@ -213,11 +214,16 @@ export async function reserveSchedule(
   },
 ): Promise<string | null> {
   const reviewed = await env.DB.prepare(
-    "SELECT content_revision,social_account_id FROM posts WHERE id=?",
+    "SELECT content_revision,social_account_id,platform,caption,hashtags FROM posts WHERE id=?",
   )
     .bind(postId)
     .first<any>();
   if (!reviewed) return null;
+  if (
+    input.decision &&
+    finalCopyError(reviewed.platform, renderFinalCopy(reviewed.caption || "", reviewed.hashtags))
+  )
+    return null;
   const contentRevision = input.contentRevision ?? reviewed.content_revision;
   const socialAccountId = input.socialAccountId ?? reviewed.social_account_id;
   for (let attempt = 0; attempt < 8; attempt++) {

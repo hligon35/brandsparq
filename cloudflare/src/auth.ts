@@ -1,3 +1,4 @@
+import { providerFetch } from "./provider-http";
 export type AuthEnv = {
   DB: D1Database;
   ENVIRONMENT?: string;
@@ -305,7 +306,7 @@ export async function handleAuthRoute(
       };
     }
 
-    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    const tokenResponse = await providerFetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: {
         "content-type": "application/x-www-form-urlencoded",
@@ -341,7 +342,7 @@ export async function handleAuthRoute(
       };
     }
 
-    const verifyResponse = await fetch(
+    const verifyResponse = await providerFetch(
       `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokens.id_token)}`,
     );
 

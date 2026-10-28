@@ -43,6 +43,7 @@ type ApiPost = {
   platform: MarketingPost["platform"];
   status: MarketingPost["status"];
   content_revision: number;
+  hashtags?: string;
   title: string;
   headline?: string | null;
   caption: string;
@@ -75,6 +76,13 @@ function mapPost(row: ApiPost): MarketingPost {
     revision: row.content_revision,
     title: row.title,
     caption: row.caption,
+    hashtags: (() => {
+      try {
+        return JSON.parse(row.hashtags || "[]");
+      } catch {
+        return [];
+      }
+    })(),
     imageUrl: resolveApiUrl(row.image_url),
     suggestedPublishAt: row.suggested_publish_at ?? undefined,
     scheduledPublishAt: row.scheduled_publish_at ?? undefined,
@@ -516,7 +524,13 @@ export const api = {
 
   editPublicReview: (
     token: string,
-    payload: { headline?: string; caption?: string; comment?: string; expectedRevision: number },
+    payload: {
+      headline?: string;
+      caption?: string;
+      comment?: string;
+      expectedRevision: number;
+      hashtags?: string[];
+    },
   ) =>
     jsonRequest<{ ok: true; postId: string; revision: number }>(
       `/v1/public/review/${encodeURIComponent(token)}/edit`,
@@ -594,7 +608,13 @@ export const api = {
 
   editPost: (
     postId: string,
-    payload: { headline?: string; caption?: string; comment?: string; expectedRevision: number },
+    payload: {
+      headline?: string;
+      caption?: string;
+      comment?: string;
+      expectedRevision: number;
+      hashtags?: string[];
+    },
   ) =>
     jsonRequest<{ ok: true; revision: number }>(`/v1/posts/${postId}/edit`, {
       method: "POST",

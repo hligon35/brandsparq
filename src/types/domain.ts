@@ -50,6 +50,7 @@ export interface Asset {
 
 export interface MarketingPost {
   revision: number;
+  hashtags?: string[];
   id: string;
   clientId: string;
   clientName?: string;

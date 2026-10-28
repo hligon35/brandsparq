@@ -1,3 +1,4 @@
+import { renderFinalCopy, finalCopyError } from "@/shared/final-copy";
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
 import { Alert } from "@/components/feedback";
 import { useLocalSearchParams } from "expo-router";
@@ -37,7 +38,7 @@ export default function PublicReviewScreen() {
       if (version !== loadVersion.current || entityRef.current !== token) return;
       setPost(result.data);
       setHeadline(result.data.headline || result.data.title || "");
-      setCaption(result.data.caption || "");
+      setCaption(renderFinalCopy(result.data.caption || "", result.data.hashtags));
     } catch (err) {
       if (version !== loadVersion.current || entityRef.current !== token) return;
       if (isEditConflict(err)) setConflict(true);
@@ -67,6 +68,7 @@ export default function PublicReviewScreen() {
       await api.editPublicReview(token, {
         headline,
         caption,
+        hashtags: [],
         comment,
         expectedRevision: post.content_revision,
       });
@@ -121,6 +123,7 @@ export default function PublicReviewScreen() {
       const saved = await api.editPublicReview(token, {
         headline,
         caption,
+        hashtags: [],
         comment,
         expectedRevision: post.content_revision,
       });
@@ -180,7 +183,7 @@ export default function PublicReviewScreen() {
             <View style={styles.copyColumn}>
               <Card>
                 <SectionTitle
-                  title="Edit copy"
+                  title="Final publication copy"
                   subtitle="Make final copy changes before approval."
                 />
                 <Text style={styles.label}>Headline</Text>
@@ -191,7 +194,10 @@ export default function PublicReviewScreen() {
                   onChangeText={setHeadline}
                   style={styles.input}
                 />
-                <Text style={styles.label}>Caption</Text>
+                <Text style={styles.label}>Caption and hashtags · exact outgoing copy</Text>
+                {!!finalCopyError(post.platform, caption) && (
+                  <Text accessibilityRole="alert">{finalCopyError(post.platform, caption)}</Text>
+                )}
                 <TextInput
                   accessibilityLabel="Caption"
                   editable={!working}

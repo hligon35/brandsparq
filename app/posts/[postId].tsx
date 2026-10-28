@@ -1,3 +1,4 @@
+import { renderFinalCopy, finalCopyError } from "@/shared/final-copy";
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
 import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { useCapabilities } from "@/auth/capabilities";
@@ -60,8 +61,11 @@ export default function PostReviewScreen() {
       );
       setPost(nextPost);
       setHeadlineDraft(nextPost.title || "");
-      setCaptionDraft(nextPost.caption || "");
-      markSaved({ headlineDraft: nextPost.title || "", captionDraft: nextPost.caption || "" });
+      setCaptionDraft(renderFinalCopy(nextPost.caption || "", nextPost.hashtags));
+      markSaved({
+        headlineDraft: nextPost.title || "",
+        captionDraft: renderFinalCopy(nextPost.caption || "", nextPost.hashtags),
+      });
       setCreative(nextCreative.data);
     } catch (error) {
       if (version !== loadVersion.current || entityRef.current !== postId) return;
@@ -151,6 +155,7 @@ export default function PostReviewScreen() {
       await api.editPost(post!.id, {
         headline: headlineDraft,
         caption: captionDraft,
+        hashtags: [],
         expectedRevision: post!.revision,
       });
       await reload();
@@ -192,10 +197,11 @@ export default function PostReviewScreen() {
     setSaving(true);
     try {
       let revision = post!.revision;
-      if (dirty) {
+      {
         const saved = await api.editPost(post!.id, {
           headline: headlineDraft,
           caption: captionDraft,
+          hashtags: [],
           expectedRevision: revision,
         });
         revision = saved.revision;
@@ -275,7 +281,7 @@ export default function PostReviewScreen() {
           {editable && (
             <Card>
               <SectionTitle
-                title="Edit copy"
+                title="Final publication copy"
                 subtitle="Make final headline and caption changes before approval."
               />
               <Text style={styles.label}>Headline</Text>
@@ -286,7 +292,10 @@ export default function PostReviewScreen() {
                 onChangeText={setHeadlineDraft}
                 style={styles.singleInput}
               />
-              <Text style={styles.label}>Caption</Text>
+              <Text style={styles.label}>Caption and hashtags · exact outgoing copy</Text>
+              {!!finalCopyError(post.platform, captionDraft) && (
+                <Text accessibilityRole="alert">{finalCopyError(post.platform, captionDraft)}</Text>
+              )}
               <TextInput
                 accessibilityLabel="Caption"
                 editable={!saving && !assigningAccount && !aiAction}

@@ -54,7 +54,7 @@ test("scheduler selection cannot resurrect a concurrently paused post", async (t
   let intercepted = false;
   w.env.DB.prepare = (sql) => {
     const statement = original(sql);
-    if (sql.includes("SELECT p.id, p.client_id, p.platform, p.scheduled_publish_at")) {
+    if (sql.includes("SELECT p.id,p.status, p.client_id, p.platform, p.scheduled_publish_at")) {
       const all = statement.all;
       statement.all = async () => {
         const rows = await all.call(statement);
