@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { workspace } from "./workspace.mjs";
+import { workspace, withCurrentRevision } from "./workspace.mjs";
 import { encryptSecret } from "../cloudflare/src/security.ts";
 import { runGenerationJob } from "../cloudflare/src/generation.ts";
 import { reserveSchedule } from "../cloudflare/src/scheduling.ts";
@@ -11,7 +11,8 @@ import { publishActions } from "../src/shared/publish-actions.ts";
 import worker from "../cloudflare/src/index.ts";
 import { campaignBoundary } from "../cloudflare/src/campaign-workflow.ts";
 
-const send = (w, path, body, user = "owner") => w.request(path, { method: "POST", user, body });
+const send = (w, path, body, user = "owner") =>
+  w.request(path, { method: "POST", user, body: withCurrentRevision(w, path, body) });
 const request = {
   clientId: "client-a",
   mode: "social",

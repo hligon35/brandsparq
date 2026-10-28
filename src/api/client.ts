@@ -42,6 +42,7 @@ type ApiPost = {
   campaign_id?: string | null;
   platform: MarketingPost["platform"];
   status: MarketingPost["status"];
+  content_revision: number;
   title: string;
   headline?: string | null;
   caption: string;
@@ -71,6 +72,7 @@ function mapPost(row: ApiPost): MarketingPost {
     campaignId: row.campaign_id ?? undefined,
     platform: row.platform,
     status: row.status,
+    revision: row.content_revision,
     title: row.title,
     caption: row.caption,
     imageUrl: resolveApiUrl(row.image_url),
@@ -160,10 +162,14 @@ export const api = {
   getPausedPosts: () => jsonRequest<{ data: any[] }>("/v1/posts/paused"),
   pausedAction: (id: string, action: "resume" | "restore-review" | "cancel") =>
     jsonRequest<{ ok: true }>(`/v1/posts/${id}/${action}`, { method: "POST" }),
-  removeBrandAsset: (clientId: string, id: string) =>
-    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}/brand-assets/${id}/remove`, {
-      method: "POST",
-    }),
+  removeBrandAsset: (clientId: string, id: string, expectedRevision: number) =>
+    jsonRequest<{ ok: true; revision: number }>(
+      `/v1/clients/${clientId}/brand-assets/${id}/remove`,
+      {
+        method: "POST",
+        body: JSON.stringify({ expectedRevision }),
+      },
+    ),
   getReviewers: (clientId: string) =>
     jsonRequest<{ data: any[] }>(`/v1/clients/${clientId}/reviewers`),
   saveReviewer: (clientId: string, email: string, enabled = true) =>
@@ -237,7 +243,10 @@ export const api = {
       body: JSON.stringify({ name, timezone }),
     }),
 
-  updateClient: (clientId: string, payload: { name?: string; timezone?: string }) =>
+  updateClient: (
+    clientId: string,
+    payload: { name?: string; timezone?: string; expectedRevision: number },
+  ) =>
     jsonRequest<{ ok: true }>(`/v1/clients/${clientId}`, {
       method: "POST",
       body: JSON.stringify(payload),
@@ -251,11 +260,20 @@ export const api = {
   getBrandAssets: (clientId: string) =>
     jsonRequest<{ data: any[] }>(`/v1/clients/${clientId}/brand-assets`),
 
-  attachBrandAsset: (clientId: string, assetId: string, role: string, label?: string) =>
-    jsonRequest<{ ok: true; id: string }>(`/v1/clients/${clientId}/brand-assets`, {
-      method: "POST",
-      body: JSON.stringify({ assetId, role, label }),
-    }),
+  attachBrandAsset: (
+    clientId: string,
+    assetId: string,
+    role: string,
+    expectedRevision: number,
+    label?: string,
+  ) =>
+    jsonRequest<{ ok: true; id: string; revision: number }>(
+      `/v1/clients/${clientId}/brand-assets`,
+      {
+        method: "POST",
+        body: JSON.stringify({ assetId, role, label, expectedRevision }),
+      },
+    ),
 
   getCampaigns: (clientId?: string) =>
     jsonRequest<{ data: any[] }>(
@@ -293,10 +311,10 @@ export const api = {
       { method: "POST" },
     ),
 
-  assignSocialAccount: (postId: string, socialAccountId: string) =>
+  assignSocialAccount: (postId: string, socialAccountId: string, expectedRevision: number) =>
     jsonRequest<{ ok: true }>(`/v1/posts/${postId}/social-account`, {
       method: "POST",
-      body: JSON.stringify({ socialAccountId }),
+      body: JSON.stringify({ socialAccountId, expectedRevision }),
     }),
 
   getNotifications: (
@@ -439,7 +457,7 @@ export const api = {
   getBrand: (clientId: string) => jsonRequest<{ data: any }>(`/v1/clients/${clientId}/brand`),
 
   saveBrand: (clientId: string, brand: Record<string, unknown>) =>
-    jsonRequest<{ ok: true; id: string }>(`/v1/clients/${clientId}/brand`, {
+    jsonRequest<{ ok: true; data: any }>(`/v1/clients/${clientId}/brand`, {
       method: "POST",
       body: JSON.stringify(brand),
     }),
@@ -461,10 +479,14 @@ export const api = {
     }),
   setDefaultSocialAccount: (id: string) =>
     jsonRequest<{ ok: true }>(`/v1/social/accounts/${id}/default`, { method: "POST" }),
-  campaignPostAction: (id: string, action: "pause" | "resume" | "cancel" | "approve") =>
+  campaignPostAction: (
+    id: string,
+    action: "pause" | "resume" | "cancel" | "approve",
+    expectedRevisions?: Record<string, number>,
+  ) =>
     jsonRequest<{ ok: true; results: { postId: string; ok: boolean; error?: string }[] }>(
       `/v1/campaigns/${id}/posts/${action}`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify({ expectedRevisions }) },
     ),
 
   createGenerationJob: (
@@ -486,17 +508,17 @@ export const api = {
     return result;
   },
 
-  approvePublicReview: (token: string) =>
+  approvePublicReview: (token: string, expectedRevision: number) =>
     jsonRequest<{ ok: true; postId: string; status: string }>(
       `/v1/public/review/${encodeURIComponent(token)}/approve`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify({ expectedRevision }) },
     ),
 
   editPublicReview: (
     token: string,
-    payload: { headline?: string; caption?: string; comment?: string },
+    payload: { headline?: string; caption?: string; comment?: string; expectedRevision: number },
   ) =>
-    jsonRequest<{ ok: true; postId: string }>(
+    jsonRequest<{ ok: true; postId: string; revision: number }>(
       `/v1/public/review/${encodeURIComponent(token)}/edit`,
       { method: "POST", body: JSON.stringify(payload) },
     ),
@@ -564,13 +586,17 @@ export const api = {
     return mapPost(result.data);
   },
 
-  approvePost: (postId: string) =>
+  approvePost: (postId: string, expectedRevision: number) =>
     jsonRequest<{ ok: true; status: string }>(`/v1/posts/${postId}/approve`, {
       method: "POST",
+      body: JSON.stringify({ expectedRevision }),
     }),
 
-  editPost: (postId: string, payload: { headline?: string; caption?: string; comment?: string }) =>
-    jsonRequest<{ ok: true }>(`/v1/posts/${postId}/edit`, {
+  editPost: (
+    postId: string,
+    payload: { headline?: string; caption?: string; comment?: string; expectedRevision: number },
+  ) =>
+    jsonRequest<{ ok: true; revision: number }>(`/v1/posts/${postId}/edit`, {
       method: "POST",
       body: JSON.stringify(payload),
     }),
@@ -581,10 +607,10 @@ export const api = {
       body: JSON.stringify({ reason }),
     }),
 
-  bulkApprovePosts: (postIds: string[]) =>
+  bulkApprovePosts: (postIds: string[], expectedRevisions: Record<string, number>) =>
     jsonRequest<{ ok: true; results: any[] }>("/v1/posts/bulk/approve", {
       method: "POST",
-      body: JSON.stringify({ postIds }),
+      body: JSON.stringify({ postIds, expectedRevisions }),
     }),
 
   bulkRejectPosts: (postIds: string[], reason?: string) =>

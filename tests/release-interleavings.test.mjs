@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { workspace, digest } from "./workspace.mjs";
+import { workspace, digest, withCurrentRevision } from "./workspace.mjs";
 import { runRevisionJob, recoverRevisionJobs } from "../cloudflare/src/generation.ts";
 import { ensurePublishJob, claimPublishJob } from "../cloudflare/src/publishing.ts";
 import worker from "../cloudflare/src/index.ts";
@@ -28,10 +28,11 @@ function interceptCalendar(w, callback) {
     return wrap(prepare(sql));
   };
 }
-const send = (w, path, body) => w.request(path, { user: "owner", method: "POST", body });
+const send = (w, path, body) =>
+  w.request(path, { user: "owner", method: "POST", body: withCurrentRevision(w, path, body) });
 function destination(w) {
   w.exec(
-    "INSERT INTO social_accounts(id,client_id,platform,external_account_id,status) VALUES ('social','client-a','facebook','test-page','connected')",
+    "INSERT INTO social_accounts(id,client_id,platform,external_account_id,status,access_token_ciphertext) VALUES ('social','client-a','facebook','test-page','connected','opaque-fixture-credential')",
   );
 }
 
@@ -279,7 +280,10 @@ test("public and bulk approvals also serialize the daily cap against the same ca
     return rows;
   });
   const [publicResult, bulkResult] = await Promise.all([
-    w.request("/v1/public/review/acceptance/approve", { method: "POST" }),
+    w.request("/v1/public/review/acceptance/approve", {
+      method: "POST",
+      body: withCurrentRevision(w, "/v1/public/review/acceptance/approve"),
+    }),
     send(w, "/v1/posts/bulk/approve", { postIds: ["bulk"] }),
   ]);
   assert.equal(publicResult.status, 200);

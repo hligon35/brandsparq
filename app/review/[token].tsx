@@ -1,6 +1,7 @@
+import { EditConflict, isEditConflict } from "@/components/edit-conflict";
 import { Alert } from "@/components/feedback";
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Image, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { BrandLogo } from "@/components/brand";
@@ -12,6 +13,10 @@ type Action = "save" | "reject" | "regenerate" | "approve" | null;
 
 export default function PublicReviewScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
+  const [conflict, setConflict] = useState(false);
+  const entityRef = useRef(token);
+  entityRef.current = token;
+  const loadVersion = useRef(0);
   const [post, setPost] = useState<any>();
   const [headline, setHeadline] = useState("");
   const [caption, setCaption] = useState("");
@@ -23,20 +28,28 @@ export default function PublicReviewScreen() {
   const { wide } = useResponsive();
 
   async function load() {
+    const version = ++loadVersion.current;
+    setConflict(false);
     if (!token) return;
     setError("");
     try {
       const result = await api.getPublicReview(token);
+      if (version !== loadVersion.current || entityRef.current !== token) return;
       setPost(result.data);
       setHeadline(result.data.headline || result.data.title || "");
       setCaption(result.data.caption || "");
     } catch (err) {
+      if (version !== loadVersion.current || entityRef.current !== token) return;
+      if (isEditConflict(err)) setConflict(true);
       setError(err instanceof Error ? err.message : "This review link is unavailable.");
     }
   }
 
   useEffect(() => {
     void load();
+    return () => {
+      loadVersion.current++;
+    };
   }, [token]);
 
   useEffect(() => {
@@ -51,10 +64,16 @@ export default function PublicReviewScreen() {
     if (!token) return;
     setWorking("save");
     try {
-      await api.editPublicReview(token, { headline, caption, comment });
+      await api.editPublicReview(token, {
+        headline,
+        caption,
+        comment,
+        expectedRevision: post.content_revision,
+      });
       setComment("");
       await load();
     } catch (err) {
+      if (isEditConflict(err)) setConflict(true);
       Alert.alert("Unable to save", err instanceof Error ? err.message : "Try again.");
     } finally {
       setWorking(null);
@@ -72,6 +91,7 @@ export default function PublicReviewScreen() {
         "The post remains in review and can be regenerated from this link.",
       );
     } catch (err) {
+      if (isEditConflict(err)) setConflict(true);
       Alert.alert("Unable to reject", err instanceof Error ? err.message : "Try again.");
     } finally {
       setWorking(null);
@@ -87,6 +107,7 @@ export default function PublicReviewScreen() {
       setComment("");
       await load();
     } catch (err) {
+      if (isEditConflict(err)) setConflict(true);
       Alert.alert("Unable to regenerate", err instanceof Error ? err.message : "Try again.");
     } finally {
       setWorking(null);
@@ -97,10 +118,16 @@ export default function PublicReviewScreen() {
     if (!token) return;
     setWorking("approve");
     try {
-      await api.editPublicReview(token, { headline, caption, comment });
-      await api.approvePublicReview(token);
+      const saved = await api.editPublicReview(token, {
+        headline,
+        caption,
+        comment,
+        expectedRevision: post.content_revision,
+      });
+      await api.approvePublicReview(token, saved.revision);
       setApproved(true);
     } catch (err) {
+      if (isEditConflict(err)) setConflict(true);
       Alert.alert("Approval failed", err instanceof Error ? err.message : "Try again.");
     } finally {
       setWorking(null);
@@ -109,6 +136,7 @@ export default function PublicReviewScreen() {
 
   return (
     <PageScroll>
+      {conflict && <EditConflict busy={working !== null} onReload={load} />}
       <View style={styles.brand}>
         <BrandLogo compact />
       </View>
@@ -158,6 +186,7 @@ export default function PublicReviewScreen() {
                 <Text style={styles.label}>Headline</Text>
                 <TextInput
                   accessibilityLabel="Headline"
+                  editable={!working}
                   value={headline}
                   onChangeText={setHeadline}
                   style={styles.input}
@@ -165,6 +194,7 @@ export default function PublicReviewScreen() {
                 <Text style={styles.label}>Caption</Text>
                 <TextInput
                   accessibilityLabel="Caption"
+                  editable={!working}
                   value={caption}
                   onChangeText={setCaption}
                   multiline

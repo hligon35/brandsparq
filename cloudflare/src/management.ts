@@ -1,3 +1,4 @@
+import { validRevision, revisionRequired, revisionConflict } from "./revisions";
 import { pageOptions, pageResult } from "./pagination";
 import { latestMetricsJoin } from "./analytics";
 import { campaignBoundary, validCampaignDate } from "./campaign-workflow";
@@ -203,10 +204,13 @@ export async function handleManagementRoute(
       (payload.objective !== undefined && typeof payload.objective !== "string")
     )
       return { body: { error: "Objective and notes must be text." }, status: 400 };
+    if (!validRevision(payload.expectedRevision)) return revisionRequired;
+    const editToken = crypto.randomUUID();
     const [updated] = await env.DB.batch([
       env.DB.prepare(
-        "UPDATE campaigns SET name=?,objective=?,status=?,starts_at=?,ends_at=?,priority=?,notes=?,workflow_revision=workflow_revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND workflow_revision=?",
+        "UPDATE campaigns SET edit_token=?,name=?,objective=?,status=?,starts_at=?,ends_at=?,priority=?,notes=?,workflow_revision=workflow_revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND workflow_revision=?",
       ).bind(
+        editToken,
         name,
         (payload.objective ?? campaign.objective ?? "").slice(0, 2000),
         status,
@@ -215,11 +219,11 @@ export async function handleManagementRoute(
         priority,
         (payload.notes ?? campaign.notes ?? "").slice(0, 10000),
         campaignMatch[1],
-        campaign.workflow_revision,
+        payload.expectedRevision,
       ),
-      env.DB.prepare("UPDATE clients SET schedule_revision=schedule_revision+1 WHERE id=?").bind(
-        campaign.client_id,
-      ),
+      env.DB.prepare(
+        "UPDATE clients SET schedule_revision=schedule_revision+1 WHERE id=? AND EXISTS(SELECT 1 FROM campaigns WHERE id=? AND edit_token=?)",
+      ).bind(campaign.client_id, campaignMatch[1], editToken),
     ]);
     if (!updated.meta.changes)
       return {
@@ -350,6 +354,7 @@ export async function handleManagementRoute(
 
     await env.DB.prepare(
       `UPDATE social_accounts SET
+       connection_revision=connection_revision+1,refresh_claim=NULL,refresh_until=NULL,
        status = 'disconnected',
        health_status = 'disconnected',
        permission_status = 'disconnected',
@@ -379,7 +384,9 @@ export async function handleManagementRoute(
         body: { error: "Change destinations only while a post is in review." },
         status: 409,
       };
-    const payload = await request.json<{ socialAccountId?: string }>().catch(() => ({}) as any);
+    const payload = await request
+      .json<{ socialAccountId?: string; expectedRevision?: number }>()
+      .catch(() => ({}) as any);
     if (!payload.socialAccountId)
       return { body: { error: "socialAccountId is required." }, status: 400 };
     const account = await env.DB.prepare(
@@ -391,11 +398,25 @@ export async function handleManagementRoute(
       .first();
     if (!account)
       return { body: { error: "That social account cannot publish this post." }, status: 409 };
-    await env.DB.prepare(
-      "UPDATE posts SET social_account_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-    )
-      .bind(payload.socialAccountId, assignMatch[1])
-      .run();
+    if (!validRevision(payload.expectedRevision)) return revisionRequired;
+    const changed =
+      await env.DB.prepare(`UPDATE posts SET social_account_id=?,updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status IN ('awaiting_approval','edit_requested') AND approved_at IS NULL AND content_revision=?
+      AND EXISTS(SELECT 1 FROM clients WHERE id=posts.client_id AND status='active')
+      AND EXISTS(SELECT 1 FROM social_accounts sa WHERE sa.id=? AND sa.client_id=posts.client_id AND sa.platform=posts.platform
+        AND sa.status='connected' AND sa.access_token_ciphertext IS NOT NULL
+        AND COALESCE(sa.health_status,'healthy') NOT IN ('reauth_required','degraded','disconnected')
+        AND (sa.token_expires_at IS NULL OR sa.token_expires_at>?))`)
+        .bind(
+          payload.socialAccountId,
+          assignMatch[1],
+          payload.expectedRevision,
+          payload.socialAccountId,
+          Date.now(),
+        )
+        .run();
+    if (!changed.meta.changes) return revisionConflict;
+
     return { body: { ok: true } };
   }
 

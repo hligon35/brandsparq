@@ -208,8 +208,18 @@ export async function reserveSchedule(
     decision?: string;
     resume?: boolean;
     reviewTokenId?: string;
+    contentRevision?: number;
+    socialAccountId?: string;
   },
 ): Promise<string | null> {
+  const reviewed = await env.DB.prepare(
+    "SELECT content_revision,social_account_id FROM posts WHERE id=?",
+  )
+    .bind(postId)
+    .first<any>();
+  if (!reviewed) return null;
+  const contentRevision = input.contentRevision ?? reviewed.content_revision;
+  const socialAccountId = input.socialAccountId ?? reviewed.social_account_id;
   for (let attempt = 0; attempt < 8; attempt++) {
     const calendar = await env.DB.prepare(
       "SELECT schedule_revision FROM clients WHERE id=? AND status='active'",
@@ -236,6 +246,10 @@ export async function reserveSchedule(
         calendar_added_at=CASE WHEN ? THEN ? ELSE calendar_added_at END,
         publish_version=publish_version+1,updated_at=?
         WHERE id=? AND client_id=? AND status=? AND publish_version=?
+          AND content_revision=? AND social_account_id IS ?
+          AND (?=0 OR EXISTS(SELECT 1 FROM social_accounts sa WHERE sa.id=posts.social_account_id AND sa.client_id=posts.client_id AND sa.platform=posts.platform
+            AND sa.status='connected' AND sa.access_token_ciphertext IS NOT NULL AND COALESCE(sa.health_status,'healthy') NOT IN ('degraded','reauth_required','disconnected')
+            AND (sa.token_expires_at IS NULL OR sa.token_expires_at>?)))
           AND platform_post_id IS NULL AND (status!='paused' OR approved_at IS NOT NULL)
           AND (? IS NULL OR EXISTS(SELECT 1 FROM campaigns ca WHERE ca.id=posts.campaign_id AND ca.id=? AND ca.status='active' AND ca.workflow_revision=?))
           AND EXISTS (SELECT 1 FROM clients c WHERE c.id=posts.client_id AND c.status='active' AND c.schedule_revision=?)
@@ -255,6 +269,10 @@ export async function reserveSchedule(
         input.clientId,
         input.status,
         input.publishVersion,
+        contentRevision,
+        socialAccountId,
+        approving ? 1 : 0,
+        Date.now(),
         campaign?.id || null,
         campaign?.id || null,
         campaign?.workflow_revision ?? null,
@@ -304,16 +322,25 @@ export async function reserveSchedule(
         : []),
     ]);
     if (changed.meta.changes) return scheduledAt;
-    const current = await env.DB.prepare(`SELECT status,publish_version,
+    const current =
+      await env.DB.prepare(`SELECT status,publish_version,content_revision,social_account_id,
       EXISTS(SELECT 1 FROM publish_jobs j WHERE j.post_id=posts.id AND j.status='publishing') AS claimed
       FROM posts WHERE id=?`)
-      .bind(postId)
-      .first<{ status: string; publish_version: number; claimed: number }>();
+        .bind(postId)
+        .first<{
+          status: string;
+          publish_version: number;
+          content_revision: number;
+          social_account_id: string | null;
+          claimed: number;
+        }>();
     if (
       !current ||
       current.claimed ||
       current.status !== input.status ||
-      current.publish_version !== input.publishVersion
+      current.publish_version !== input.publishVersion ||
+      current.content_revision !== contentRevision ||
+      current.social_account_id !== socialAccountId
     )
       return null;
   }

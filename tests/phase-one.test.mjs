@@ -424,7 +424,7 @@ test("Publish Now loses to a new version without enqueueing or reporting success
   const w = workspace(t);
   scheduled(w);
   w.exec(
-    "INSERT INTO social_accounts(id,client_id,platform,external_account_id,status) VALUES('social','client-a','facebook','page','connected')",
+    "INSERT INTO social_accounts(id,client_id,platform,external_account_id,status,access_token_ciphertext) VALUES('social','client-a','facebook','page','connected','opaque-fixture-credential')",
   );
   w.exec("UPDATE posts SET social_account_id='social' WHERE id='post'");
   afterRead(
@@ -634,7 +634,7 @@ test("contradicting provider receipts block absence reconciliation, retries and 
   const w = workspace(t);
   unknown(w);
   w.exec(
-    "INSERT INTO social_accounts(id,client_id,platform,external_account_id,status) VALUES('social','client-a','facebook','page','connected')",
+    "INSERT INTO social_accounts(id,client_id,platform,external_account_id,status,access_token_ciphertext) VALUES('social','client-a','facebook','page','connected','opaque-fixture-credential')",
   );
   w.exec("UPDATE posts SET social_account_id='social' WHERE id='post'");
   w.exec(

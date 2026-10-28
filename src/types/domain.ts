@@ -49,6 +49,7 @@ export interface Asset {
 }
 
 export interface MarketingPost {
+  revision: number;
   id: string;
   clientId: string;
   clientName?: string;

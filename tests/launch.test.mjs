@@ -139,7 +139,7 @@ test("Brand Brain saves and generation queues only assets belonging to the selec
       await w.request("/v1/clients/client-a/brand", {
         user: "owner",
         method: "POST",
-        body: { voice: "Warm and direct", audience: "Small businesses" },
+        body: { voice: "Warm and direct", audience: "Small businesses", expectedRevision: 0 },
       })
     ).status,
     200,
@@ -195,7 +195,10 @@ test("public review edit, rejection, approval and replay guards preserve workflo
     (
       await w.request("/v1/public/review/secret/edit", {
         method: "POST",
-        body: { caption: "Updated caption" },
+        body: {
+          caption: "Updated caption",
+          expectedRevision: w.row("SELECT content_revision n FROM posts WHERE id='reviewed'").n,
+        },
       })
     ).status,
     200,
@@ -213,22 +216,46 @@ test("public review edit, rejection, approval and replay guards preserve workflo
   assert.equal(w.row("SELECT status FROM posts WHERE id='reviewed'").status, "edit_requested");
   await w.request("/v1/public/review/secret/edit", {
     method: "POST",
-    body: { headline: "Updated headline" },
+    body: {
+      headline: "Updated headline",
+      expectedRevision: w.row("SELECT content_revision n FROM posts WHERE id='reviewed'").n,
+    },
   });
   assert.equal(
-    (await w.request("/v1/public/review/secret/approve", { method: "POST" })).status,
+    (
+      await w.request("/v1/public/review/secret/approve", {
+        method: "POST",
+        body: {
+          expectedRevision: w.row("SELECT content_revision n FROM posts WHERE id='reviewed'").n,
+        },
+      })
+    ).status,
     409,
   );
   w.exec(
-    "INSERT INTO social_accounts(id,client_id,platform,status) VALUES ('social','client-a','facebook','connected')",
+    "INSERT INTO social_accounts(id,client_id,platform,status,access_token_ciphertext) VALUES ('social','client-a','facebook','connected','opaque-fixture-credential')",
   );
   assert.equal(
-    (await w.request("/v1/public/review/secret/approve", { method: "POST" })).status,
+    (
+      await w.request("/v1/public/review/secret/approve", {
+        method: "POST",
+        body: {
+          expectedRevision: w.row("SELECT content_revision n FROM posts WHERE id='reviewed'").n,
+        },
+      })
+    ).status,
     200,
   );
   assert.equal(w.row("SELECT status FROM posts WHERE id='reviewed'").status, "calendar_scheduled");
   assert.equal(
-    (await w.request("/v1/public/review/secret/approve", { method: "POST" })).status,
+    (
+      await w.request("/v1/public/review/secret/approve", {
+        method: "POST",
+        body: {
+          expectedRevision: w.row("SELECT content_revision n FROM posts WHERE id='reviewed'").n,
+        },
+      })
+    ).status,
     409,
   );
   assert.equal(
@@ -396,7 +423,7 @@ test("publish-now queues one durable execution and requires an assigned destinat
   );
   assert.equal(w.published.length, 0);
   w.exec(
-    "INSERT INTO social_accounts(id,client_id,platform,status) VALUES ('social','client-a','facebook','connected')",
+    "INSERT INTO social_accounts(id,client_id,platform,status,access_token_ciphertext) VALUES ('social','client-a','facebook','connected','opaque-fixture-credential')",
   );
   w.exec("UPDATE posts SET social_account_id='social' WHERE id='publish'");
   const response = await w.request("/v1/posts/publish/publish-now", {

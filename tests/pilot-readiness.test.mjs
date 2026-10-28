@@ -20,7 +20,7 @@ test("both logo pointers reject assets owned by another client without changing 
     const result = await w.request("/v1/clients/client-a/brand", {
       user: "owner",
       method: "POST",
-      body: { voice: "Changed", [field]: "foreign" },
+      body: { voice: "Changed", [field]: "foreign", expectedRevision: 0 },
     });
     assert.equal(result.status, 400);
     assert.equal(w.row("SELECT COUNT(*) AS n FROM brand_profiles WHERE client_id='client-a'").n, 0);

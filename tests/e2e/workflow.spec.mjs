@@ -270,7 +270,18 @@ test("paused approved posts resume through the scheduler", async ({ page, reques
   await signIn(page);
   const token = await page.evaluate(() => sessionStorage.getItem("brandsparq_session"));
   const headers = { authorization: "Bearer " + token };
-  expect((await request.post("/v1/posts/fixture-post/approve", { headers })).status()).toBe(200);
+  expect(
+    (
+      await request.post("/v1/posts/fixture-post/approve", {
+        headers,
+        data: {
+          expectedRevision: (
+            await (await request.get("/v1/posts/fixture-post", { headers })).json()
+          ).data.content_revision,
+        },
+      })
+    ).status(),
+  ).toBe(200);
   expect(
     (
       await request.post("/v1/posts/bulk/pause", { headers, data: { postIds: ["fixture-post"] } })
@@ -406,7 +417,7 @@ test("inbox notices navigate, lose new state and can be selected and deleted", a
   await expect(page.getByText("No notifications in this view.", { exact: true })).toBeVisible();
 });
 
-test("logo upload selects prominent colors and persists them", async ({ page }) => {
+test("logo upload selects prominent colors and persists them", async ({ page, request }) => {
   const { encode } = await import("fast-png");
   const pixels = new Uint8Array(10 * 10 * 4);
   for (let i = 0; i < 100; i++) {
@@ -435,6 +446,14 @@ test("logo upload selects prominent colors and persists them", async ({ page }) 
   await expect(page.getByRole("button", { name: "Primary color", exact: true })).toContainText(
     "#FF0000",
   );
+  const token = await page.evaluate(() => sessionStorage.getItem("brandsparq_session"));
+  const headers = { authorization: "Bearer " + token };
+  const brand = (await (await request.get("/v1/clients/client-a/brand", { headers })).json()).data;
+  const assets = (
+    await (await request.get("/v1/clients/client-a/brand-assets", { headers })).json()
+  ).data;
+  expect(brand.logo_asset_id).toBeTruthy();
+  expect(assets.some((a) => a.asset_id === brand.logo_asset_id && a.role === "logo")).toBe(true);
 });
 test("profile name saves and timezone and time pickers support selection", async ({ page }) => {
   await signIn(page);

@@ -1,6 +1,6 @@
 import { dispatchGeneration } from "./generation-dispatch";
 import { configurePilot, pilotOverview } from "./pilot";
-import { REQUIRED_SCHEMA, REQUIRED_INDEXES } from "./schema";
+import { REQUIRED_SCHEMA, REQUIRED_INDEXES, REQUIRED_TRIGGERS } from "./schema";
 import { markGraphicJobFailure, recoverRevisionJobs } from "./generation";
 import type { SessionUser } from "./auth";
 import { hasPermission } from "./authz";
@@ -463,6 +463,17 @@ export async function runLaunchCertification(env: OperationsEnv, user: SessionUs
       indexNames.get(index.name) === index.sql,
       "blocker",
       `Required index definition: ${index.name}.`,
+    );
+  const triggers = await env.DB.prepare(
+    "SELECT name,sql FROM sqlite_master WHERE type='trigger'",
+  ).all<{ name: string; sql: string }>();
+  const triggerDefinitions = new Map(triggers.results.map((t) => [t.name, t.sql]));
+  for (const trigger of REQUIRED_TRIGGERS)
+    check(
+      `schema:trigger:${trigger.name}`,
+      triggerDefinitions.get(trigger.name) === trigger.sql,
+      "blocker",
+      `Required trigger definition: ${trigger.name}.`,
     );
   const foreignKeys = await env.DB.prepare("PRAGMA foreign_key_check").all();
   check(

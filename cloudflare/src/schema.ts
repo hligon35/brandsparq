@@ -821,6 +821,12 @@ export const REQUIRED_SCHEMA = {
       notnull: 1,
       pk: 0,
     },
+    {
+      name: "edit_token",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
   ],
   client_reviewers: [
     {
@@ -963,6 +969,18 @@ export const REQUIRED_SCHEMA = {
       name: "schedule_revision",
       type: "INTEGER",
       notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "edit_revision",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "edit_token",
+      type: "TEXT",
+      notnull: 0,
       pk: 0,
     },
   ],
@@ -2211,6 +2229,18 @@ export const REQUIRED_SCHEMA = {
       notnull: 0,
       pk: 0,
     },
+    {
+      name: "review_edit_token",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "content_revision",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
   ],
   profile_email_changes: [
     {
@@ -2895,6 +2925,24 @@ export const REQUIRED_SCHEMA = {
       notnull: 0,
       pk: 0,
     },
+    {
+      name: "connection_revision",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "refresh_claim",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "refresh_until",
+      type: "INTEGER",
+      notnull: 0,
+      pk: 0,
+    },
   ],
   social_oauth_states: [
     {
@@ -2954,6 +3002,12 @@ export const REQUIRED_SCHEMA = {
     {
       name: "created_at",
       type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "connection_revisions",
+      type: "TEXT",
       notnull: 1,
       pk: 0,
     },
@@ -3783,5 +3837,27 @@ export const REQUIRED_INDEXES = [
   {
     name: "idx_users_google_sub",
     sql: "CREATE INDEX idx_users_google_sub ON users(google_sub)",
+  },
+] as const;
+export const REQUIRED_TRIGGERS = [
+  {
+    name: "brand_delete_revision",
+    sql: "CREATE TRIGGER brand_delete_revision AFTER DELETE ON brand_profiles\nBEGIN UPDATE clients SET edit_revision=edit_revision+1 WHERE id=OLD.client_id; END",
+  },
+  {
+    name: "brand_insert_revision",
+    sql: "CREATE TRIGGER brand_insert_revision AFTER INSERT ON brand_profiles\nBEGIN UPDATE clients SET edit_revision=edit_revision+1 WHERE id=NEW.client_id; END",
+  },
+  {
+    name: "brand_update_revision",
+    sql: "CREATE TRIGGER brand_update_revision AFTER UPDATE ON brand_profiles\nBEGIN UPDATE clients SET edit_revision=edit_revision+1 WHERE id=NEW.client_id; END",
+  },
+  {
+    name: "clients_identity_revision",
+    sql: "CREATE TRIGGER clients_identity_revision AFTER UPDATE OF name,timezone ON clients\nWHEN NEW.name IS NOT OLD.name OR NEW.timezone IS NOT OLD.timezone\nBEGIN UPDATE clients SET edit_revision=edit_revision+1 WHERE id=NEW.id; END",
+  },
+  {
+    name: "post_content_revision",
+    sql: "CREATE TRIGGER post_content_revision AFTER UPDATE OF title,headline,caption,hashtags,graphic_key,social_account_id,reviewer_comment ON posts\nWHEN NEW.content_revision=OLD.content_revision AND (NEW.title IS NOT OLD.title OR NEW.headline IS NOT OLD.headline\n OR NEW.caption IS NOT OLD.caption OR NEW.hashtags IS NOT OLD.hashtags\n OR NEW.graphic_key IS NOT OLD.graphic_key OR NEW.social_account_id IS NOT OLD.social_account_id\n OR NEW.reviewer_comment IS NOT OLD.reviewer_comment)\nBEGIN UPDATE posts SET content_revision=content_revision+1 WHERE id=NEW.id; END",
   },
 ] as const;

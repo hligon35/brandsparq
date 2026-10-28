@@ -1,8 +1,9 @@
+import { EditConflict, isEditConflict } from "@/components/edit-conflict";
 import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert, confirmAction } from "@/components/feedback";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Image, StyleSheet, Text, TextInput, Pressable, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, SectionTitle, StatusBadge } from "@/components/ui";
@@ -16,6 +17,10 @@ export default function PostReviewScreen() {
   const can = useCapabilities();
   const { postId } = useLocalSearchParams<{ postId: string }>();
   const router = useRouter();
+  const [conflict, setConflict] = useState(false);
+  const entityRef = useRef(postId);
+  entityRef.current = postId;
+  const loadVersion = useRef(0);
   const [post, setPost] = useState<MarketingPost | undefined>();
   const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [loadError, setLoadError] = useState("");
@@ -38,6 +43,8 @@ export default function PostReviewScreen() {
   );
 
   async function reload() {
+    const version = ++loadVersion.current;
+    setConflict(false);
     if (!postId) return;
     setLoadError("");
     try {
@@ -46,6 +53,7 @@ export default function PostReviewScreen() {
         api.getPostCreative(postId),
         api.getClients(),
       ]);
+      if (version !== loadVersion.current || entityRef.current !== postId) return;
       setTimezone(
         clients.find((client) => client.id === nextPost.clientId)?.timezone ||
           Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -56,6 +64,8 @@ export default function PostReviewScreen() {
       markSaved({ headlineDraft: nextPost.title || "", captionDraft: nextPost.caption || "" });
       setCreative(nextCreative.data);
     } catch (error) {
+      if (version !== loadVersion.current || entityRef.current !== postId) return;
+      if (isEditConflict(error)) setConflict(true);
       setPost(undefined);
       setLoadError(error instanceof Error ? error.message : "Unable to load post.");
       throw error;
@@ -63,24 +73,10 @@ export default function PostReviewScreen() {
   }
 
   useEffect(() => {
-    if (!postId) return;
-    setLoadError("");
-    Promise.all([api.getPost(postId), api.getPostCreative(postId), api.getClients()])
-      .then(([nextPost, nextCreative, clients]) => {
-        setTimezone(
-          clients.find((client) => client.id === nextPost.clientId)?.timezone ||
-            Intl.DateTimeFormat().resolvedOptions().timeZone,
-        );
-        setPost(nextPost);
-        setHeadlineDraft(nextPost.title || "");
-        setCaptionDraft(nextPost.caption || "");
-        markSaved({ headlineDraft: nextPost.title || "", captionDraft: nextPost.caption || "" });
-        setCreative(nextCreative.data);
-      })
-      .catch((error) => {
-        setPost(undefined);
-        setLoadError(error instanceof Error ? error.message : "Unable to load post.");
-      });
+    void reload().catch(() => undefined);
+    return () => {
+      loadVersion.current++;
+    };
   }, [postId]);
 
   useEffect(() => {
@@ -136,9 +132,10 @@ export default function PostReviewScreen() {
       return;
     setAssigningAccount(true);
     try {
-      await api.assignSocialAccount(post!.id, accountId);
+      await api.assignSocialAccount(post!.id, accountId, post!.revision);
       await reload();
     } catch (error) {
+      if (isEditConflict(error)) setConflict(true);
       Alert.alert(
         "Unable to assign account",
         error instanceof Error ? error.message : "Try again.",
@@ -154,9 +151,11 @@ export default function PostReviewScreen() {
       await api.editPost(post!.id, {
         headline: headlineDraft,
         caption: captionDraft,
+        expectedRevision: post!.revision,
       });
       await reload();
     } catch (error) {
+      if (isEditConflict(error)) setConflict(true);
       Alert.alert("Unable to save edits", error instanceof Error ? error.message : "Try again.");
     } finally {
       setSaving(false);
@@ -179,6 +178,7 @@ export default function PostReviewScreen() {
       await api.rejectPost(post!.id, instruction.trim() || "Changes requested.");
       await reload();
     } catch (error) {
+      if (isEditConflict(error)) setConflict(true);
       Alert.alert(
         "Unable to request changes",
         error instanceof Error ? error.message : "Try again.",
@@ -191,14 +191,21 @@ export default function PostReviewScreen() {
   async function approve() {
     setSaving(true);
     try {
+      let revision = post!.revision;
       if (dirty) {
-        await api.editPost(post!.id, { headline: headlineDraft, caption: captionDraft });
+        const saved = await api.editPost(post!.id, {
+          headline: headlineDraft,
+          caption: captionDraft,
+          expectedRevision: revision,
+        });
+        revision = saved.revision;
         markSaved({ headlineDraft, captionDraft });
       }
-      await api.approvePost(post!.id);
+      await api.approvePost(post!.id, revision);
       Alert.alert("Approved", "This post is now on the marketing calendar.");
       router.back();
     } catch (error) {
+      if (isEditConflict(error)) setConflict(true);
       Alert.alert("Approval failed", error instanceof Error ? error.message : "Try again.");
     } finally {
       setSaving(false);
@@ -233,6 +240,7 @@ export default function PostReviewScreen() {
       await reload();
       setInstruction("");
     } catch (error) {
+      if (isEditConflict(error)) setConflict(true);
       Alert.alert(
         "AI update failed",
         error instanceof Error ? error.message : "Unable to update this post.",
@@ -244,6 +252,7 @@ export default function PostReviewScreen() {
 
   return (
     <PageScroll>
+      {conflict && <EditConflict busy={saving || assigningAccount} onReload={reload} />}
       <PageHeader
         eyebrow="Review content"
         title={post.clientName || "Client"}
@@ -272,6 +281,7 @@ export default function PostReviewScreen() {
               <Text style={styles.label}>Headline</Text>
               <TextInput
                 accessibilityLabel="Headline"
+                editable={!saving && !assigningAccount && !aiAction}
                 value={headlineDraft}
                 onChangeText={setHeadlineDraft}
                 style={styles.singleInput}
@@ -279,6 +289,7 @@ export default function PostReviewScreen() {
               <Text style={styles.label}>Caption</Text>
               <TextInput
                 accessibilityLabel="Caption"
+                editable={!saving && !assigningAccount && !aiAction}
                 value={captionDraft}
                 onChangeText={setCaptionDraft}
                 multiline

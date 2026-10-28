@@ -1,3 +1,5 @@
+import { saveBrandProfile } from "./brand";
+import { validRevision, revisionRequired, revisionConflict } from "./revisions";
 import { postCampaign, campaignOpen } from "./campaign-workflow";
 import { handleCreationRoute } from "./creation";
 import { validTimezone } from "./settings-validation";
@@ -473,31 +475,43 @@ const worker = {
           headline?: string;
           caption?: string;
           comment?: string;
+          expectedRevision?: number;
         }>()
         .catch(() => ({}) as any);
 
+      if (!validRevision(payload.expectedRevision))
+        return response(request, env, revisionRequired.body, { status: 428 });
       const headline = payload.headline?.trim().slice(0, 300);
       const caption = payload.caption?.trim().slice(0, 5000);
       const comment = payload.comment?.trim().slice(0, 2000);
 
+      const editToken = crypto.randomUUID();
       const changed = await env.DB.batch([
         env.DB.prepare(
-          `UPDATE posts SET
+          `UPDATE posts SET content_revision=content_revision+1,review_edit_token=?,
            headline = COALESCE(NULLIF(?, ''), headline),
            title = COALESCE(NULLIF(?, ''), title),
            caption = COALESCE(NULLIF(?, ''), caption),
            reviewer_comment = COALESCE(NULLIF(?, ''), reviewer_comment),
            status = 'awaiting_approval',
            updated_at = CURRENT_TIMESTAMP
-           WHERE id = ? AND status IN ('awaiting_approval','edit_requested')`,
-        ).bind(headline || null, headline || null, caption || null, comment || null, row.post_id),
+           WHERE id = ? AND content_revision=? AND status IN ('awaiting_approval','edit_requested')`,
+        ).bind(
+          editToken,
+          headline || null,
+          headline || null,
+          caption || null,
+          comment || null,
+          row.post_id,
+          payload.expectedRevision,
+        ),
         ...(comment
           ? [
               env.DB.prepare(
                 `INSERT INTO review_comments
              (id,post_id,public_reviewer,comment)
-             VALUES (?, ?, 1, ?)`,
-              ).bind(crypto.randomUUID(), row.post_id, comment),
+             SELECT ?,?,1,? FROM posts WHERE id=? AND review_edit_token=? AND status='awaiting_approval'`,
+              ).bind(crypto.randomUUID(), row.post_id, comment, row.post_id, editToken),
             ]
           : []),
       ]);
@@ -509,7 +523,11 @@ const worker = {
           { status: 409 },
         );
 
-      return response(request, env, { ok: true, postId: row.post_id });
+      return response(request, env, {
+        ok: true,
+        postId: row.post_id,
+        revision: payload.expectedRevision + 1,
+      });
     }
 
     const publicRejectMatch = url.pathname.match(/^\/v1\/public\/review\/([^/]+)\/reject$/);
@@ -632,7 +650,7 @@ const worker = {
       const tokenHash = await hashReviewToken(publicApproveMatch[1], env);
       const row = await env.DB.prepare(
         `SELECT rt.id AS review_token_id, rt.post_id, rt.expires_at, rt.used_at,
-                p.status, p.publish_version, p.client_id, p.platform, p.social_account_id, p.suggested_publish_at
+                p.status, p.content_revision, p.publish_version, p.client_id, p.platform, p.social_account_id, p.suggested_publish_at
          FROM review_tokens rt
          JOIN posts p ON p.id = rt.post_id
          WHERE rt.token_hash = ? AND rt.revoked_at IS NULL`,
@@ -665,11 +683,17 @@ const worker = {
         );
       }
 
+      const payload = await request.json<any>().catch(() => null);
+      if (!validRevision(payload?.expectedRevision))
+        return response(request, env, revisionRequired.body, { status: 428 });
+      if (payload.expectedRevision !== row.content_revision)
+        return response(request, env, revisionConflict.body, { status: 409 });
       const destination = await ensurePostSocialDestination(env, {
         id: row.post_id,
         client_id: row.client_id,
         platform: row.platform,
         social_account_id: row.social_account_id,
+        content_revision: row.content_revision,
       });
       if (!destination) {
         return response(
@@ -684,6 +708,8 @@ const worker = {
         clientId: row.client_id,
         status: row.status,
         publishVersion: row.publish_version,
+        contentRevision: destination.contentRevision ?? row.content_revision,
+        socialAccountId: destination.id,
         desiredAt: row.suggested_publish_at,
         decision: "approved_via_review_link",
         reviewTokenId: row.review_token_id,
@@ -837,7 +863,7 @@ const worker = {
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
       const payload = await request
-        .json<{ assetId?: string; role?: string; label?: string }>()
+        .json<{ assetId?: string; role?: string; label?: string; expectedRevision?: number }>()
         .catch(() => ({}) as any);
       if (!payload.assetId) {
         return response(request, env, { error: "assetId is required." }, { status: 400 });
@@ -854,25 +880,49 @@ const worker = {
         return response(request, env, { error: "Invalid brand asset role." }, { status: 400 });
       }
 
+      if (!validRevision(payload.expectedRevision))
+        return response(request, env, revisionRequired.body, { status: 428 });
+      const editToken = crypto.randomUUID();
       const id = crypto.randomUUID();
-      await env.DB.prepare(
-        `INSERT OR IGNORE INTO brand_assets
-         (id, client_id, asset_id, role, label)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-        .bind(id, brandAssetsMatch[1], payload.assetId, role, payload.label?.trim() || null)
-        .run();
-
-      if (role === "logo" || role === "alternate_logo") {
-        const column = role === "logo" ? "logo_asset_id" : "alternate_logo_asset_id";
-        await env.DB.prepare(
-          `UPDATE brand_profiles SET ${column} = ?, updated_at = CURRENT_TIMESTAMP WHERE client_id = ?`,
-        )
-          .bind(payload.assetId, brandAssetsMatch[1])
-          .run();
-      }
-
-      return response(request, env, { ok: true, id });
+      const column = role === "logo" ? "logo_asset_id" : "alternate_logo_asset_id";
+      const attached = await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE clients SET edit_token=?,edit_revision=edit_revision+1 WHERE id=? AND edit_revision=? AND status='active'",
+        ).bind(editToken, brandAssetsMatch[1], payload.expectedRevision),
+        env.DB.prepare(
+          `INSERT OR IGNORE INTO brand_assets (id,client_id,asset_id,role,label) SELECT ?,?,?,?,? FROM clients WHERE id=? AND edit_token=?`,
+        ).bind(
+          id,
+          brandAssetsMatch[1],
+          payload.assetId,
+          role,
+          payload.label?.trim() || null,
+          brandAssetsMatch[1],
+          editToken,
+        ),
+        ...(role === "logo" || role === "alternate_logo"
+          ? [
+              env.DB.prepare(
+                `INSERT INTO brand_profiles(id,client_id,${column}) SELECT ?,?,? FROM clients WHERE id=? AND edit_token=?
+           ON CONFLICT(client_id) DO UPDATE SET ${column}=excluded.${column},updated_at=CURRENT_TIMESTAMP`,
+              ).bind(
+                crypto.randomUUID(),
+                brandAssetsMatch[1],
+                payload.assetId,
+                brandAssetsMatch[1],
+                editToken,
+              ),
+            ]
+          : []),
+      ]);
+      if (!attached[0].meta.changes)
+        return response(request, env, revisionConflict.body, { status: 409 });
+      return response(request, env, {
+        ok: true,
+        id,
+        revision:
+          payload.expectedRevision + 1 + (["logo", "alternate_logo"].includes(role) ? 1 : 0),
+      });
     }
 
     const brandMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/brand$/);
@@ -881,7 +931,7 @@ const worker = {
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
       const row = await env.DB.prepare(
-        `SELECT c.id AS client_id, c.name, c.timezone,c.status AS client_status,
+        `SELECT c.id AS client_id, c.name, c.timezone,c.status AS client_status,c.edit_revision AS revision,
                 bp.id, bp.voice, bp.audience, bp.primary_color, bp.secondary_color,
                 bp.website, bp.social_handles, bp.restricted_words, bp.tagline,
                 bp.preferred_ctas, bp.imagery_preferences, bp.posting_rules,
@@ -903,110 +953,9 @@ const worker = {
       const denied = await authorize(env, sessionUser!, "brand_manage", brandMatch[1]);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
-      const payload = await request.json<any>().catch(() => ({}) as any);
-      const client = await env.DB.prepare("SELECT id FROM clients WHERE id = ?")
-        .bind(brandMatch[1])
-        .first();
-      if (!client) return response(request, env, { error: "Client not found" }, { status: 404 });
-
-      // Client-scoped ownership is checked before persisting either logo pointer.
-      for (const assetId of [payload.logoAssetId, payload.alternateLogoAssetId]) {
-        if (!assetId) continue;
-        const owned = await env.DB.prepare(
-          "SELECT id FROM assets WHERE id=? AND client_id=? AND content_type LIKE 'image/%'",
-        )
-          .bind(assetId, brandMatch[1])
-          .first();
-        if (!owned)
-          return response(
-            request,
-            env,
-            { error: "Logo must be an image owned by this client." },
-            { status: 400 },
-          );
-      }
-
-      const current = await env.DB.prepare("SELECT id FROM brand_profiles WHERE client_id = ?")
-        .bind(brandMatch[1])
-        .first<{ id: string }>();
-      const id = current?.id || crypto.randomUUID();
-
-      await env.DB.prepare(
-        `INSERT INTO brand_profiles
-         (id, client_id, voice, audience, primary_color, secondary_color, website,
-          social_handles, restricted_words, tagline, preferred_ctas,
-          imagery_preferences, posting_rules, fonts, brand_examples,
-          prohibited_visual_styles, competitor_references, brand_vocabulary,
-          hashtag_policy, target_locations, platform_rules, logo_asset_id,
-          alternate_logo_asset_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-         ON CONFLICT(client_id) DO UPDATE SET
-           voice = excluded.voice,
-           audience = excluded.audience,
-           primary_color = excluded.primary_color,
-           secondary_color = excluded.secondary_color,
-           website = excluded.website,
-           social_handles = excluded.social_handles,
-           restricted_words = excluded.restricted_words,
-           tagline = excluded.tagline,
-           preferred_ctas = excluded.preferred_ctas,
-           imagery_preferences = excluded.imagery_preferences,
-           posting_rules = excluded.posting_rules,
-           fonts = excluded.fonts,
-           brand_examples = excluded.brand_examples,
-           prohibited_visual_styles = excluded.prohibited_visual_styles,
-           competitor_references = excluded.competitor_references,
-           brand_vocabulary = excluded.brand_vocabulary,
-           hashtag_policy = excluded.hashtag_policy,
-           target_locations = excluded.target_locations,
-           platform_rules = excluded.platform_rules,
-           logo_asset_id = excluded.logo_asset_id,
-           alternate_logo_asset_id = excluded.alternate_logo_asset_id,
-           updated_at = CURRENT_TIMESTAMP`,
-      )
-        .bind(
-          id,
-          brandMatch[1],
-          payload.voice || null,
-          payload.audience || null,
-          payload.primaryColor || null,
-          payload.secondaryColor || null,
-          payload.website || null,
-          payload.socialHandles ? JSON.stringify(payload.socialHandles) : null,
-          payload.restrictedWords || null,
-          payload.tagline || null,
-          payload.preferredCtas || null,
-          payload.imageryPreferences || null,
-          payload.postingRules || null,
-          payload.fonts || null,
-          payload.brandExamples || null,
-          payload.prohibitedVisualStyles || null,
-          payload.competitorReferences || null,
-          payload.brandVocabulary || null,
-          payload.hashtagPolicy || null,
-          payload.targetLocations || null,
-          payload.platformRules || null,
-          payload.logoAssetId || null,
-          payload.alternateLogoAssetId || null,
-        )
-        .run();
-
-      if (payload.ctaLibrary !== undefined || payload.campaignGoals !== undefined)
-        await env.DB.prepare(
-          "UPDATE brand_profiles SET cta_library=COALESCE(?,cta_library),campaign_goals=COALESCE(?,campaign_goals) WHERE client_id=?",
-        )
-          .bind(
-            payload.ctaLibrary === undefined ? null : JSON.stringify(payload.ctaLibrary),
-            payload.campaignGoals === undefined ? null : JSON.stringify(payload.campaignGoals),
-            brandMatch[1],
-          )
-          .run();
-
-      if (payload.logoPreference === "primary" || payload.logoPreference === "alternate")
-        await env.DB.prepare("UPDATE brand_profiles SET logo_preference=? WHERE client_id=?")
-          .bind(payload.logoPreference, brandMatch[1])
-          .run();
-      return response(request, env, { ok: true, id });
+      const payload = await request.json().catch(() => null);
+      const result = await saveBrandProfile(env, brandMatch[1], payload);
+      return response(request, env, result.body, { status: result.status || 200 });
     }
 
     const campaignAction = url.pathname.match(
@@ -1033,8 +982,9 @@ const worker = {
           { error: "Save this campaign as active before approving or resuming posts." },
           { status: 409 },
         );
+      const payload = await request.json<any>().catch(() => ({}));
       const posts = await env.DB.prepare(
-        "SELECT id,status,publish_version,approved_at FROM posts WHERE campaign_id=? ORDER BY generation_index,id LIMIT 101",
+        "SELECT id,status,content_revision,publish_version,approved_at FROM posts WHERE campaign_id=? ORDER BY generation_index,id LIMIT 101",
       )
         .bind(campaign.id)
         .all<any>();
@@ -1098,7 +1048,17 @@ const worker = {
             const result = await worker.fetch(
               new Request(`${url.origin}/v1/posts/${post.id}/${path}`, {
                 method: "POST",
-                headers: { authorization: request.headers.get("authorization") || "" },
+                headers: {
+                  authorization: request.headers.get("authorization") || "",
+                  "content-type": "application/json",
+                },
+                ...(action === "approve"
+                  ? {
+                      body: JSON.stringify({
+                        expectedRevision: payload.expectedRevisions?.[post.id],
+                      }),
+                    }
+                  : {}),
               }),
               env,
             );
@@ -1371,16 +1331,20 @@ const worker = {
         .first();
       if (!current) return response(request, env, { error: "Client not found." }, { status: 404 });
 
-      await env.DB.prepare(
-        `UPDATE clients SET
-         name = COALESCE(NULLIF(?, ''), name),
-         timezone = COALESCE(NULLIF(?, ''), timezone),
-         schedule_revision=schedule_revision+1,
-         updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-      )
-        .bind(payload.name || null, payload.timezone || null, clientMatch[1])
-        .run();
+      if (!validRevision((payload as any).expectedRevision))
+        return response(request, env, revisionRequired.body, { status: 428 });
+      const changed =
+        await env.DB.prepare(`UPDATE clients SET name=COALESCE(NULLIF(?,''),name),timezone=COALESCE(NULLIF(?,''),timezone),
+        schedule_revision=schedule_revision+1,edit_revision=edit_revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND edit_revision=?`)
+          .bind(
+            payload.name || null,
+            payload.timezone || null,
+            clientMatch[1],
+            (payload as any).expectedRevision,
+          )
+          .run();
+      if (!changed.meta.changes)
+        return response(request, env, revisionConflict.body, { status: 409 });
 
       return response(request, env, { ok: true });
     }
@@ -1721,7 +1685,9 @@ const worker = {
     }
 
     if (request.method === "POST" && url.pathname === "/v1/posts/bulk/approve") {
-      const payload = await request.json<{ postIds?: string[] }>().catch(() => ({}) as any);
+      const payload = await request
+        .json<{ postIds?: string[]; expectedRevisions?: Record<string, number> }>()
+        .catch(() => ({}) as any);
       const postIds = bulkPostIds(payload.postIds);
       if (!postIds.length) {
         return response(request, env, { error: "postIds are required." }, { status: 400 });
@@ -1730,7 +1696,7 @@ const worker = {
       const results = [];
       for (const postId of postIds) {
         const post = await env.DB.prepare(
-          "SELECT id,status,publish_version,client_id,platform,social_account_id,suggested_publish_at FROM posts WHERE id=?",
+          "SELECT id,status,content_revision,publish_version,client_id,platform,social_account_id,suggested_publish_at FROM posts WHERE id=?",
         )
           .bind(postId)
           .first<any>();
@@ -1750,6 +1716,17 @@ const worker = {
           continue;
         }
 
+        if (
+          !validRevision(payload.expectedRevisions?.[postId]) ||
+          payload.expectedRevisions![postId] !== post.content_revision
+        ) {
+          results.push({
+            postId,
+            ok: false,
+            error: "Post changed since this list was loaded. Reload before approving.",
+          });
+          continue;
+        }
         const destination = await ensurePostSocialDestination(env, post);
         if (!destination) {
           results.push({ postId, ok: false, error: "Publishing account required." });
@@ -1760,6 +1737,8 @@ const worker = {
           clientId: post.client_id,
           status: post.status,
           publishVersion: post.publish_version,
+          contentRevision: destination.contentRevision ?? post.content_revision,
+          socialAccountId: destination.id,
           desiredAt: post.suggested_publish_at,
           decision: "approved_bulk",
         });
@@ -1974,13 +1953,16 @@ const worker = {
       const payload = await request
         .json<{ headline?: string; caption?: string; comment?: string }>()
         .catch(() => ({}) as any);
+      if (!validRevision(payload.expectedRevision))
+        return response(request, env, revisionRequired.body, { status: 428 });
       const headline = payload.headline?.trim().slice(0, 300);
       const caption = payload.caption?.trim().slice(0, 5000);
       const comment = payload.comment?.trim().slice(0, 2000);
 
+      const editToken = crypto.randomUUID();
       const changed = await env.DB.batch([
         env.DB.prepare(
-          `UPDATE posts SET
+          `UPDATE posts SET content_revision=content_revision+1,review_edit_token=?,
            headline=COALESCE(NULLIF(?,''),headline),
            title=COALESCE(NULLIF(?,''),title),
            caption=COALESCE(NULLIF(?,''),caption),
@@ -1988,19 +1970,28 @@ const worker = {
            status='awaiting_approval',
            revision_job_id=NULL,
            updated_at=CURRENT_TIMESTAMP
-           WHERE id=? AND status IN ('awaiting_approval','edit_requested')`,
+           WHERE id=? AND content_revision=? AND status IN ('awaiting_approval','edit_requested')`,
         ).bind(
+          editToken,
           headline || null,
           headline || null,
           caption || null,
           comment || null,
           editPostMatch[1],
+          payload.expectedRevision,
         ),
         ...(comment
           ? [
               env.DB.prepare(
-                "INSERT INTO review_comments (id,post_id,user_id,comment) VALUES (?,?,?,?)",
-              ).bind(crypto.randomUUID(), editPostMatch[1], sessionUser!.id, comment),
+                "INSERT INTO review_comments (id,post_id,user_id,comment) SELECT ?,?,?,? FROM posts WHERE id=? AND review_edit_token=? AND status='awaiting_approval'",
+              ).bind(
+                crypto.randomUUID(),
+                editPostMatch[1],
+                sessionUser!.id,
+                comment,
+                editPostMatch[1],
+                editToken,
+              ),
             ]
           : []),
       ]);
@@ -2013,7 +2004,7 @@ const worker = {
         );
 
       await audit(env, editPostMatch[1], "post.edited_in_review");
-      return response(request, env, { ok: true });
+      return response(request, env, { ok: true, revision: payload.expectedRevision + 1 });
     }
 
     const rejectPostMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/reject$/);
@@ -2063,7 +2054,7 @@ const worker = {
     if (request.method === "POST" && approvalMatch) {
       const postId = approvalMatch[1];
       const post = await env.DB.prepare(
-        "SELECT id, status, publish_version, client_id, platform, social_account_id, suggested_publish_at FROM posts WHERE id = ?",
+        "SELECT id, status, content_revision, publish_version, client_id, platform, social_account_id, suggested_publish_at FROM posts WHERE id = ?",
       )
         .bind(postId)
         .first<any>();
@@ -2091,6 +2082,11 @@ const worker = {
         );
       }
 
+      const payload = await request.json<any>().catch(() => null);
+      if (!validRevision(payload?.expectedRevision))
+        return response(request, env, revisionRequired.body, { status: 428 });
+      if (payload.expectedRevision !== post.content_revision)
+        return response(request, env, revisionConflict.body, { status: 409 });
       const destination = await ensurePostSocialDestination(env, post);
       if (!destination) {
         return response(
@@ -2105,6 +2101,8 @@ const worker = {
         clientId: post.client_id,
         status: post.status,
         publishVersion: post.publish_version,
+        contentRevision: destination.contentRevision ?? post.content_revision,
+        socialAccountId: destination.id,
         desiredAt: post.suggested_publish_at,
         decision: "approved",
       });

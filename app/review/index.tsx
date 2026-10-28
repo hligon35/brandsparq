@@ -61,7 +61,10 @@ export default function ReviewScreen() {
     if (!selected.length) return;
     setWorking(true);
     try {
-      const result = await api.bulkApprovePosts(selected);
+      const result = await api.bulkApprovePosts(
+        selected,
+        Object.fromEntries(posts.map((p) => [p.id, p.revision])),
+      );
       const failed = result.results.filter((item: any) => !item.ok);
       setSelected([]);
       await load();

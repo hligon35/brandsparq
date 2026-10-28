@@ -1,3 +1,4 @@
+import { validRevision, revisionRequired, revisionConflict } from "./revisions";
 import { pageOptions, pageResult } from "./pagination";
 import { sendReviewLinks } from "./generation";
 import type { SessionUser } from "./auth";
@@ -229,17 +230,34 @@ export async function handleWorkspaceRoute(
       .bind(asset[2], asset[1])
       .first<any>();
     if (!row) return { body: { error: "Brand asset not found." }, status: 404 };
-    await env.DB.batch([
-      env.DB.prepare("DELETE FROM brand_assets WHERE id=? AND client_id=?").bind(
-        asset[2],
-        asset[1],
-      ),
+    const payload = await request.json<any>().catch(() => null);
+    if (!validRevision(payload?.expectedRevision)) return revisionRequired;
+    const token = crypto.randomUUID();
+    const removed = await env.DB.batch([
       env.DB.prepare(
-        "UPDATE brand_profiles SET logo_asset_id=CASE WHEN logo_asset_id=? AND ?='logo' THEN NULL ELSE logo_asset_id END,alternate_logo_asset_id=CASE WHEN alternate_logo_asset_id=? AND ?='alternate_logo' THEN NULL ELSE alternate_logo_asset_id END WHERE client_id=?",
-      ).bind(row.asset_id, row.role, row.asset_id, row.role, asset[1]),
+        "UPDATE clients SET edit_token=?,edit_revision=edit_revision+1 WHERE id=? AND status='active' AND edit_revision=?",
+      ).bind(token, asset[1], payload.expectedRevision),
+      env.DB.prepare(
+        "DELETE FROM brand_assets WHERE id=? AND client_id=? AND EXISTS(SELECT 1 FROM clients WHERE id=? AND edit_token=?)",
+      ).bind(asset[2], asset[1], asset[1], token),
+      env.DB.prepare(`UPDATE brand_profiles SET logo_asset_id=CASE WHEN logo_asset_id=? AND ?='logo' THEN NULL ELSE logo_asset_id END,
+        alternate_logo_asset_id=CASE WHEN alternate_logo_asset_id=? AND ?='alternate_logo' THEN NULL ELSE alternate_logo_asset_id END
+        WHERE client_id=? AND EXISTS(SELECT 1 FROM clients WHERE id=? AND edit_token=?)`).bind(
+        row.asset_id,
+        row.role,
+        row.asset_id,
+        row.role,
+        asset[1],
+        asset[1],
+        token,
+      ),
     ]);
-    return { body: { ok: true } };
+    if (!removed[0].meta.changes) return revisionConflict;
+    return {
+      body: { ok: true, revision: payload.expectedRevision + 1 + Number(removed[2].meta.changes) },
+    };
   }
+
   const reviewLinks = url.pathname.match(/^\/v1\/clients\/([^/]+)\/review-links$/);
   if (reviewLinks) {
     if (!(await allowed(env, user, "review", reviewLinks[1])))

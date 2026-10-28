@@ -7,11 +7,11 @@ import {
   inPreferredWindow,
   validateSchedule,
 } from "../cloudflare/src/scheduling.ts";
-import { workspace, digest } from "./workspace.mjs";
+import { workspace, digest, withCurrentRevision } from "./workspace.mjs";
 import { runGenerationJob, runGraphicJob, sendReviewLinks } from "../cloudflare/src/generation.ts";
 
 async function call(w, path, body, user = "owner") {
-  return w.request(path, { user, method: "POST", body });
+  return w.request(path, { user, method: "POST", body: withCurrentRevision(w, path, body) });
 }
 async function google(w, t, email) {
   t.mock.method(globalThis, "fetch", async (url) =>
