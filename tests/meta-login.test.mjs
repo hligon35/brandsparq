@@ -27,9 +27,15 @@ for (const platform of ["facebook", "instagram"]) {
     assert.equal(auth.searchParams.get("client_id"), "fixture-app");
     assert.equal(auth.searchParams.get("redirect_uri"), w.env.META_REDIRECT_URI);
     assert.equal(auth.searchParams.get("response_type"), "code");
+    assert.equal(auth.searchParams.get("override_default_response_type"), "true");
+    assert.equal(auth.searchParams.get("display"), "popup");
+    assert.equal(auth.searchParams.get("prompt"), "login");
     assert.equal(auth.searchParams.has("scope"), false);
     assert.ok(auth.searchParams.get("state"));
-    assert.equal(w.row("SELECT COUNT(*) n FROM social_oauth_states").n, 1);
+    assert.notEqual(auth.searchParams.get("state"), "<STATE>");
+    const nextAuth = new URL(await start(w, platform));
+    assert.notEqual(auth.searchParams.get("state"), nextAuth.searchParams.get("state"));
+    assert.equal(w.row("SELECT COUNT(*) n FROM social_oauth_states").n, 2);
     assert.equal(auth.toString().includes("fixture-secret"), false);
   });
 }
@@ -40,6 +46,9 @@ test("legacy Meta Login retains explicit scopes without a configuration", async 
   w.env.META_APP_SECRET = "fixture-secret";
   const auth = new URL(await start(w, "instagram"));
   assert.equal(auth.searchParams.has("config_id"), false);
+  assert.equal(auth.searchParams.has("override_default_response_type"), false);
+  assert.equal(auth.searchParams.has("display"), false);
+  assert.equal(auth.searchParams.has("prompt"), false);
   assert.equal(auth.searchParams.get("response_type"), "code");
   assert.ok(auth.searchParams.get("scope").split(",").includes("instagram_content_publish"));
 });

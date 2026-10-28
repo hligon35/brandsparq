@@ -69,6 +69,12 @@ requests an authorization code. Permissions come from the Meta configuration,
 so the request does not send an overriding `scope` list. Without this variable,
 the legacy Facebook Login request continues to use explicit scopes.
 
+The Business Login request also sends `override_default_response_type=true`,
+`display=popup`, and `prompt=login`, matching the Meta dashboard's generated
+login URL. BrandSparQ generates and persists a fresh security `state` for each
+attempt; do not open the dashboard URL containing the literal `<STATE>`
+placeholder as a substitute for connecting through the app.
+
 Configure a **User access token** login configuration for the current
 Page-discovery flow. Include the permissions needed by enabled features:
 `pages_show_list`, `pages_read_engagement`, `instagram_basic`,

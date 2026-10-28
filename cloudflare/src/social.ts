@@ -256,6 +256,9 @@ export async function socialOAuthStart(
     if (metaConfigId) {
       // Business Login owns the permissions and assets selected in this configuration.
       auth.searchParams.set("config_id", metaConfigId);
+      auth.searchParams.set("override_default_response_type", "true");
+      auth.searchParams.set("display", "popup");
+      auth.searchParams.set("prompt", "login");
     } else {
       auth.searchParams.set(
         "scope",
