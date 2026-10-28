@@ -23,7 +23,9 @@ OPENAI_TEXT_MODEL = "gpt-6.1-sol"
 PUBLIC_BASE_URL = "https://brandsparq.getsparqd.com"
 REVIEW_BASE_URL = "https://brandsparq.getsparqd.com"
 TIKTOK_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/tiktok/callback"
-X_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/x/callback"[assets]
+X_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/x/callback"
+
+[assets]
 directory = "../dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
