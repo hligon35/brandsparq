@@ -335,8 +335,12 @@ test("campaign bulk actions report skips and preserve published and active publi
   assert.equal((await send(w, "/v1/campaigns/campaign/posts/pause", {}, "viewer")).status, 403);
   assert.equal((await send(w, "/v1/campaigns/campaign/posts/pause")).status, 200);
   assert.equal(w.row("SELECT status FROM posts WHERE id='review'").status, "paused");
-  await send(w, "/v1/campaigns/campaign/posts/resume");
-  assert.equal(w.row("SELECT status FROM posts WHERE id='review'").status, "calendar_scheduled");
+  const resumed = await (await send(w, "/v1/campaigns/campaign/posts/resume")).json();
+  assert.equal(
+    w.row("SELECT status FROM posts WHERE id='review'").status,
+    "calendar_scheduled",
+    JSON.stringify(resumed),
+  );
   const job = await ensurePublishJob(w.env, "review");
   w.exec("UPDATE posts SET prepublish_response='publish_now' WHERE id='review'");
   assert.equal((await claimPublishJob(w.env, job.jobId)).claimed, true);

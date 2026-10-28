@@ -250,11 +250,23 @@ test("client creation and editing reject invalid time zones before writing any c
 });
 
 function source(w) {
+  w.env.META_APP_ID = "fixture";
+  w.env.META_APP_SECRET = "fixture";
+  w.exec(
+    "INSERT INTO brand_profiles(id,client_id,voice,audience) VALUES('brand','client-a','Useful','Customers')",
+  );
+  w.exec(
+    "INSERT INTO social_accounts(id,client_id,platform,external_account_id,status,access_token_ciphertext) VALUES('chosen','client-a','facebook','page','connected','opaque')",
+  );
+  w.objects.set("a.jpg", "fixture");
   w.exec(
     "INSERT INTO assets(id,client_id,r2_key,filename,content_type) VALUES('asset','client-a','a.jpg','a.jpg','image/jpeg')",
   );
 }
 const creation = {
+  mode: "social",
+  outputCount: 1,
+  destinationIds: ["chosen"],
   clientId: "client-a",
   assetIds: ["asset"],
   objective: "Auto",
@@ -268,14 +280,14 @@ test("initial queue send failure is a visible failed job; retry and ambiguous cr
   w.env.GENERATION_QUEUE.send = async () => {
     throw Error("Fixture queue unavailable");
   };
-  const response = await send(w, "/v1/generation-jobs", creation);
+  const response = await send(w, "/v1/creation-jobs", creation);
   assert.equal(response.status, 202);
   const job = await response.json();
   assert.equal(job.status, "failed");
   assert.match(job.error, /enqueue/);
-  assert.equal((await (await send(w, "/v1/generation-jobs", creation)).json()).jobId, job.jobId);
+  assert.equal((await (await send(w, "/v1/creation-jobs", creation)).json()).jobId, job.jobId);
   assert.equal(
-    (await send(w, "/v1/generation-jobs", { ...creation, objective: "Promote" })).status,
+    (await send(w, "/v1/creation-jobs", { ...creation, objective: "Promote" })).status,
     409,
   );
   w.env.GENERATION_QUEUE.send = sendQueue;
@@ -288,8 +300,8 @@ test("concurrent creation retries enqueue only one durable generation job", asyn
   const w = workspace(t);
   source(w);
   const responses = await Promise.all([
-    send(w, "/v1/generation-jobs", creation),
-    send(w, "/v1/generation-jobs", creation),
+    send(w, "/v1/creation-jobs", creation),
+    send(w, "/v1/creation-jobs", creation),
   ]);
   const jobs = await Promise.all(responses.map((r) => r.json()));
   assert.equal(jobs[0].jobId, jobs[1].jobId);
@@ -303,7 +315,7 @@ test("a send that throws after worker claim does not mark the active job failed"
     w.exec("UPDATE generation_jobs SET status='processing',claim_token='worker' WHERE id=?", jobId);
     throw Error("Lost queue response");
   };
-  const job = await (await send(w, "/v1/generation-jobs", creation)).json();
+  const job = await (await send(w, "/v1/creation-jobs", creation)).json();
   assert.equal(job.status, "processing");
 });
 
@@ -657,7 +669,7 @@ test("an expired generation planner cannot overwrite a recovered plan or create 
   const w = workspace(t);
   source(w);
   w.objects.set("a.jpg", "fixture");
-  const created = await (await send(w, "/v1/generation-jobs", creation)).json();
+  const created = await (await send(w, "/v1/creation-jobs", creation)).json();
   const newer = {
     campaignName: "Recovered plan",
     posts: [

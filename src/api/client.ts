@@ -1,3 +1,4 @@
+import { resolveApiOrigin } from "../shared/api-origin";
 import { createApiTransport, readResponse } from "./transport";
 import * as ImageManipulator from "expo-image-manipulator";
 import { imageUploadType } from "@/shared/image-upload";
@@ -6,21 +7,13 @@ import Constants from "expo-constants";
 import { Platform } from "react-native";
 import type { Asset, Client, MarketingPost, PrePublishDecision } from "@/types/domain";
 
-const PRODUCTION_API_URL = "https://brandsparq.getsparqd.com";
-const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
-const isNativeDevice = Platform.OS !== "web" && Constants.isDevice;
-const configuredUrlIsLoopback =
-  configuredApiUrl != null &&
-  /^https?:\/\/(localhost|127(?:\.\d{1,3}){3})(:\d+)?$/i.test(configuredApiUrl);
-
-// A phone's localhost is the phone itself. Use the hosted API on physical devices
-// when no URL is configured or the copied example still points to loopback.
-// Developers can explicitly use a LAN IP to test a local Worker from a phone.
-const API_URL =
-  isNativeDevice && (!configuredApiUrl || configuredUrlIsLoopback)
-    ? PRODUCTION_API_URL
-    : (configuredApiUrl ??
-      (Platform.OS === "web" ? "" : __DEV__ ? "http://localhost:8787" : PRODUCTION_API_URL));
+const API_URL = resolveApiOrigin({
+  configured: process.env.EXPO_PUBLIC_API_URL,
+  platform: Platform.OS,
+  development: __DEV__,
+  environment: Constants.expoConfig?.extra?.appEnvironment,
+  fixture: Constants.expoConfig?.extra?.fixtureBuild === true,
+});
 
 const transport = createApiTransport(API_URL);
 export const setUnauthorizedHandler = transport.setUnauthorizedHandler;
@@ -167,7 +160,10 @@ export const api = {
     jsonRequest<{ ok: true }>(`/v1/generation-jobs/${id}/${action}`, { method: "POST" }),
   restoreClient: (id: string) =>
     jsonRequest<{ ok: true }>(`/v1/clients/${id}/restore`, { method: "POST" }),
-  getPausedPosts: () => jsonRequest<{ data: any[] }>("/v1/posts/paused"),
+  getPausedPosts: (params: { cursor?: string; search?: string } = {}) =>
+    jsonRequest<{ data: any[]; nextCursor: string | null }>(
+      `/v1/posts/paused?${new URLSearchParams(params)}`,
+    ),
   pausedAction: (id: string, action: "resume" | "restore-review" | "cancel") =>
     jsonRequest<{ ok: true }>(`/v1/posts/${id}/${action}`, { method: "POST" }),
   removeBrandAsset: (clientId: string, id: string, expectedRevision: number) =>
@@ -240,6 +236,7 @@ export const api = {
         needsReview: number;
         scheduled: number;
         publishingToday: number;
+        day: { timezone: string; start: string; end: string };
         failed: number;
         nextPost: (ApiPost & { client_name?: string }) | null;
       };
@@ -441,13 +438,14 @@ export const api = {
     return jsonRequest<{ data: any }>(`/v1/analytics/overview?${params.toString()}`);
   },
 
-  syncAnalytics: (accountId?: string) =>
+  getAnalyticsJobs: () => jsonRequest<{ data: any[] }>("/v1/analytics/jobs"),
+  syncAnalytics: (accountId?: string, days = 90) =>
     jsonRequest<{
       ok: boolean;
       results: Array<{ accountId: string; ok: boolean; status?: string; error?: string }>;
     }>("/v1/analytics/sync", {
       method: "POST",
-      body: JSON.stringify({ accountId }),
+      body: JSON.stringify({ accountId, days }),
     }),
 
   validateSchedule: (clientId: string, scheduledAt: string) =>
@@ -726,7 +724,7 @@ export const api = {
     width?: number,
     height?: number,
   ): Promise<Asset> {
-    if (/hei[cf]/i.test(contentType + filename)) {
+    if (!/^image\/(jpeg|png)$/i.test(contentType)) {
       const converted = await ImageManipulator.manipulateAsync(uri, [], {
         format: ImageManipulator.SaveFormat.JPEG,
         compress: 0.92,

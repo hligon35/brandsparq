@@ -1,3 +1,4 @@
+import { encode } from "fast-png";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { workspace } from "./workspace.mjs";
@@ -80,7 +81,14 @@ test("generic upload MIME accepts real PNG bytes and rejects non-image bytes", a
       }),
       w.env,
     );
-  assert.equal((await upload(Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0]))).status, 201);
+  assert.equal(
+    (
+      await upload(
+        encode({ width: 1, height: 1, data: new Uint8Array([20, 40, 60, 255]), channels: 4 }),
+      )
+    ).status,
+    201,
+  );
   assert.equal((await upload("not an image")).status, 415);
 });
 test("image hints and dominant colors ignore transparent pixels", () => {

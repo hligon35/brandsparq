@@ -157,7 +157,7 @@ test("Brand Brain saves and generation queues only assets belonging to the selec
         body: { clientId: "client-a", assetIds: ["b"] },
       })
     ).status,
-    400,
+    410,
   );
   assert.equal(w.generated.length, 0);
   assert.equal(
@@ -168,10 +168,10 @@ test("Brand Brain saves and generation queues only assets belonging to the selec
         body: { clientId: "client-a", assetIds: ["a"] },
       })
     ).status,
-    202,
+    410,
   );
-  assert.equal(w.generated.length, 1);
-  assert.equal(w.row("SELECT status FROM generation_jobs").status, "queued");
+  assert.equal(w.generated.length, 0);
+  assert.equal(w.row("SELECT COUNT(*) n FROM generation_jobs").n, 0);
 });
 
 async function reviewFixture(t) {

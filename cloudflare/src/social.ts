@@ -1215,7 +1215,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
   };
 }
 
-export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
+export async function syncAccountAnalytics(env: SocialEnv, accountId: string, onlyPostId?: string) {
   const account = await env.DB.prepare("SELECT * FROM social_accounts WHERE id = ?")
     .bind(accountId)
     .first<SocialAccountRow>();
@@ -1234,9 +1234,9 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
     const posts = await env.DB.prepare(
       `SELECT id, platform_post_id FROM posts
        WHERE social_account_id = ? AND status = 'published' AND platform_post_id IS NOT NULL
-       ORDER BY published_at DESC,id`,
+       AND (? IS NULL OR id=?) ORDER BY published_at DESC,id LIMIT 1000`,
     )
-      .bind(accountId)
+      .bind(accountId, onlyPostId || null, onlyPostId || null)
       .all<{ id: string; platform_post_id: string }>();
 
     if (account.platform === "linkedin" && account.account_type !== "organization") {

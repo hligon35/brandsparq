@@ -184,7 +184,7 @@ export default function PublicReviewScreen() {
               <Card>
                 <SectionTitle
                   title="Final publication copy"
-                  subtitle="Make final copy changes before approval."
+                  subtitle="Inspect the graphic, logos and lettering before approval. AI may alter branding; exact logo reproduction is not guaranteed."
                 />
                 <Text style={styles.label}>Headline</Text>
                 <TextInput

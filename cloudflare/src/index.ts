@@ -1,10 +1,13 @@
+import { validatedRequest } from "./request-validation";
+import { enqueueAnalytics, recoverAnalyticsJobs, runAnalyticsJob } from "./analytics-jobs";
+import { inspectImage, readUpload, UploadError } from "./upload-validation";
+import { calendarDate, calendarDayStart } from "../../src/shared/calendar-time";
 import { renderFinalCopy, finalCopyError } from "../../src/shared/final-copy";
 import { saveBrandProfile } from "./brand";
 import { validRevision, revisionRequired, revisionConflict } from "./revisions";
 import { postCampaign, campaignOpen } from "./campaign-workflow";
 import { handleCreationRoute } from "./creation";
 import { validTimezone } from "./settings-validation";
-import { dispatchGeneration } from "./generation-dispatch";
 import { getPilot, pilotPublishError } from "./pilot";
 import { handleWorkspaceRoute } from "./workspace";
 import { handleTeamRoute, invitationPreview } from "./team";
@@ -46,7 +49,6 @@ import {
   handleMetaWebhook,
   publishPostToSocial,
   socialOAuthCallback,
-  syncAccountAnalytics,
   verifySocialAccount,
 } from "./social";
 import { reserveSchedule } from "./scheduling";
@@ -116,31 +118,13 @@ type GraphicMessage = {
 };
 
 type JobMessage =
+  | { kind: "analytics"; jobId: string }
   | PublishMessage
   | GenerationMessage
   | GraphicMessage
   | { kind: "revision"; revisionJobId: string };
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-
-function detectImageType(buffer: ArrayBuffer) {
-  const b = new Uint8Array(buffer);
-  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47)
-    return "image/png";
-  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
-  if (b.length >= 6 && String.fromCharCode(...b.slice(0, 6)).startsWith("GIF8")) return "image/gif";
-  if (
-    b.length >= 12 &&
-    String.fromCharCode(...b.slice(0, 4)) === "RIFF" &&
-    String.fromCharCode(...b.slice(8, 12)) === "WEBP"
-  )
-    return "image/webp";
-  if (b.length >= 12 && String.fromCharCode(...b.slice(4, 8)) === "ftyp") {
-    const brand = String.fromCharCode(...b.slice(8, 12)).toLowerCase();
-    if (["heic", "heix", "hevc", "hevx", "mif1", "msf1"].includes(brand)) return "image/heic";
-  }
-  return null;
-}
 
 function cors(request: Request, env: Env) {
   const origin = request.headers.get("origin");
@@ -279,6 +263,7 @@ async function audit(
 }
 
 async function runMaintenance(env: Env) {
+  await recoverAnalyticsJobs(env);
   try {
     await retryNotificationDeliveries(env);
     await checkExpoPushReceipts(env);
@@ -334,19 +319,17 @@ async function runMaintenance(env: Env) {
   ).first<{ analytics_refresh_hours: number }>();
   const refreshMs = Number(settings?.analytics_refresh_hours || 6) * 60 * 60 * 1000;
   const accounts = await env.DB.prepare(
-    `SELECT sa.id,
-          MAX(CASE WHEN ar.status = 'completed' THEN ar.completed_at END) AS last_sync
-       FROM social_accounts sa
-       LEFT JOIN analytics_sync_runs ar ON ar.social_account_id = sa.id
-       WHERE sa.status = 'connected'
-       GROUP BY sa.id`,
+    `SELECT sa.id,(SELECT MAX(updated_at) FROM analytics_jobs WHERE social_account_id=sa.id) AS last_sync
+     FROM social_accounts sa WHERE sa.status='connected'
+     AND NOT EXISTS(SELECT 1 FROM analytics_jobs j WHERE j.social_account_id=sa.id AND j.status IN ('queued','running'))
+     ORDER BY COALESCE(last_sync,''),sa.id LIMIT 20`,
   ).all<{ id: string; last_sync: string | null }>();
 
   for (const account of accounts.results) {
     const last = account.last_sync ? Date.parse(account.last_sync) : 0;
     if (!last || Date.now() - last >= refreshMs) {
       try {
-        await syncAccountAnalytics(env, account.id);
+        await enqueueAnalytics(env, account.id);
       } catch (error) {
         await recordSystemEvent(env, {
           severity: "warning",
@@ -363,6 +346,35 @@ async function runMaintenance(env: Env) {
 
 const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
+    try {
+      return await worker.handleRequest(await validatedRequest(request), env);
+    } catch (error) {
+      if (error instanceof Error && /(?:GENERATION|MEDIA)_BUDGET_EXCEEDED/.test(error.message))
+        return response(
+          request,
+          env,
+          {
+            error:
+              "Client resource limit reached: at most 10 active or 50 daily generation jobs and 2000 media assets. Wait for generation capacity or ask the workspace owner to review the media capacity limit.",
+          },
+          { status: 429 },
+        );
+      const invalid = error instanceof SyntaxError || error instanceof TypeError;
+      if (error instanceof UploadError)
+        return response(request, env, { error: error.message }, { status: error.status });
+      return response(
+        request,
+        env,
+        {
+          error: invalid
+            ? "Invalid request. Check field types and JSON syntax."
+            : "The request could not be completed. Refresh and retry.",
+        },
+        { status: invalid ? 400 : 500 },
+      );
+    }
+  },
+  async handleRequest(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const policy = cors(request, env);
 
@@ -1192,110 +1204,15 @@ const worker = {
     }
 
     if (request.method === "POST" && url.pathname === "/v1/generation-jobs") {
-      const payload = await request
-        .json<{
-          clientId?: string;
-          objective?: string;
-          assetIds?: string[];
-          requestKey?: string;
-        }>()
-        .catch(() => ({}) as any);
-
-      if (
-        !payload ||
-        typeof payload !== "object" ||
-        typeof payload.clientId !== "string" ||
-        !Array.isArray(payload.assetIds) ||
-        !payload.assetIds.length ||
-        payload.assetIds.length > 20 ||
-        payload.assetIds.some((id: unknown) => typeof id !== "string" || !id) ||
-        new Set(payload.assetIds).size !== payload.assetIds.length ||
-        (payload.objective !== undefined &&
-          (typeof payload.objective !== "string" || payload.objective.length > 2000)) ||
-        (payload.requestKey !== undefined &&
-          (typeof payload.requestKey !== "string" ||
-            !/^[a-zA-Z0-9_-]{16,128}$/.test(payload.requestKey)))
-      ) {
-        return response(
-          request,
-          env,
-          { error: "clientId and assetIds are required." },
-          { status: 400 },
-        );
-      }
-
-      const denied = await authorize(env, sessionUser!, "generate", payload.clientId);
-      if (denied) return response(request, env, { error: denied }, { status: 403 });
-
-      const placeholders = payload.assetIds.map(() => "?").join(",");
-      const owned = await env.DB.prepare(
-        `SELECT COUNT(*) AS count FROM assets
-         WHERE client_id = ? AND id IN (${placeholders})`,
-      )
-        .bind(payload.clientId, ...payload.assetIds)
-        .first<{ count: number }>();
-
-      if (Number(owned?.count || 0) !== payload.assetIds.length) {
-        return response(
-          request,
-          env,
-          { error: "One or more assets do not belong to this client." },
-          { status: 400 },
-        );
-      }
-
-      const candidateId = crypto.randomUUID();
-      const assetIds = JSON.stringify([...payload.assetIds].sort());
-      await env.DB.prepare(
-        `INSERT OR IGNORE INTO generation_jobs
-         (id,client_id,requested_by,objective,asset_ids,status,request_key)
-         VALUES (?,?,?,?,?,'queued',?)`,
-      )
-        .bind(
-          candidateId,
-          payload.clientId,
-          sessionUser!.id,
-          payload.objective || "Auto",
-          assetIds,
-          payload.requestKey || null,
-        )
-        .run();
-      const job =
-        await env.DB.prepare(`SELECT id,client_id,objective,asset_ids,status FROM generation_jobs
-        WHERE id=? OR (requested_by=? AND request_key=?) LIMIT 1`)
-          .bind(candidateId, sessionUser!.id, payload.requestKey || null)
-          .first<{
-            id: string;
-            client_id: string;
-            objective: string;
-            asset_ids: string;
-            status: string;
-          }>();
-      if (!job) throw new Error("Unable to persist generation request.");
-      if (
-        job.client_id !== payload.clientId ||
-        job.objective !== (payload.objective || "Auto") ||
-        job.asset_ids !== assetIds
-      )
-        return response(
-          request,
-          env,
-          { error: "This request identity belongs to different content. Start a new request." },
-          { status: 409 },
-        );
-      if (job.id === candidateId) await dispatchGeneration(env, job.id);
-      const current = await env.DB.prepare(
-        "SELECT status,error_message FROM generation_jobs WHERE id=?",
-      )
-        .bind(job.id)
-        .first<any>();
-      // Accept the durable job even when transport fails: the progress screen can
-      // retry this exact job without creating another campaign.
       return response(
         request,
         env,
-        { ok: true, jobId: job.id, status: current.status, error: current.error_message },
-        { status: 202 },
+        {
+          error:
+            "This creation API has been retired. Update the app and use /v1/creation-jobs with readiness, destinations and a requestKey.",
+          replacement: "/v1/creation-jobs",
+        },
+        { status: 410 },
       );
     }
 
@@ -1313,9 +1230,13 @@ const worker = {
 
       const bindings = allowedClients === null ? [] : allowedClients;
       const now = new Date();
-      const todayStart = new Date(now);
-      todayStart.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+      const settings = await env.DB.prepare(
+        "SELECT timezone FROM workspace_settings WHERE id='default'",
+      ).first<{ timezone: string }>();
+      const timezone = settings?.timezone || "America/Indiana/Indianapolis";
+      const day = calendarDate(now, timezone);
+      const todayStart = calendarDayStart(day, timezone);
+      const tomorrow = calendarDayStart(new Date(day.getTime() + 86400000), timezone);
 
       const stats = await env.DB.prepare(
         `SELECT
@@ -1350,6 +1271,7 @@ const worker = {
           needsReview: Number(stats?.needs_review || 0),
           scheduled: Number(stats?.scheduled || 0),
           publishingToday: Number(stats?.publishing_today || 0),
+          day: { timezone, start: todayStart.toISOString(), end: tomorrow.toISOString() },
           failed: Number(stats?.failed || 0),
           nextPost: next || null,
         },
@@ -1521,8 +1443,8 @@ const worker = {
       const filename = request.headers.get("x-file-name")?.trim() || "upload.jpg";
       let contentType = request.headers.get("content-type") || "application/octet-stream";
       const declaredSize = Number(request.headers.get("content-length") || 0);
-      const width = Number(request.headers.get("x-image-width") || 0) || null;
-      const height = Number(request.headers.get("x-image-height") || 0) || null;
+      let width: number | null = null;
+      let height: number | null = null;
 
       if (!clientId)
         return response(request, env, { error: "x-client-id is required" }, { status: 400 });
@@ -1539,7 +1461,7 @@ const worker = {
         );
       }
 
-      const bytes = await request.arrayBuffer();
+      const bytes = await readUpload(request, MAX_IMAGE_BYTES);
       if (bytes.byteLength > MAX_IMAGE_BYTES) {
         return response(
           request,
@@ -1549,22 +1471,24 @@ const worker = {
         );
       }
 
-      const detectedType = detectImageType(bytes);
-      if (!bytes.byteLength || !detectedType)
-        return response(
-          request,
-          env,
-          { error: "Unsupported, empty or malformed image file." },
-          { status: 415 },
-        );
-      contentType = detectedType;
+      const image = inspectImage(bytes);
+      if (contentType.startsWith("image/") && contentType !== image.type)
+        throw new UploadError("Declared image type does not match its content.");
+      contentType = image.type;
+      width = image.width;
+      height = image.height;
       const hash = await sha256HexBytes(bytes);
       const duplicate = await env.DB.prepare(
-        "SELECT id,filename,content_type,status,created_at FROM assets WHERE client_id=? AND sha256=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT id,r2_key,filename,content_type,status,created_at FROM assets WHERE client_id=? AND sha256=? ORDER BY created_at DESC LIMIT 1",
       )
         .bind(clientId, hash)
         .first<any>();
-      if (duplicate)
+      if (duplicate) {
+        // The supplied, validated bytes are authoritative for this hash. Repair missing/corrupt R2 content.
+        await env.MEDIA.put(duplicate.r2_key, bytes, {
+          httpMetadata: { contentType },
+          customMetadata: { sha256: hash, originalFilename: filename },
+        });
         return response(request, env, {
           data: {
             id: duplicate.id,
@@ -1577,23 +1501,24 @@ const worker = {
             deduplicated: true,
           },
         });
+      }
 
-      const assetId = crypto.randomUUID();
+      const assetId = `upload-${await sha256HexBytes(new TextEncoder().encode(`${clientId}:${hash}`).buffer as ArrayBuffer)}`;
       const extension = contentType.split("/")[1];
       const key = `originals/${clientId}/${assetId}.${extension}`;
 
-      await env.MEDIA.put(key, bytes, {
-        httpMetadata: { contentType },
-        customMetadata: { sha256: hash, originalFilename: filename },
-      });
-
       await env.DB.prepare(
-        `INSERT INTO assets
+        `INSERT OR IGNORE INTO assets
          (id, client_id, r2_key, filename, content_type, size_bytes, width, height, source, status, sha256)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'upload', 'uploaded', ?)`,
       )
         .bind(assetId, clientId, key, filename, contentType, bytes.byteLength, width, height, hash)
         .run();
+
+      await env.MEDIA.put(key, bytes, {
+        httpMetadata: { contentType },
+        customMetadata: { sha256: hash, originalFilename: filename },
+      });
 
       return response(
         request,
@@ -1619,8 +1544,8 @@ const worker = {
       const kind = request.headers.get("x-derivative-kind")?.trim() || "analysis";
       const filename = request.headers.get("x-file-name")?.trim() || `${kind}.jpg`;
       const contentType = request.headers.get("content-type") || "image/jpeg";
-      const width = Number(request.headers.get("x-image-width") || 0) || null;
-      const height = Number(request.headers.get("x-image-height") || 0) || null;
+      let width: number | null = null;
+      let height: number | null = null;
 
       if (!clientId)
         return response(request, env, { error: "x-client-id is required" }, { status: 400 });
@@ -1636,7 +1561,7 @@ const worker = {
         .first();
       if (!asset) return response(request, env, { error: "Asset not found." }, { status: 404 });
 
-      const bytes = await request.arrayBuffer();
+      const bytes = await readUpload(request, 8 * 1024 * 1024);
       if (bytes.byteLength > 8 * 1024 * 1024) {
         return response(
           request,
@@ -1646,6 +1571,11 @@ const worker = {
         );
       }
 
+      const image = inspectImage(bytes, true);
+      if (contentType !== image.type)
+        throw new UploadError("Derivative MIME does not match JPEG content.");
+      width = image.width;
+      height = image.height;
       const hash = await sha256HexBytes(bytes);
       const id = crypto.randomUUID();
       const key = `derivatives/${clientId}/${derivativeMatch[1]}/${kind}.jpg`;
@@ -2537,7 +2467,6 @@ const worker = {
 
     return response(request, env, { error: "Not found" }, { status: 404 });
   },
-
   async scheduled(_event: ScheduledController, env: Env, ctx?: ExecutionContext): Promise<void> {
     const now = new Date();
     const nowIso = now.toISOString();
@@ -2751,6 +2680,15 @@ const worker = {
 
   async queue(batch: MessageBatch<JobMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
+      if (message.body.kind === "analytics") {
+        try {
+          await runAnalyticsJob(env, message.body.jobId);
+          message.ack();
+        } catch {
+          message.retry({ delaySeconds: 60 });
+        }
+        continue;
+      }
       if (message.body.kind === "revision") {
         try {
           await runRevisionJob(env, message.body.revisionJobId);
@@ -3057,6 +2995,8 @@ const worker = {
       }
     }
   },
-} satisfies ExportedHandler<Env, JobMessage>;
+} satisfies ExportedHandler<Env, JobMessage> & {
+  handleRequest(request: Request, env: Env): Promise<Response>;
+};
 
 export default worker;

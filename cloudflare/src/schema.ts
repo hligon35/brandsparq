@@ -178,6 +178,94 @@ export const REQUIRED_SCHEMA = {
       pk: 0,
     },
   ],
+  analytics_job_items: [
+    {
+      name: "job_id",
+      type: "TEXT",
+      notnull: 1,
+      pk: 1,
+    },
+    {
+      name: "post_id",
+      type: "TEXT",
+      notnull: 1,
+      pk: 2,
+    },
+    {
+      name: "status",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+  ],
+  analytics_jobs: [
+    {
+      name: "id",
+      type: "TEXT",
+      notnull: 0,
+      pk: 1,
+    },
+    {
+      name: "social_account_id",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "range_days",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "status",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "created_at",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "updated_at",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "claim_token",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "claim_until",
+      type: "INTEGER",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "processed",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "failed",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "error_message",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+  ],
   analytics_snapshots: [
     {
       name: "id",
@@ -3591,6 +3679,14 @@ export const REQUIRED_SCHEMA = {
 } as const;
 export const REQUIRED_INDEXES = [
   {
+    name: "analytics_jobs_active",
+    sql: "CREATE UNIQUE INDEX analytics_jobs_active ON analytics_jobs(social_account_id) WHERE status IN ('queued','running')",
+  },
+  {
+    name: "analytics_jobs_recovery",
+    sql: "CREATE INDEX analytics_jobs_recovery ON analytics_jobs(status,claim_until)",
+  },
+  {
     name: "idx_ai_runs_job",
     sql: "CREATE INDEX idx_ai_runs_job ON ai_runs(generation_job_id, created_at)",
   },
@@ -3841,6 +3937,10 @@ export const REQUIRED_INDEXES = [
 ] as const;
 export const REQUIRED_TRIGGERS = [
   {
+    name: "analytics_resource_budget",
+    sql: "CREATE TRIGGER analytics_resource_budget BEFORE INSERT ON analytics_jobs\nWHEN NOT EXISTS(SELECT 1 FROM analytics_jobs WHERE social_account_id=NEW.social_account_id AND status IN ('queued','running'))\nAND (SELECT COUNT(*) FROM analytics_jobs WHERE status IN ('queued','running'))>=100\nBEGIN SELECT RAISE(ABORT,'Analytics capacity reached. Wait for active syncs to finish, then retry.'); END",
+  },
+  {
     name: "brand_delete_revision",
     sql: "CREATE TRIGGER brand_delete_revision AFTER DELETE ON brand_profiles\nBEGIN UPDATE clients SET edit_revision=edit_revision+1 WHERE id=OLD.client_id; END",
   },
@@ -3855,6 +3955,14 @@ export const REQUIRED_TRIGGERS = [
   {
     name: "clients_identity_revision",
     sql: "CREATE TRIGGER clients_identity_revision AFTER UPDATE OF name,timezone ON clients\nWHEN NEW.name IS NOT OLD.name OR NEW.timezone IS NOT OLD.timezone\nBEGIN UPDATE clients SET edit_revision=edit_revision+1 WHERE id=NEW.id; END",
+  },
+  {
+    name: "generation_resource_budget",
+    sql: "CREATE TRIGGER generation_resource_budget BEFORE INSERT ON generation_jobs\nWHEN NEW.request_key IS NOT NULL AND NOT EXISTS(SELECT 1 FROM generation_jobs WHERE requested_by=NEW.requested_by AND request_key=NEW.request_key)\nAND ((SELECT COUNT(*) FROM generation_jobs WHERE client_id=NEW.client_id AND status IN ('queued','retrying','rendering','processing'))>=10\n OR (SELECT COUNT(*) FROM generation_jobs WHERE client_id=NEW.client_id AND created_at>=datetime('now','-1 day'))>=50)\nBEGIN SELECT RAISE(ABORT,'GENERATION_BUDGET_EXCEEDED'); END",
+  },
+  {
+    name: "media_resource_budget",
+    sql: "CREATE TRIGGER media_resource_budget BEFORE INSERT ON assets\nWHEN NOT EXISTS(SELECT 1 FROM assets WHERE id=NEW.id)\nAND (SELECT COUNT(*) FROM assets WHERE client_id=NEW.client_id)>=2000\nBEGIN SELECT RAISE(ABORT,'MEDIA_BUDGET_EXCEEDED'); END",
   },
   {
     name: "post_content_revision",

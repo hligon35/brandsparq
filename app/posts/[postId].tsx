@@ -282,7 +282,7 @@ export default function PostReviewScreen() {
             <Card>
               <SectionTitle
                 title="Final publication copy"
-                subtitle="Make final headline and caption changes before approval."
+                subtitle="Inspect the graphic, logos and lettering before approval. AI may alter branding; exact logo reproduction is not guaranteed."
               />
               <Text style={styles.label}>Headline</Text>
               <TextInput

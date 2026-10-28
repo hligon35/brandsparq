@@ -7,7 +7,15 @@ module.exports = ({ config }) => {
     plugins.push("expo-status-bar");
   }
 
-  let nextConfig = { ...config, plugins };
+  let nextConfig = {
+    ...config,
+    plugins,
+    extra: {
+      ...config.extra,
+      appEnvironment: process.env.BRANDSPARQ_APP_ENV || "production",
+      fixtureBuild: process.env.BRANDSPARQ_E2E_BUILD === "1",
+    },
+  };
   if (process.env.BRANDSPARQ_APP_ENV === "staging") {
     const api = process.env.EXPO_PUBLIC_API_URL || "";
     if (!/^https:\/\/brandsparq-staging\.[a-z0-9-]+\.workers\.dev$/.test(api))

@@ -189,7 +189,7 @@ test("minute scheduling does not wait for a stalled maintenance query", {
         return wrap(s.bind(...args));
       },
       async all() {
-        if (sql.includes("FROM notification_deliveries d JOIN notifications")) {
+        if (sql.includes("SELECT id FROM analytics_jobs WHERE status IN")) {
           blocked = true;
           await held;
         }

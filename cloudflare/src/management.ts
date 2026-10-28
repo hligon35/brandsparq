@@ -1,3 +1,4 @@
+import { enqueueAnalytics } from "./analytics-jobs";
 import { validRevision, revisionRequired, revisionConflict } from "./revisions";
 import { pageOptions, pageResult } from "./pagination";
 import { latestMetricsJoin } from "./analytics";
@@ -14,15 +15,11 @@ import {
 } from "./authz";
 import { deliverNotification } from "./notifications";
 import { findNextAvailableSlot, validateSchedule } from "./scheduling";
-import {
-  socialOAuthCallback,
-  socialOAuthStart,
-  syncAccountAnalytics,
-  verifySocialAccount,
-} from "./social";
+import { socialOAuthCallback, socialOAuthStart, verifySocialAccount } from "./social";
 
 export interface ManagementEnv {
   DB: D1Database;
+  GENERATION_QUEUE?: Queue<any>;
   ENVIRONMENT?: string;
   MEDIA: R2Bucket;
   SOCIAL_TOKEN_KEY?: string;
@@ -944,8 +941,23 @@ export async function handleManagementRoute(
     };
   }
 
+  if (request.method === "GET" && url.pathname === "/v1/analytics/jobs") {
+    const rows =
+      await env.DB.prepare(`SELECT j.*,sa.client_id,sa.account_name FROM analytics_jobs j JOIN social_accounts sa ON sa.id=j.social_account_id
+    WHERE (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=sa.client_id)) ORDER BY CASE WHEN j.status IN ('queued','running') THEN 0 ELSE 1 END,j.created_at DESC,j.id DESC LIMIT 100`)
+        .bind(user.role, user.id)
+        .all();
+    return { body: { data: rows.results } };
+  }
   if (request.method === "POST" && url.pathname === "/v1/analytics/sync") {
-    const payload = await request.json<{ accountId?: string }>().catch(() => ({}) as any);
+    const payload = await request
+      .json<{ accountId?: string; days?: number }>()
+      .catch(() => ({}) as any);
+    if (
+      payload.days !== undefined &&
+      (!Number.isInteger(payload.days) || payload.days < 1 || payload.days > 365)
+    )
+      return { body: { error: "Choose a date range between 1 and 365 days." }, status: 400 };
     const allowedClients = await accessibleClientIds(env.DB, user);
     let accounts: Array<{ id: string; client_id: string }> = [];
 
@@ -961,8 +973,19 @@ export async function handleManagementRoute(
       accounts = [account];
     } else {
       const rows = await env.DB.prepare(
-        "SELECT id,client_id FROM social_accounts WHERE status='connected'",
-      ).all<{ id: string; client_id: string }>();
+        `SELECT id,client_id FROM social_accounts sa WHERE status='connected'
+         AND (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=sa.client_id)) ORDER BY id LIMIT 21`,
+      )
+        .bind(user.role, user.id)
+        .all<{ id: string; client_id: string }>();
+      if (rows.results.length > 20)
+        return {
+          body: {
+            error:
+              "Bulk sync supports 20 accounts per request. Select a client in Analytics and sync its accounts.",
+          },
+          status: 400,
+        };
       accounts =
         allowedClients === null
           ? rows.results
@@ -978,8 +1001,8 @@ export async function handleManagementRoute(
     const results = [];
     for (const account of permitted) {
       try {
-        const result = await syncAccountAnalytics(env, account.id);
-        results.push({ accountId: account.id, ok: true, ...result });
+        const job = await enqueueAnalytics(env, account.id, payload.days || 90);
+        results.push({ accountId: account.id, ok: true, jobId: job.id, status: job.status });
       } catch (error) {
         results.push({
           accountId: account.id,
@@ -989,7 +1012,7 @@ export async function handleManagementRoute(
       }
     }
 
-    return { body: { ok: results.every((row) => row.ok), results } };
+    return { body: { ok: results.every((row) => row.ok), results }, status: 202 };
   }
 
   const validateMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/schedule\/validate$/);

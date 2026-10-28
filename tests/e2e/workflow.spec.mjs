@@ -763,7 +763,7 @@ const creationImage = {
   name: "creation.png",
   mimeType: "image/png",
   buffer: Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jh18AAAAASUVORK5CYII=",
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmMQ0bD5DwACRAF41rdyCgAAAABJRU5ErkJggg==",
     "base64",
   ),
 };

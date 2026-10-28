@@ -79,6 +79,9 @@ export async function creationReadiness(env: Env, clientId: string) {
   return {
     ready: !blockers.length,
     blockers,
+    visualReviewRequired: true,
+    brandingNotice:
+      "AI graphics can alter logos and lettering. Inspect and approve the image before publishing; exact logo reproduction is not guaranteed.",
     warnings: client?.logo_asset_id
       ? []
       : ["No brand logo is selected; graphics will be generated without a logo."],

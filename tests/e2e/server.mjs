@@ -69,7 +69,7 @@ async function reset() {
   w.objects.set(
     "fixture.jpg",
     Buffer.from(
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jh18AAAAASUVORK5CYII=",
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmMQ0bD5DwACRAF41rdyCgAAAABJRU5ErkJggg==",
       "base64",
     ),
   );

@@ -50,6 +50,9 @@ export default function HomeScreen() {
         </Card>
       ) : dashboard ? (
         <>
+          <Text style={styles.body}>
+            Today in {dashboard.day?.timezone || "workspace time zone"}
+          </Text>
           <View style={styles.metrics}>
             {[
               [dashboard.scheduled, "Scheduled"],

@@ -1,3 +1,4 @@
+import { encode } from "fast-png";
 import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../cloudflare/src/index.ts";
@@ -449,10 +450,7 @@ test("reconciled uploads inspect image bytes and deduplicate only inside the cli
     );
   }
   assert.equal((await upload("not an image")).status, 415);
-  const png = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jh18AAAAASUVORK5CYII=",
-    "base64",
-  );
+  const png = encode({ width: 1, height: 1, data: new Uint8Array([20, 40, 60, 255]), channels: 4 });
   const first = await upload(png);
   assert.equal(first.status, 201);
   const firstId = (await first.json()).data.id;

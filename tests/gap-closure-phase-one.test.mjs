@@ -106,13 +106,15 @@ check("brand transaction rolls back client identity when profile persistence fai
   w.exec(
     "CREATE TRIGGER reject_brand BEFORE INSERT ON brand_profiles BEGIN SELECT RAISE(ABORT,'fixture write failure'); END",
   );
-  await assert.rejects(
-    send(w, "/v1/clients/client-a/brand", {
-      expectedRevision: 0,
-      name: "Must roll back",
-      voice: "New",
-    }),
-    /fixture write failure/,
+  assert.equal(
+    (
+      await send(w, "/v1/clients/client-a/brand", {
+        expectedRevision: 0,
+        name: "Must roll back",
+        voice: "New",
+      })
+    ).status,
+    500,
   );
   assert.equal(w.row("SELECT name FROM clients WHERE id='client-a'").name, "Client A");
   assert.equal(brandRevision(w), 0);

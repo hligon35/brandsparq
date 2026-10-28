@@ -155,14 +155,34 @@ export async function handleWorkspaceRoute(
       : { body: { error: "Archived client not found." }, status: 404 };
   }
   if (url.pathname === "/v1/posts/paused" && request.method === "GET") {
+    let page;
+    try {
+      page = pageOptions(url);
+    } catch (e) {
+      return { body: { error: (e as Error).message }, status: 400 };
+    }
     const rows =
-      await env.DB.prepare(`SELECT p.id,p.client_id,c.name AS client_name,c.status AS client_status,p.title,p.platform,p.approved_at,p.scheduled_publish_at,p.paused_from_status
-    FROM posts p JOIN clients c ON c.id=p.client_id WHERE p.status='paused' AND (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=p.client_id))
-    ORDER BY p.updated_at DESC LIMIT 100`)
-        .bind(user.role, user.id)
-        .all();
-    return { body: { data: rows.results } };
+      await env.DB.prepare(`SELECT p.id,p.created_at,p.client_id,c.name AS client_name,c.status AS client_status,p.title,p.platform,p.approved_at,p.scheduled_publish_at,p.paused_from_status
+      FROM posts p JOIN clients c ON c.id=p.client_id WHERE p.status='paused'
+      AND (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=p.client_id))
+      AND (?='' OR instr(lower(c.name || ' ' || p.title),lower(?))>0)
+      AND (? IS NULL OR p.created_at<? OR (p.created_at=? AND p.id<?))
+      ORDER BY p.created_at DESC,p.id DESC LIMIT ?`)
+        .bind(
+          user.role,
+          user.id,
+          page.search,
+          page.search,
+          page.cursor?.createdAt || null,
+          page.cursor?.createdAt || null,
+          page.cursor?.createdAt || null,
+          page.cursor?.id || null,
+          page.limit + 1,
+        )
+        .all<any>();
+    return { body: pageResult(rows.results, page.limit) };
   }
+
   const paused = url.pathname.match(/^\/v1\/posts\/([^/]+)\/(resume|restore-review|cancel)$/);
   if (paused && request.method === "POST") {
     const post = await env.DB.prepare("SELECT * FROM posts WHERE id=?")

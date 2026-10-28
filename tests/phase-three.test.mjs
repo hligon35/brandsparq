@@ -1,3 +1,4 @@
+import { runAnalyticsJob } from "../cloudflare/src/analytics-jobs.ts";
 import { pushNotificationTarget } from "../src/shared/notification-route.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -122,8 +123,14 @@ test("partial account failures preserve failed posts while retaining successful 
       : Response.json({}, { status: 503 }),
   );
   const result = await (await send(w, "/v1/analytics/sync", { accountId: "x" })).json();
-  assert.equal(result.results[0].ok, false);
-  assert.match(result.results[0].error, /1 of 2/);
+  assert.equal(result.results[0].ok, true);
+  const jobId = result.results[0].jobId;
+  await runAnalyticsJob(w.env, jobId);
+  await runAnalyticsJob(w.env, jobId);
+  const job = w.row("SELECT * FROM analytics_jobs WHERE id=?", jobId);
+  assert.equal(job.status, "partial");
+  assert.equal(job.failed, 1);
+  assert.match(job.error_message, /1 of 1/);
   assert.equal((await overview(w)).overview.impressions, 30);
   assert.equal(w.row("SELECT COUNT(*) AS n FROM post_metrics WHERE post_id='bad'").n, 1);
 });
