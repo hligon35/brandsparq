@@ -1,3787 +1,3787 @@
 // Generated from the ordered migrations by npm run schema:generate.
 export const REQUIRED_SCHEMA = {
-  ai_runs: [
+  "ai_runs": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "generation_job_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "generation_job_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "kind",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "kind",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "provider",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "provider",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "model",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "model",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "prompt_version",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "prompt_version",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "response_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "response_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "provider_request_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "provider_request_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "usage_json",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "usage_json",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "metadata_json",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "metadata_json",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "error_message",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "error_message",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "completed_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "completed_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  analytics_daily: [
+  "analytics_daily": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "platform",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "platform",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "day",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "day",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "posts",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "posts",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "impressions",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "impressions",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "reach",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "reach",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "likes",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "likes",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "comments",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "comments",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "shares",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "shares",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "clicks",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "clicks",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "saves",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "saves",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  analytics_snapshots: [
+  "analytics_snapshots": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "captured_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "captured_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "posts",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "posts",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "impressions",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "impressions",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "reach",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "reach",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "likes",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "likes",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "comments",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "comments",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "shares",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "shares",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "clicks",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "clicks",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "saves",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "saves",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  analytics_sync_runs: [
+  "analytics_sync_runs": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "social_account_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "social_account_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "started_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "started_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "completed_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "completed_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "error_message",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "error_message",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  approvals: [
+  "approvals": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "user_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "user_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "decision",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "decision",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "previous_status",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "previous_status",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  asset_derivatives: [
+  "asset_derivatives": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "asset_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "asset_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "kind",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "kind",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "r2_key",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "r2_key",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "content_type",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "content_type",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "size_bytes",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "size_bytes",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "width",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "width",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "height",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "height",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "sha256",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "sha256",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  assets: [
+  "assets": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "r2_key",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "r2_key",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "filename",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "filename",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "content_type",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "content_type",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "size_bytes",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "size_bytes",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "width",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "width",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "height",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "height",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "source",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "source",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "sha256",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "sha256",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "aspect_ratio",
-      type: "REAL",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "aspect_ratio",
+      "type": "REAL",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  audit_logs: [
+  "audit_logs": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "actor_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "actor_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "action",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "action",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "metadata",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "metadata",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  auth_codes: [
+  "auth_codes": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "email",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "email",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "code_hash",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "code_hash",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "expires_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "expires_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "consumed_at",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "consumed_at",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  brand_assets: [
+  "brand_assets": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "asset_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "asset_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "role",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "role",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "label",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "label",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  brand_profiles: [
+  "brand_profiles": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "voice",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "voice",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "audience",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "audience",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "primary_color",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "primary_color",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "secondary_color",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "secondary_color",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "website",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "website",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "social_handles",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "social_handles",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "restricted_words",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "restricted_words",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "tagline",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "tagline",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "preferred_ctas",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "preferred_ctas",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "imagery_preferences",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "imagery_preferences",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "posting_rules",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "posting_rules",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "fonts",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "fonts",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "brand_examples",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "brand_examples",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "prohibited_visual_styles",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "prohibited_visual_styles",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "competitor_references",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "competitor_references",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "brand_vocabulary",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "brand_vocabulary",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "hashtag_policy",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "hashtag_policy",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "target_locations",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "target_locations",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "platform_rules",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "platform_rules",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "logo_asset_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "logo_asset_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "alternate_logo_asset_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "alternate_logo_asset_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "cta_library",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "cta_library",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "campaign_goals",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "campaign_goals",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "logo_preference",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "logo_preference",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  campaigns: [
+  "campaigns": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "name",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "name",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "objective",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "objective",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "starts_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "starts_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "ends_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "ends_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "priority",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "priority",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "notes",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "notes",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "workflow_revision",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "workflow_revision",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  client_reviewers: [
+  "client_reviewers": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "email",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "email",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "enabled",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "enabled",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  client_settings: [
+  "client_settings": [
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "prepublish_minutes",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "prepublish_minutes",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "no_response_policy",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "no_response_policy",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "min_post_spacing_minutes",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "min_post_spacing_minutes",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "max_posts_per_day",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "max_posts_per_day",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "preferred_windows",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "preferred_windows",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "blackout_windows",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "blackout_windows",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "allowed_weekdays",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "allowed_weekdays",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "default_platforms",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "default_platforms",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  clients: [
+  "clients": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "name",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "name",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "timezone",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "timezone",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "archived_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "archived_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "schedule_revision",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "schedule_revision",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  creative_variants: [
+  "creative_variants": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "platform",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "platform",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "variant_key",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "variant_key",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "aspect_ratio",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "aspect_ratio",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "width",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "width",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "height",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "height",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "r2_key",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "r2_key",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "content_type",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "content_type",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "is_primary",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "is_primary",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "composition_json",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "composition_json",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "model",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "model",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "response_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "response_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  device_push_tokens: [
+  "device_push_tokens": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "user_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "user_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "expo_push_token",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "expo_push_token",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "platform",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "platform",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "device_name",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "device_name",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "enabled",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "enabled",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  generation_jobs: [
+  "generation_jobs": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "requested_by",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "requested_by",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "objective",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "objective",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "asset_ids",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "asset_ids",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "provider",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "provider",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "model",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "model",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "campaign_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "campaign_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "result_json",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "result_json",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "error_message",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "error_message",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "started_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "started_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "completed_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "completed_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "stage",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "stage",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "plan_json",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "plan_json",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "post_ids",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "post_ids",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "review_email_sent_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "review_email_sent_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "stage_updated_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "stage_updated_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "claim_token",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "claim_token",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "request_key",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "request_key",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "control_token",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "control_token",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "creation_options",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "creation_options",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  google_auth_handoffs: [
+  "google_auth_handoffs": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "user_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "user_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "handoff_hash",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "handoff_hash",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "expires_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "expires_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "consumed_at",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "consumed_at",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  google_oauth_states: [
+  "google_oauth_states": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "state_hash",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "state_hash",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "return_to",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "return_to",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "expires_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "expires_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "consumed_at",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "consumed_at",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  graphic_jobs: [
+  "graphic_jobs": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "generation_job_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "generation_job_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "attempt_count",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "attempt_count",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "last_error",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "last_error",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "claimed_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "claimed_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "completed_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "completed_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "claim_token",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "claim_token",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  launch_certification_runs: [
+  "launch_certification_runs": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "actor_user_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "actor_user_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "blockers_json",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "blockers_json",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "warnings_json",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "warnings_json",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "checks_json",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "checks_json",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "commit_sha",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "commit_sha",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  media_access_tokens: [
+  "media_access_tokens": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "user_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "user_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "token_hash",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "token_hash",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "r2_key",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "r2_key",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "expires_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "expires_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  notification_deliveries: [
+  "notification_deliveries": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "notification_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "notification_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "channel",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "channel",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "destination",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "destination",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "provider_message_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "provider_message_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "error_message",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "error_message",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "sent_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "sent_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "receipt_status",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "receipt_status",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "receipt_checked_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "receipt_checked_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "attempt_count",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "attempt_count",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "retry_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "retry_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "claim_until",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "claim_until",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  notification_inbox: [
+  "notification_inbox": [
     {
-      name: "user_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 1,
+      "name": "user_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 1
     },
     {
-      name: "notification_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 2,
+      "name": "notification_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 2
     },
     {
-      name: "read_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "read_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "dismissed_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "dismissed_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  notification_preferences: [
+  "notification_preferences": [
     {
-      name: "user_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "user_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "email_enabled",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "email_enabled",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "push_enabled",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "push_enabled",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "in_app_enabled",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "in_app_enabled",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "review_email_enabled",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "review_email_enabled",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "prepublish_minutes",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "prepublish_minutes",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "no_response_policy",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "no_response_policy",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "publish_success_enabled",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "publish_success_enabled",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "publish_failure_enabled",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "publish_failure_enabled",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "review_ready_enabled",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "review_ready_enabled",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "prepublish_enabled",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "prepublish_enabled",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  notifications: [
+  "notifications": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "user_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "user_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "type",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "type",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "channel",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "channel",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "scheduled_for",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "scheduled_for",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "sent_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "sent_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "error_message",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "error_message",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "title",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "title",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "body",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "body",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "deep_link",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "deep_link",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "read_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "read_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  pilot_destinations: [
+  "pilot_destinations": [
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "social_account_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "social_account_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  pilot_settings: [
+  "pilot_settings": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "mode",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "mode",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "revision",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "revision",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "mutation_token",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "mutation_token",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "ends_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "ends_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "release_commit",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "release_commit",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "evidence_json",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "evidence_json",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_by",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "updated_by",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  post_assets: [
+  "post_assets": [
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 1,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 1
     },
     {
-      name: "asset_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 2,
+      "name": "asset_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 2
     },
     {
-      name: "role",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "role",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  post_metrics: [
+  "post_metrics": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "platform",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "platform",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "impressions",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "impressions",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "reach",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "reach",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "likes",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "likes",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "comments",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "comments",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "shares",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "shares",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "clicks",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "clicks",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "saves",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "saves",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "raw_json",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "raw_json",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "measured_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "measured_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  posts: [
+  "posts": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "campaign_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "campaign_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "platform",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "platform",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "title",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "title",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "caption",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "caption",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "graphic_key",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "graphic_key",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "suggested_publish_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "suggested_publish_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "scheduled_publish_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "scheduled_publish_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "review_requested_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "review_requested_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "approved_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "approved_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "approved_by",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "approved_by",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "prepublish_alert_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "prepublish_alert_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "prepublish_response",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "prepublish_response",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "published_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "published_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "platform_post_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "platform_post_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "platform_url",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "platform_url",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "failure_code",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "failure_code",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "failure_message",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "failure_message",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "sparq_score",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "sparq_score",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "calendar_added_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "calendar_added_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "generation_job_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "generation_job_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "headline",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "headline",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "hashtags",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "hashtags",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "objective",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "objective",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "ai_caption_response_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "ai_caption_response_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "ai_image_response_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "ai_image_response_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "ai_image_prompt",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "ai_image_prompt",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "ai_image_model",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "ai_image_model",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "ai_last_error",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "ai_last_error",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "graphic_version",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "graphic_version",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "social_account_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "social_account_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "publish_started_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "publish_started_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "publish_retry_count",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "publish_retry_count",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "last_publish_attempt_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "last_publish_attempt_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "publish_version",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "publish_version",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "primary_variant_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "primary_variant_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "creative_composition",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "creative_composition",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "rejected_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "rejected_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "rejection_reason",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "rejection_reason",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "reviewer_comment",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "reviewer_comment",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "generation_index",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "generation_index",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "paused_from_status",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "paused_from_status",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "revision_job_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "revision_job_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "schedule_token",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "schedule_token",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "reconciliation_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "reconciliation_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  profile_email_changes: [
+  "profile_email_changes": [
     {
-      name: "user_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "user_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "email",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "email",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "code_hash",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "code_hash",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "expires_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "expires_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "attempts",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "attempts",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "requested_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "requested_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  publish_attempts: [
+  "publish_attempts": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "idempotency_key",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "idempotency_key",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "attempt",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "attempt",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "provider_response",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "provider_response",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "error_code",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "error_code",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "error_message",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "error_message",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "publish_job_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "publish_job_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  publish_jobs: [
+  "publish_jobs": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "execution_key",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "execution_key",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "attempt_count",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "attempt_count",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "max_attempts",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "max_attempts",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "scheduled_for",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "scheduled_for",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "last_error",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "last_error",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "queued_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "queued_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "claimed_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "claimed_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "completed_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "completed_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "supervised_by",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "supervised_by",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "pilot_revision",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "pilot_revision",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "first_claimed_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "first_claimed_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  publish_media_tokens: [
+  "publish_media_tokens": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "token_hash",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "token_hash",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "r2_key",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "r2_key",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "expires_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "expires_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  recovery_actions: [
+  "recovery_actions": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "actor_user_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "actor_user_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "action",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "action",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "entity_type",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "entity_type",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "entity_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "entity_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "previous_state",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "previous_state",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "next_state",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "next_state",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "metadata_json",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "metadata_json",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  request_rate_limits: [
+  "request_rate_limits": [
     {
-      name: "bucket",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "bucket",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "window_started_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "window_started_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "request_count",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "request_count",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  review_comments: [
+  "review_comments": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "user_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "user_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "public_reviewer",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "public_reviewer",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "comment",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "comment",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  review_email_deliveries: [
+  "review_email_deliveries": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "recipient_email",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "recipient_email",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "error_message",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "error_message",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  review_tokens: [
+  "review_tokens": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "token_hash",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "token_hash",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "recipient_email",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "recipient_email",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "expires_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "expires_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "used_at",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "used_at",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "revoked_at",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "revoked_at",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  revision_jobs: [
+  "revision_jobs": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "action",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "action",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "instruction",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "instruction",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "claimed_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "claimed_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "error_message",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "error_message",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  sessions: [
+  "sessions": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "user_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "user_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "token_hash",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "token_hash",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "expires_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "expires_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "last_seen_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "last_seen_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "revoked_at",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "revoked_at",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  social_accounts: [
+  "social_accounts": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "platform",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "platform",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "account_name",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "account_name",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "external_account_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "external_account_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "last_verified_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "last_verified_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "access_token_ciphertext",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "access_token_ciphertext",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "refresh_token_ciphertext",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "refresh_token_ciphertext",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "token_expires_at",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "token_expires_at",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "scopes",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "scopes",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "metadata",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "metadata",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "account_type",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "account_type",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "default_visibility",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "default_visibility",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "last_error",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "last_error",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "connected_by",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "connected_by",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "is_default",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "is_default",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "health_status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "health_status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "health_checked_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "health_checked_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "permission_status",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "permission_status",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "rate_limit_reset_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "rate_limit_reset_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  social_oauth_states: [
+  "social_oauth_states": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "platform",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "platform",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "user_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "user_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "state_hash",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "state_hash",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "code_verifier",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "code_verifier",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "return_to",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "return_to",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "expires_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "expires_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "consumed_at",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "consumed_at",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  social_publish_receipts: [
+  "social_publish_receipts": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "social_account_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "social_account_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "provider_request_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "provider_request_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "provider_post_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "provider_post_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "provider_post_url",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "provider_post_url",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "raw_json",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "raw_json",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "provider_status",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "provider_status",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "last_checked_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "last_checked_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "confirmed_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "confirmed_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "error_code",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "error_code",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "error_category",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "error_category",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "retry_after_seconds",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "retry_after_seconds",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  social_status_checks: [
+  "social_status_checks": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "receipt_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "receipt_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "social_account_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "social_account_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "platform",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "platform",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "provider_status",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "provider_status",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "error_message",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "error_message",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "checked_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "checked_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  social_webhook_events: [
+  "social_webhook_events": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "provider",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "provider",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "event_type",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "event_type",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "external_event_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "external_event_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "payload_json",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "payload_json",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "processed_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "processed_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "error_message",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "error_message",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  sparq_scores: [
+  "sparq_scores": [
     {
-      name: "post_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "post_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "overall",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "overall",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "brand_match",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "brand_match",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "readability",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "readability",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "platform_fit",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "platform_fit",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "cta_strength",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "cta_strength",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "composition",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "composition",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "caption_quality",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "caption_quality",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "compliance",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "compliance",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "rationale",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "rationale",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "model",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "model",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "response_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "response_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  system_events: [
+  "system_events": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "severity",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "severity",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "category",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "category",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "event_type",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "event_type",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "entity_type",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "entity_type",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "entity_id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "entity_id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "message",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "message",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "metadata_json",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "metadata_json",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "resolved_at",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "resolved_at",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  team_invitations: [
+  "team_invitations": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "email",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "email",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "role",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "role",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "client_roles_json",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "client_roles_json",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "token_hash",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "token_hash",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "expires_at",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "expires_at",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "invited_by",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "invited_by",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "accepted_at",
-      type: "INTEGER",
-      notnull: 0,
-      pk: 0,
+      "name": "accepted_at",
+      "type": "INTEGER",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "delivery_status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "delivery_status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "delivery_error",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "delivery_error",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  user_client_access: [
+  "user_client_access": [
     {
-      name: "user_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 1,
+      "name": "user_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 1
     },
     {
-      name: "client_id",
-      type: "TEXT",
-      notnull: 1,
-      pk: 2,
+      "name": "client_id",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 2
     },
     {
-      name: "access_role",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "access_role",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "permission_role",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
-    },
+      "name": "permission_role",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
+    }
   ],
-  users: [
+  "users": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "email",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "email",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "name",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "name",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "role",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "role",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "created_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "created_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "google_sub",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "google_sub",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "avatar_url",
-      type: "TEXT",
-      notnull: 0,
-      pk: 0,
+      "name": "avatar_url",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 0
     },
     {
-      name: "status",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
-    },
+      "name": "status",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
+    }
   ],
-  workspace_settings: [
+  "workspace_settings": [
     {
-      name: "id",
-      type: "TEXT",
-      notnull: 0,
-      pk: 1,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": 0,
+      "pk": 1
     },
     {
-      name: "timezone",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "timezone",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "default_prepublish_minutes",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "default_prepublish_minutes",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "default_no_response_policy",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "default_no_response_policy",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "min_post_spacing_minutes",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "min_post_spacing_minutes",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "max_posts_per_day",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "max_posts_per_day",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "preferred_windows",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "preferred_windows",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "blackout_windows",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "blackout_windows",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "analytics_refresh_hours",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
+      "name": "analytics_refresh_hours",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "updated_at",
-      type: "TEXT",
-      notnull: 1,
-      pk: 0,
+      "name": "updated_at",
+      "type": "TEXT",
+      "notnull": 1,
+      "pk": 0
     },
     {
-      name: "personal_preferences_version",
-      type: "INTEGER",
-      notnull: 1,
-      pk: 0,
-    },
-  ],
+      "name": "personal_preferences_version",
+      "type": "INTEGER",
+      "notnull": 1,
+      "pk": 0
+    }
+  ]
 } as const;
 export const REQUIRED_INDEXES = [
   {
-    name: "idx_ai_runs_job",
-    sql: "CREATE INDEX idx_ai_runs_job ON ai_runs(generation_job_id, created_at)",
+    "name": "idx_ai_runs_job",
+    "sql": "CREATE INDEX idx_ai_runs_job ON ai_runs(generation_job_id, created_at)"
   },
   {
-    name: "idx_ai_runs_post",
-    sql: "CREATE INDEX idx_ai_runs_post ON ai_runs(post_id, created_at)",
+    "name": "idx_ai_runs_post",
+    "sql": "CREATE INDEX idx_ai_runs_post ON ai_runs(post_id, created_at)"
   },
   {
-    name: "idx_analytics_daily_client_day",
-    sql: "CREATE INDEX idx_analytics_daily_client_day\n  ON analytics_daily(client_id, day)",
+    "name": "idx_analytics_daily_client_day",
+    "sql": "CREATE INDEX idx_analytics_daily_client_day\r\n  ON analytics_daily(client_id, day)"
   },
   {
-    name: "idx_analytics_snapshots_client",
-    sql: "CREATE INDEX idx_analytics_snapshots_client\n  ON analytics_snapshots(client_id, captured_at)",
+    "name": "idx_analytics_snapshots_client",
+    "sql": "CREATE INDEX idx_analytics_snapshots_client\r\n  ON analytics_snapshots(client_id, captured_at)"
   },
   {
-    name: "idx_analytics_sync_account",
-    sql: "CREATE INDEX idx_analytics_sync_account\n  ON analytics_sync_runs(social_account_id, started_at)",
+    "name": "idx_analytics_sync_account",
+    "sql": "CREATE INDEX idx_analytics_sync_account\r\n  ON analytics_sync_runs(social_account_id, started_at)"
   },
   {
-    name: "idx_asset_derivatives_asset",
-    sql: "CREATE INDEX idx_asset_derivatives_asset\n  ON asset_derivatives(asset_id, kind)",
+    "name": "idx_asset_derivatives_asset",
+    "sql": "CREATE INDEX idx_asset_derivatives_asset\r\n  ON asset_derivatives(asset_id, kind)"
   },
   {
-    name: "idx_assets_client",
-    sql: "CREATE INDEX idx_assets_client ON assets(client_id, created_at)",
+    "name": "idx_assets_client",
+    "sql": "CREATE INDEX idx_assets_client ON assets(client_id, created_at)"
   },
   {
-    name: "idx_assets_sha256",
-    sql: "CREATE INDEX idx_assets_sha256 ON assets(client_id, sha256)",
+    "name": "idx_assets_sha256",
+    "sql": "CREATE INDEX idx_assets_sha256 ON assets(client_id, sha256)"
   },
   {
-    name: "idx_auth_codes_email",
-    sql: "CREATE INDEX idx_auth_codes_email ON auth_codes(email, created_at)",
+    "name": "idx_auth_codes_email",
+    "sql": "CREATE INDEX idx_auth_codes_email ON auth_codes(email, created_at)"
   },
   {
-    name: "idx_brand_assets_client",
-    sql: "CREATE INDEX idx_brand_assets_client\n  ON brand_assets(client_id, role, created_at)",
+    "name": "idx_brand_assets_client",
+    "sql": "CREATE INDEX idx_brand_assets_client\r\n  ON brand_assets(client_id, role, created_at)"
   },
   {
-    name: "idx_campaigns_client",
-    sql: "CREATE INDEX idx_campaigns_client ON campaigns(client_id, status)",
+    "name": "idx_campaigns_client",
+    "sql": "CREATE INDEX idx_campaigns_client ON campaigns(client_id, status)"
   },
   {
-    name: "idx_clients_status",
-    sql: "CREATE INDEX idx_clients_status\n  ON clients(status, name)",
+    "name": "idx_clients_status",
+    "sql": "CREATE INDEX idx_clients_status\r\n  ON clients(status, name)"
   },
   {
-    name: "idx_creative_variants_post",
-    sql: "CREATE INDEX idx_creative_variants_post\n  ON creative_variants(post_id, is_primary, created_at)",
+    "name": "idx_creative_variants_post",
+    "sql": "CREATE INDEX idx_creative_variants_post\r\n  ON creative_variants(post_id, is_primary, created_at)"
   },
   {
-    name: "idx_device_push_user",
-    sql: "CREATE INDEX idx_device_push_user\n  ON device_push_tokens(user_id, enabled)",
+    "name": "idx_device_push_user",
+    "sql": "CREATE INDEX idx_device_push_user\r\n  ON device_push_tokens(user_id, enabled)"
   },
   {
-    name: "idx_generation_jobs_client",
-    sql: "CREATE INDEX idx_generation_jobs_client ON generation_jobs(client_id, created_at)",
+    "name": "idx_generation_jobs_client",
+    "sql": "CREATE INDEX idx_generation_jobs_client ON generation_jobs(client_id, created_at)"
   },
   {
-    name: "idx_generation_jobs_recovery",
-    sql: "CREATE INDEX idx_generation_jobs_recovery\n  ON generation_jobs(status, stage_updated_at)",
+    "name": "idx_generation_jobs_recovery",
+    "sql": "CREATE INDEX idx_generation_jobs_recovery\r\n  ON generation_jobs(status, stage_updated_at)"
   },
   {
-    name: "idx_generation_request_identity",
-    sql: "CREATE UNIQUE INDEX idx_generation_request_identity ON generation_jobs(requested_by,request_key)\n  WHERE request_key IS NOT NULL",
+    "name": "idx_generation_request_identity",
+    "sql": "CREATE UNIQUE INDEX idx_generation_request_identity ON generation_jobs(requested_by,request_key)\n  WHERE request_key IS NOT NULL"
   },
   {
-    name: "idx_google_auth_handoffs_hash",
-    sql: "CREATE INDEX idx_google_auth_handoffs_hash\n  ON google_auth_handoffs(handoff_hash, expires_at)",
+    "name": "idx_google_auth_handoffs_hash",
+    "sql": "CREATE INDEX idx_google_auth_handoffs_hash\r\n  ON google_auth_handoffs(handoff_hash, expires_at)"
   },
   {
-    name: "idx_google_oauth_states_hash",
-    sql: "CREATE INDEX idx_google_oauth_states_hash\n  ON google_oauth_states(state_hash, expires_at)",
+    "name": "idx_google_oauth_states_hash",
+    "sql": "CREATE INDEX idx_google_oauth_states_hash\r\n  ON google_oauth_states(state_hash, expires_at)"
   },
   {
-    name: "idx_graphic_jobs_generation",
-    sql: "CREATE INDEX idx_graphic_jobs_generation\n  ON graphic_jobs(generation_job_id, status)",
+    "name": "idx_graphic_jobs_generation",
+    "sql": "CREATE INDEX idx_graphic_jobs_generation\r\n  ON graphic_jobs(generation_job_id, status)"
   },
   {
-    name: "idx_launch_certification_runs_created",
-    sql: "CREATE INDEX idx_launch_certification_runs_created\n  ON launch_certification_runs(created_at DESC)",
+    "name": "idx_launch_certification_runs_created",
+    "sql": "CREATE INDEX idx_launch_certification_runs_created\r\n  ON launch_certification_runs(created_at DESC)"
   },
   {
-    name: "idx_media_access_tokens_hash",
-    sql: "CREATE INDEX idx_media_access_tokens_hash\n  ON media_access_tokens(token_hash, expires_at)",
+    "name": "idx_media_access_tokens_hash",
+    "sql": "CREATE INDEX idx_media_access_tokens_hash\r\n  ON media_access_tokens(token_hash, expires_at)"
   },
   {
-    name: "idx_notification_deliveries_notification",
-    sql: "CREATE INDEX idx_notification_deliveries_notification\n  ON notification_deliveries(notification_id, channel, status)",
+    "name": "idx_notification_deliveries_notification",
+    "sql": "CREATE INDEX idx_notification_deliveries_notification\r\n  ON notification_deliveries(notification_id, channel, status)"
   },
   {
-    name: "idx_notification_deliveries_receipts",
-    sql: "CREATE INDEX idx_notification_deliveries_receipts\n  ON notification_deliveries(channel, status, receipt_checked_at, sent_at)",
+    "name": "idx_notification_deliveries_receipts",
+    "sql": "CREATE INDEX idx_notification_deliveries_receipts\r\n  ON notification_deliveries(channel, status, receipt_checked_at, sent_at)"
   },
   {
-    name: "idx_notification_deliveries_retry",
-    sql: "CREATE INDEX idx_notification_deliveries_retry ON notification_deliveries(status, retry_at)",
+    "name": "idx_notification_deliveries_retry",
+    "sql": "CREATE INDEX idx_notification_deliveries_retry ON notification_deliveries(status, retry_at)"
   },
   {
-    name: "idx_notifications_status",
-    sql: "CREATE INDEX idx_notifications_status ON notifications(status, scheduled_for)",
+    "name": "idx_notifications_status",
+    "sql": "CREATE INDEX idx_notifications_status ON notifications(status, scheduled_for)"
   },
   {
-    name: "idx_notifications_user_status",
-    sql: "CREATE INDEX idx_notifications_user_status\n  ON notifications(user_id, status, created_at)",
+    "name": "idx_notifications_user_status",
+    "sql": "CREATE INDEX idx_notifications_user_status\r\n  ON notifications(user_id, status, created_at)"
   },
   {
-    name: "idx_post_metrics_latest",
-    sql: "CREATE INDEX idx_post_metrics_latest\n  ON post_metrics(post_id, measured_at DESC)",
+    "name": "idx_post_metrics_latest",
+    "sql": "CREATE INDEX idx_post_metrics_latest\r\n  ON post_metrics(post_id, measured_at DESC)"
   },
   {
-    name: "idx_post_metrics_post",
-    sql: "CREATE INDEX idx_post_metrics_post\n  ON post_metrics(post_id, measured_at)",
+    "name": "idx_post_metrics_post",
+    "sql": "CREATE INDEX idx_post_metrics_post\r\n  ON post_metrics(post_id, measured_at)"
   },
   {
-    name: "idx_posts_calendar_filter",
-    sql: "CREATE INDEX idx_posts_calendar_filter\n  ON posts(status, client_id, platform, scheduled_publish_at)",
+    "name": "idx_posts_calendar_filter",
+    "sql": "CREATE INDEX idx_posts_calendar_filter\r\n  ON posts(status, client_id, platform, scheduled_publish_at)"
   },
   {
-    name: "idx_posts_client",
-    sql: "CREATE INDEX idx_posts_client ON posts(client_id, status)",
+    "name": "idx_posts_client",
+    "sql": "CREATE INDEX idx_posts_client ON posts(client_id, status)"
   },
   {
-    name: "idx_posts_generation_job",
-    sql: "CREATE INDEX idx_posts_generation_job ON posts(generation_job_id)",
+    "name": "idx_posts_generation_job",
+    "sql": "CREATE INDEX idx_posts_generation_job ON posts(generation_job_id)"
   },
   {
-    name: "idx_posts_generation_slot",
-    sql: "CREATE UNIQUE INDEX idx_posts_generation_slot\n  ON posts(generation_job_id, generation_index)\n  WHERE generation_job_id IS NOT NULL AND generation_index IS NOT NULL",
+    "name": "idx_posts_generation_slot",
+    "sql": "CREATE UNIQUE INDEX idx_posts_generation_slot\r\n  ON posts(generation_job_id, generation_index)\r\n  WHERE generation_job_id IS NOT NULL AND generation_index IS NOT NULL"
   },
   {
-    name: "idx_posts_publish_version",
-    sql: "CREATE INDEX idx_posts_publish_version\n  ON posts(id, publish_version)",
+    "name": "idx_posts_publish_version",
+    "sql": "CREATE INDEX idx_posts_publish_version\r\n  ON posts(id, publish_version)"
   },
   {
-    name: "idx_posts_review_filter",
-    sql: "CREATE INDEX idx_posts_review_filter\n  ON posts(status, client_id, platform, created_at)",
+    "name": "idx_posts_review_filter",
+    "sql": "CREATE INDEX idx_posts_review_filter\r\n  ON posts(status, client_id, platform, created_at)"
   },
   {
-    name: "idx_posts_schedule",
-    sql: "CREATE INDEX idx_posts_schedule ON posts(status, scheduled_publish_at)",
+    "name": "idx_posts_schedule",
+    "sql": "CREATE INDEX idx_posts_schedule ON posts(status, scheduled_publish_at)"
   },
   {
-    name: "idx_publish_attempts_job",
-    sql: "CREATE INDEX idx_publish_attempts_job\n  ON publish_attempts(publish_job_id, created_at)",
+    "name": "idx_publish_attempts_job",
+    "sql": "CREATE INDEX idx_publish_attempts_job\r\n  ON publish_attempts(publish_job_id, created_at)"
   },
   {
-    name: "idx_publish_jobs_first_claim",
-    sql: "CREATE INDEX idx_publish_jobs_first_claim ON publish_jobs(first_claimed_at,post_id)",
+    "name": "idx_publish_jobs_first_claim",
+    "sql": "CREATE INDEX idx_publish_jobs_first_claim ON publish_jobs(first_claimed_at,post_id)"
   },
   {
-    name: "idx_publish_jobs_post",
-    sql: "CREATE INDEX idx_publish_jobs_post\n  ON publish_jobs(post_id, created_at)",
+    "name": "idx_publish_jobs_post",
+    "sql": "CREATE INDEX idx_publish_jobs_post\r\n  ON publish_jobs(post_id, created_at)"
   },
   {
-    name: "idx_publish_jobs_post_status",
-    sql: "CREATE INDEX idx_publish_jobs_post_status\n  ON publish_jobs(post_id, status, created_at)",
+    "name": "idx_publish_jobs_post_status",
+    "sql": "CREATE INDEX idx_publish_jobs_post_status\r\n  ON publish_jobs(post_id, status, created_at)"
   },
   {
-    name: "idx_publish_jobs_recovery",
-    sql: "CREATE INDEX idx_publish_jobs_recovery\n  ON publish_jobs(status, claimed_at, updated_at)",
+    "name": "idx_publish_jobs_recovery",
+    "sql": "CREATE INDEX idx_publish_jobs_recovery\r\n  ON publish_jobs(status, claimed_at, updated_at)"
   },
   {
-    name: "idx_publish_jobs_status",
-    sql: "CREATE INDEX idx_publish_jobs_status\n  ON publish_jobs(status, scheduled_for)",
+    "name": "idx_publish_jobs_status",
+    "sql": "CREATE INDEX idx_publish_jobs_status\r\n  ON publish_jobs(status, scheduled_for)"
   },
   {
-    name: "idx_publish_media_tokens",
-    sql: "CREATE INDEX idx_publish_media_tokens\n  ON publish_media_tokens(token_hash, expires_at)",
+    "name": "idx_publish_media_tokens",
+    "sql": "CREATE INDEX idx_publish_media_tokens\r\n  ON publish_media_tokens(token_hash, expires_at)"
   },
   {
-    name: "idx_recovery_actions_entity",
-    sql: "CREATE INDEX idx_recovery_actions_entity\n  ON recovery_actions(entity_type, entity_id, created_at DESC)",
+    "name": "idx_recovery_actions_entity",
+    "sql": "CREATE INDEX idx_recovery_actions_entity\r\n  ON recovery_actions(entity_type, entity_id, created_at DESC)"
   },
   {
-    name: "idx_review_comments_post",
-    sql: "CREATE INDEX idx_review_comments_post\n  ON review_comments(post_id, created_at)",
+    "name": "idx_review_comments_post",
+    "sql": "CREATE INDEX idx_review_comments_post\r\n  ON review_comments(post_id, created_at)"
   },
   {
-    name: "idx_review_tokens_post",
-    sql: "CREATE INDEX idx_review_tokens_post ON review_tokens(post_id, expires_at)",
+    "name": "idx_review_tokens_post",
+    "sql": "CREATE INDEX idx_review_tokens_post ON review_tokens(post_id, expires_at)"
   },
   {
-    name: "idx_revision_jobs_active",
-    sql: "CREATE UNIQUE INDEX idx_revision_jobs_active ON revision_jobs(post_id) WHERE status IN ('queued','processing')",
+    "name": "idx_revision_jobs_active",
+    "sql": "CREATE UNIQUE INDEX idx_revision_jobs_active ON revision_jobs(post_id) WHERE status IN ('queued','processing')"
   },
   {
-    name: "idx_revision_jobs_recovery",
-    sql: "CREATE INDEX idx_revision_jobs_recovery ON revision_jobs(status,updated_at)",
+    "name": "idx_revision_jobs_recovery",
+    "sql": "CREATE INDEX idx_revision_jobs_recovery ON revision_jobs(status,updated_at)"
   },
   {
-    name: "idx_sessions_token",
-    sql: "CREATE INDEX idx_sessions_token ON sessions(token_hash, expires_at)",
+    "name": "idx_sessions_token",
+    "sql": "CREATE INDEX idx_sessions_token ON sessions(token_hash, expires_at)"
   },
   {
-    name: "idx_social_accounts_default",
-    sql: "CREATE INDEX idx_social_accounts_default\n  ON social_accounts(client_id, platform, is_default, status)",
+    "name": "idx_social_accounts_default",
+    "sql": "CREATE INDEX idx_social_accounts_default\r\n  ON social_accounts(client_id, platform, is_default, status)"
   },
   {
-    name: "idx_social_accounts_health",
-    sql: "CREATE INDEX idx_social_accounts_health\n  ON social_accounts(status, health_status, token_expires_at)",
+    "name": "idx_social_accounts_health",
+    "sql": "CREATE INDEX idx_social_accounts_health\r\n  ON social_accounts(status, health_status, token_expires_at)"
   },
   {
-    name: "idx_social_accounts_unique_external",
-    sql: "CREATE UNIQUE INDEX idx_social_accounts_unique_external\n  ON social_accounts(client_id, platform, external_account_id)\n  WHERE external_account_id IS NOT NULL",
+    "name": "idx_social_accounts_unique_external",
+    "sql": "CREATE UNIQUE INDEX idx_social_accounts_unique_external\r\n  ON social_accounts(client_id, platform, external_account_id)\r\n  WHERE external_account_id IS NOT NULL"
   },
   {
-    name: "idx_social_oauth_state",
-    sql: "CREATE INDEX idx_social_oauth_state\n  ON social_oauth_states(state_hash, expires_at)",
+    "name": "idx_social_oauth_state",
+    "sql": "CREATE INDEX idx_social_oauth_state\r\n  ON social_oauth_states(state_hash, expires_at)"
   },
   {
-    name: "idx_social_publish_receipts_post",
-    sql: "CREATE INDEX idx_social_publish_receipts_post\n  ON social_publish_receipts(post_id, created_at)",
+    "name": "idx_social_publish_receipts_post",
+    "sql": "CREATE INDEX idx_social_publish_receipts_post\r\n  ON social_publish_receipts(post_id, created_at)"
   },
   {
-    name: "idx_social_receipts_status",
-    sql: "CREATE INDEX idx_social_receipts_status\n  ON social_publish_receipts(status, provider_status, last_checked_at)",
+    "name": "idx_social_receipts_status",
+    "sql": "CREATE INDEX idx_social_receipts_status\r\n  ON social_publish_receipts(status, provider_status, last_checked_at)"
   },
   {
-    name: "idx_social_status_checks_receipt",
-    sql: "CREATE INDEX idx_social_status_checks_receipt\n  ON social_status_checks(receipt_id, checked_at)",
+    "name": "idx_social_status_checks_receipt",
+    "sql": "CREATE INDEX idx_social_status_checks_receipt\r\n  ON social_status_checks(receipt_id, checked_at)"
   },
   {
-    name: "idx_social_webhook_events_provider",
-    sql: "CREATE INDEX idx_social_webhook_events_provider\n  ON social_webhook_events(provider, created_at)",
+    "name": "idx_social_webhook_events_provider",
+    "sql": "CREATE INDEX idx_social_webhook_events_provider\r\n  ON social_webhook_events(provider, created_at)"
   },
   {
-    name: "idx_system_events_active",
-    sql: "CREATE INDEX idx_system_events_active\n  ON system_events(resolved_at, severity, created_at DESC)",
+    "name": "idx_system_events_active",
+    "sql": "CREATE INDEX idx_system_events_active\r\n  ON system_events(resolved_at, severity, created_at DESC)"
   },
   {
-    name: "idx_system_events_entity",
-    sql: "CREATE INDEX idx_system_events_entity\n  ON system_events(entity_type, entity_id, created_at DESC)",
+    "name": "idx_system_events_entity",
+    "sql": "CREATE INDEX idx_system_events_entity\r\n  ON system_events(entity_type, entity_id, created_at DESC)"
   },
   {
-    name: "idx_team_invitations_email",
-    sql: "CREATE INDEX idx_team_invitations_email ON team_invitations(email,status,expires_at)",
+    "name": "idx_team_invitations_email",
+    "sql": "CREATE INDEX idx_team_invitations_email ON team_invitations(email,status,expires_at)"
   },
   {
-    name: "idx_user_client_access_client",
-    sql: "CREATE INDEX idx_user_client_access_client\n  ON user_client_access(client_id, user_id)",
+    "name": "idx_user_client_access_client",
+    "sql": "CREATE INDEX idx_user_client_access_client\r\n  ON user_client_access(client_id, user_id)"
   },
   {
-    name: "idx_users_google_sub",
-    sql: "CREATE INDEX idx_users_google_sub ON users(google_sub)",
-  },
+    "name": "idx_users_google_sub",
+    "sql": "CREATE INDEX idx_users_google_sub ON users(google_sub)"
+  }
 ] as const;
