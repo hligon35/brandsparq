@@ -9,9 +9,9 @@ routes = [
 [vars]
 ENVIRONMENT = "production"
 GOOGLE_CLIENT_ID = "1096231725383-7lrjdhj0p4gp8ipbi6228tf03dhg5jqe.apps.googleusercontent.com"
-# GOOGLE_CLIENT_SECRET is set via `wrangler secret put GOOGLE_CLIENT_SECRET`, not committed here
 GOOGLE_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/auth/google/callback"
 LINKEDIN_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/linkedin/callback"
+META_APP_ID = "2050251078958295"
 META_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/meta/callback"
 OPENAI_FAST_MODEL = "gpt-6-luna"
 OPENAI_IMAGE_EDIT_MODEL = "gpt-image-2.5-sunburst"
@@ -22,8 +22,7 @@ OPENAI_TEXT_MODEL = "gpt-6.1-sol"
 PUBLIC_BASE_URL = "https://brandsparq.getsparqd.com"
 REVIEW_BASE_URL = "https://brandsparq.getsparqd.com"
 TIKTOK_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/tiktok/callback"
-X_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/x/callback"
-[assets]
+X_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/x/callback"[assets]
 directory = "../dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
