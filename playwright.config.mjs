@@ -20,9 +20,9 @@ export default defineConfig({
     { name: "mobile-webkit", use: { ...devices["iPhone 13"] } },
   ],
   webServer: {
-    command: "node --import ./tests/register.mjs tests/e2e/server.mjs",
+    command: "node --import ./tests/register.mjs scripts/start-e2e.mjs",
     url: "http://127.0.0.1:8788/health",
     reuseExistingServer: false,
-    timeout: 30000,
+    timeout: 180000,
   },
 });

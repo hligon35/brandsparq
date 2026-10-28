@@ -18,7 +18,15 @@ npx playwright install --with-deps chromium webkit
 npm run validate:candidate
 ```
 
-There are 274 Node tests and 180 browser cases across desktop Chromium, mobile Chromium and mobile WebKit. Discovery is not an execution result. Check the command exit status and generated receipt for the exact commit being accepted.
+There are 277 Node tests and 180 browser cases across desktop Chromium, mobile Chromium and mobile WebKit. Discovery is not an execution result. Check the command exit status and generated receipt for the exact commit being accepted.
+
+### Browser tests after pulling updates (including Windows)
+
+Run `npm run test:e2e`. Playwright builds a fresh web export into `.expo/e2e-web` before starting the fixture server. It overrides the API origin for same-origin fixture requests and disables dotenv loading for that export. Your normal `dist` deployment export is preserved. Both npm and direct Playwright invocations use this launcher; no separate manual web rebuild is needed.
+
+The fixture verifies a source fingerprint before serving the export. Failed builds or sources changing during compilation stop startup with a specific error. The 180-second web-server startup budget includes compilation; individual test deadlines and assertions are unchanged. Old `dist` files can no longer mix with newer backend code or newer test expectations.
+
+If a test still fails, retain its first full assertion error and the corresponding `test-results/**/error-context.md` or Playwright trace. A summary of test names alone cannot establish the cause of a Windows-specific failure.
 
 The local runner's default browser CDN returned HTML instead of ZIP archives. Exact configured Chromium 156.0.8078.4 / revision 1248 and WebKit 27.2 / revision 2370 were obtained from their official Google and Microsoft download origins. Ubuntu system libraries were downloaded/extracted for this runner. No browser version substitution, test skip or host-validation bypass was used. Hosted CI uses Playwright's normal installer.
 
