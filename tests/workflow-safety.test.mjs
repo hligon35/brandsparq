@@ -434,7 +434,7 @@ test("approval cannot overwrite an AI claim won after scheduling validation", as
   const w = workspace(t);
   w.post("approve");
   w.exec(
-    "INSERT INTO social_accounts(id,client_id,platform,status,is_default) VALUES ('social','client-a','facebook','connected',1)",
+    "INSERT INTO social_accounts(id,client_id,platform,status,is_default,access_token_ciphertext) VALUES ('social','client-a','facebook','connected',1,'opaque-fixture-credential')",
   );
   w.exec("UPDATE posts SET social_account_id='social' WHERE id='approve'");
   const batch = w.env.DB.batch;
@@ -443,7 +443,15 @@ test("approval cannot overwrite an AI claim won after scheduling validation", as
     return batch(statements);
   });
   assert.equal(
-    (await w.request("/v1/posts/approve/approve", { user: "owner", method: "POST" })).status,
+    (
+      await w.request("/v1/posts/approve/approve", {
+        user: "owner",
+        method: "POST",
+        body: {
+          expectedRevision: w.row("SELECT content_revision n FROM posts WHERE id='approve'").n,
+        },
+      })
+    ).status,
     409,
   );
   assert.equal(w.row("SELECT status FROM posts WHERE id='approve'").status, "regenerating");

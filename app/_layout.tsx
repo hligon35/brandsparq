@@ -61,7 +61,10 @@ function RootNavigator() {
               name="clients/[clientId]/reviewers"
               options={{ title: "Client reviewers" }}
             />
-            <Stack.Screen name="clients/[clientId]/index" options={{ title: "Client workspace" }} />
+            <Stack.Screen
+              name="clients/[clientId]/index"
+              options={{ title: "Client workspace", headerTitle: () => null }}
+            />
             <Stack.Screen name="clients/[clientId]/brand" options={{ title: "Brand Brain" }} />
             <Stack.Screen name="campaigns/index" options={{ title: "Campaigns" }} />
             <Stack.Screen name="campaigns/[campaignId]" options={{ title: "Campaign" }} />

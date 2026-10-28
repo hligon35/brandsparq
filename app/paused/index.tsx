@@ -1,7 +1,7 @@
 import { IconButton } from "@/components/icon-button";
 import { Link } from "expo-router";
-import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert, confirmAction } from "@/components/feedback";
@@ -13,11 +13,26 @@ export default function PausedScreen() {
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [working, setWorking] = useState("");
-  async function load() {
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const loadVersion = useRef(0);
+  async function load(more = false) {
+    const version = ++loadVersion.current;
     try {
-      setPosts((await api.getPausedPosts()).data);
+      const result = await api.getPausedPosts({
+        search: query,
+        ...(more && nextCursor ? { cursor: nextCursor } : {}),
+      });
+      if (version !== loadVersion.current) return;
+      setPosts((old) =>
+        more
+          ? [...new Map([...old, ...result.data].map((row) => [row.id, row])).values()]
+          : result.data,
+      );
+      setNextCursor(result.nextCursor);
       setError("");
     } catch (e) {
+      if (version !== loadVersion.current) return;
       setError(e instanceof Error ? e.message : "Unable to load paused posts.");
     } finally {
       setLoaded(true);
@@ -54,12 +69,24 @@ export default function PausedScreen() {
         title="Paused content"
         eyebrow="Calendar recovery"
         subtitle="Resume approved content at a new valid slot, or return unfinished content to review."
-        action={<IconButton label="Refresh paused content" onPress={load} />}
+        action={<IconButton label="Refresh paused content" onPress={() => void load()} />}
       />
+      <TextInput
+        accessibilityLabel="Search paused content"
+        placeholder="Search client or title"
+        value={query}
+        onChangeText={(value) => {
+          setQuery(value);
+          setNextCursor(null);
+        }}
+        onSubmitEditing={() => void load()}
+        style={{ minHeight: 48, padding: 12 }}
+      />
+      <Button label="Search" onPress={() => void load()} />
       {!!error && (
         <Card>
           <Text style={styles.error}>{error}</Text>
-          <Button label="Try again" onPress={load} />
+          <Button label="Try again" onPress={() => void load()} />
         </Card>
       )}
       {!loaded ? (
@@ -105,6 +132,7 @@ export default function PausedScreen() {
           </Card>
         ))
       )}
+      {!!nextCursor && <Button label="Load more paused posts" onPress={() => void load(true)} />}
     </PageScroll>
   );
 }

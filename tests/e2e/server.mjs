@@ -69,7 +69,7 @@ async function reset() {
   w.objects.set(
     "fixture.jpg",
     Buffer.from(
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jh18AAAAASUVORK5CYII=",
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmMQ0bD5DwACRAF41rdyCgAAAABJRU5ErkJggg==",
       "base64",
     ),
   );
@@ -143,9 +143,49 @@ const server = http.createServer(async (incoming, outgoing) => {
                 "INSERT INTO generation_jobs(id,client_id,asset_ids) VALUES(?,'client-a','[]')",
                 `new-${i}`,
               );
+          } else if (url.pathname === "/__test/large-paused") {
+            for (let i = 0; i < 105; i++) {
+              const id = `recovery-${String(i).padStart(3, "0")}`;
+              w.post(id, "client-a", "paused");
+              w.exec(
+                "UPDATE posts SET title=?,graphic_key='fixture.jpg',created_at=? WHERE id=?",
+                i === 0 ? "Oldest paused recovery" : `Paused recovery ${i}`,
+                i === 0 ? "2000-01-01" : "2026-01-01",
+                id,
+              );
+            }
+          } else if (url.pathname === "/__test/complete-generation") {
+            w.exec(
+              "UPDATE generation_jobs SET status='completed',error_message=NULL WHERE id='fixture-generation'",
+            );
+          } else if (url.pathname === "/__test/drain-analytics") {
+            for (
+              let count = 0;
+              count < 10 && w.generated.some((message) => message.kind === "analytics");
+              count++
+            ) {
+              const index = w.generated.findIndex((message) => message.kind === "analytics"),
+                body = w.generated.splice(index, 1)[0];
+              await worker.queue(
+                {
+                  messages: [
+                    {
+                      body,
+                      attempts: 1,
+                      ack() {},
+                      retry() {
+                        throw Error("Unexpected analytics retry");
+                      },
+                    },
+                  ],
+                  queue: "brandsparq-generation",
+                },
+                w.env,
+              );
+            }
           } else if (url.pathname === "/__test/published") {
             w.exec(
-              "UPDATE posts SET status='published',approved_at=CURRENT_TIMESTAMP,platform_post_id='live' WHERE id='fixture-post'",
+              "UPDATE posts SET status='published',published_at=CURRENT_TIMESTAMP,approved_at=CURRENT_TIMESTAMP,platform_post_id='live' WHERE id='fixture-post'",
             );
           } else if (url.pathname === "/__test/expire") w.exec("UPDATE sessions SET expires_at=0");
           else if (url.pathname === "/__test/drain") {

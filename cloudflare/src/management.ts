@@ -1,3 +1,5 @@
+import { enqueueAnalytics } from "./analytics-jobs";
+import { validRevision, revisionRequired, revisionConflict } from "./revisions";
 import { pageOptions, pageResult } from "./pagination";
 import { latestMetricsJoin } from "./analytics";
 import { campaignBoundary, validCampaignDate } from "./campaign-workflow";
@@ -13,15 +15,11 @@ import {
 } from "./authz";
 import { deliverNotification } from "./notifications";
 import { findNextAvailableSlot, validateSchedule } from "./scheduling";
-import {
-  socialOAuthCallback,
-  socialOAuthStart,
-  syncAccountAnalytics,
-  verifySocialAccount,
-} from "./social";
+import { socialOAuthCallback, socialOAuthStart, verifySocialAccount } from "./social";
 
 export interface ManagementEnv {
   DB: D1Database;
+  GENERATION_QUEUE?: Queue<any>;
   ENVIRONMENT?: string;
   MEDIA: R2Bucket;
   SOCIAL_TOKEN_KEY?: string;
@@ -203,10 +201,13 @@ export async function handleManagementRoute(
       (payload.objective !== undefined && typeof payload.objective !== "string")
     )
       return { body: { error: "Objective and notes must be text." }, status: 400 };
+    if (!validRevision(payload.expectedRevision)) return revisionRequired;
+    const editToken = crypto.randomUUID();
     const [updated] = await env.DB.batch([
       env.DB.prepare(
-        "UPDATE campaigns SET name=?,objective=?,status=?,starts_at=?,ends_at=?,priority=?,notes=?,workflow_revision=workflow_revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND workflow_revision=?",
+        "UPDATE campaigns SET edit_token=?,name=?,objective=?,status=?,starts_at=?,ends_at=?,priority=?,notes=?,workflow_revision=workflow_revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND workflow_revision=?",
       ).bind(
+        editToken,
         name,
         (payload.objective ?? campaign.objective ?? "").slice(0, 2000),
         status,
@@ -215,11 +216,11 @@ export async function handleManagementRoute(
         priority,
         (payload.notes ?? campaign.notes ?? "").slice(0, 10000),
         campaignMatch[1],
-        campaign.workflow_revision,
+        payload.expectedRevision,
       ),
-      env.DB.prepare("UPDATE clients SET schedule_revision=schedule_revision+1 WHERE id=?").bind(
-        campaign.client_id,
-      ),
+      env.DB.prepare(
+        "UPDATE clients SET schedule_revision=schedule_revision+1 WHERE id=? AND EXISTS(SELECT 1 FROM campaigns WHERE id=? AND edit_token=?)",
+      ).bind(campaign.client_id, campaignMatch[1], editToken),
     ]);
     if (!updated.meta.changes)
       return {
@@ -350,6 +351,7 @@ export async function handleManagementRoute(
 
     await env.DB.prepare(
       `UPDATE social_accounts SET
+       connection_revision=connection_revision+1,refresh_claim=NULL,refresh_until=NULL,
        status = 'disconnected',
        health_status = 'disconnected',
        permission_status = 'disconnected',
@@ -379,7 +381,9 @@ export async function handleManagementRoute(
         body: { error: "Change destinations only while a post is in review." },
         status: 409,
       };
-    const payload = await request.json<{ socialAccountId?: string }>().catch(() => ({}) as any);
+    const payload = await request
+      .json<{ socialAccountId?: string; expectedRevision?: number }>()
+      .catch(() => ({}) as any);
     if (!payload.socialAccountId)
       return { body: { error: "socialAccountId is required." }, status: 400 };
     const account = await env.DB.prepare(
@@ -391,11 +395,25 @@ export async function handleManagementRoute(
       .first();
     if (!account)
       return { body: { error: "That social account cannot publish this post." }, status: 409 };
-    await env.DB.prepare(
-      "UPDATE posts SET social_account_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-    )
-      .bind(payload.socialAccountId, assignMatch[1])
-      .run();
+    if (!validRevision(payload.expectedRevision)) return revisionRequired;
+    const changed =
+      await env.DB.prepare(`UPDATE posts SET social_account_id=?,updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status IN ('awaiting_approval','edit_requested') AND approved_at IS NULL AND content_revision=?
+      AND EXISTS(SELECT 1 FROM clients WHERE id=posts.client_id AND status='active')
+      AND EXISTS(SELECT 1 FROM social_accounts sa WHERE sa.id=? AND sa.client_id=posts.client_id AND sa.platform=posts.platform
+        AND sa.status='connected' AND sa.access_token_ciphertext IS NOT NULL
+        AND COALESCE(sa.health_status,'healthy') NOT IN ('reauth_required','degraded','disconnected')
+        AND (sa.token_expires_at IS NULL OR sa.token_expires_at>?))`)
+        .bind(
+          payload.socialAccountId,
+          assignMatch[1],
+          payload.expectedRevision,
+          payload.socialAccountId,
+          Date.now(),
+        )
+        .run();
+    if (!changed.meta.changes) return revisionConflict;
+
     return { body: { ok: true } };
   }
 
@@ -923,8 +941,23 @@ export async function handleManagementRoute(
     };
   }
 
+  if (request.method === "GET" && url.pathname === "/v1/analytics/jobs") {
+    const rows =
+      await env.DB.prepare(`SELECT j.*,sa.client_id,sa.account_name FROM analytics_jobs j JOIN social_accounts sa ON sa.id=j.social_account_id
+    WHERE (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=sa.client_id)) ORDER BY CASE WHEN j.status IN ('queued','running') THEN 0 ELSE 1 END,j.created_at DESC,j.id DESC LIMIT 100`)
+        .bind(user.role, user.id)
+        .all();
+    return { body: { data: rows.results } };
+  }
   if (request.method === "POST" && url.pathname === "/v1/analytics/sync") {
-    const payload = await request.json<{ accountId?: string }>().catch(() => ({}) as any);
+    const payload = await request
+      .json<{ accountId?: string; days?: number }>()
+      .catch(() => ({}) as any);
+    if (
+      payload.days !== undefined &&
+      (!Number.isInteger(payload.days) || payload.days < 1 || payload.days > 365)
+    )
+      return { body: { error: "Choose a date range between 1 and 365 days." }, status: 400 };
     const allowedClients = await accessibleClientIds(env.DB, user);
     let accounts: Array<{ id: string; client_id: string }> = [];
 
@@ -940,8 +973,19 @@ export async function handleManagementRoute(
       accounts = [account];
     } else {
       const rows = await env.DB.prepare(
-        "SELECT id,client_id FROM social_accounts WHERE status='connected'",
-      ).all<{ id: string; client_id: string }>();
+        `SELECT id,client_id FROM social_accounts sa WHERE status='connected'
+         AND (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=sa.client_id)) ORDER BY id LIMIT 21`,
+      )
+        .bind(user.role, user.id)
+        .all<{ id: string; client_id: string }>();
+      if (rows.results.length > 20)
+        return {
+          body: {
+            error:
+              "Bulk sync supports 20 accounts per request. Select a client in Analytics and sync its accounts.",
+          },
+          status: 400,
+        };
       accounts =
         allowedClients === null
           ? rows.results
@@ -957,8 +1001,8 @@ export async function handleManagementRoute(
     const results = [];
     for (const account of permitted) {
       try {
-        const result = await syncAccountAnalytics(env, account.id);
-        results.push({ accountId: account.id, ok: true, ...result });
+        const job = await enqueueAnalytics(env, account.id, payload.days || 90);
+        results.push({ accountId: account.id, ok: true, jobId: job.id, status: job.status });
       } catch (error) {
         results.push({
           accountId: account.id,
@@ -968,7 +1012,7 @@ export async function handleManagementRoute(
       }
     }
 
-    return { body: { ok: results.every((row) => row.ok), results } };
+    return { body: { ok: results.every((row) => row.ok), results }, status: 202 };
   }
 
   const validateMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)\/schedule\/validate$/);

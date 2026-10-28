@@ -10,7 +10,6 @@ import { createSerialQueue } from "../src/shared/serial-queue.ts";
 import { createDeviceRegistrationStore } from "../src/notifications/device-store.ts";
 import { loadStaticAssets } from "./e2e/static-assets.mjs";
 import { assessAudit, verifyAdvisoryDispositions } from "../scripts/lib/dependency-disposition.mjs";
-import { accepted } from "./fixtures/release-report.mjs";
 import { verifyCheckout } from "../scripts/lib/checkout.mjs";
 
 const deferred = () => {
@@ -111,7 +110,21 @@ test("a sign-out during native storage writes prevents registration under a chan
 
 test("dependency acceptance requires the exact owner decision, mitigations and an unexpired review", () => {
   const ids = ["GHSA-mrhx-c7xc-m3w5"];
-  const gate = () => accepted().gates.advisories;
+  const gate = () => ({
+    ownerAccepted: true,
+    dispositions: [
+      {
+        advisoryId: ids[0],
+        package: "zod",
+        version: "3.25.76",
+        decision: "accepted",
+        approvedBy: "Fixture owner",
+        recordedAt: new Date().toISOString(),
+        nextReviewAt: new Date(Date.now() + 86400000).toISOString(),
+        mitigations: ["Fixture-only owner decision; no release authorization."],
+      },
+    ],
+  });
   verifyAdvisoryDispositions(gate(), ids);
   assert.throws(() => verifyAdvisoryDispositions({ ownerAccepted: true }, ids), /owner/);
   for (const patch of [

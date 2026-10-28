@@ -1,3 +1,4 @@
+import { EditConflict, isEditConflict } from "@/components/edit-conflict";
 import { GuardedLink as Link, useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 
 import { useCapabilities } from "@/auth/capabilities";
@@ -6,7 +7,7 @@ import { logoColors } from "@/media/logoColors";
 import { Alert, confirmAction } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";
@@ -35,23 +36,69 @@ const fields = [
 export default function BrandBrainScreen() {
   const { clientId } = useLocalSearchParams<{ clientId: string }>();
   const can = useCapabilities();
+  const [conflict, setConflict] = useState(false);
+  const entityRef = useRef(clientId);
+  entityRef.current = clientId;
+  const loadVersion = useRef(0);
   const [loaded, setLoaded] = useState(false);
   const [clientActive, setClientActive] = useState(true);
-  const editable = loaded && clientActive && can("brand_manage", clientId);
+  const [saving, setSaving] = useState(false);
+  const [revision, setRevision] = useState<number>();
+  const editable = loaded && clientActive && !saving && can("brand_manage", clientId);
   const [brand, setBrand] = useState<Record<string, string>>({});
   const [name, setName] = useState("Brand Brain");
   const [timezone, setTimezone] = useState("");
   const [assets, setAssets] = useState<any[]>([]);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const { wide } = useResponsive();
-  const { markSaved } = useUnsavedChanges({ name, timezone, brand }, editable, (saved) => {
-    setName(saved.name);
-    setTimezone(saved.timezone);
-    setBrand(saved.brand);
-  });
+  const { markSaved } = useUnsavedChanges(
+    { name, timezone, brand },
+    loaded && clientActive && can("brand_manage", clientId),
+    (saved) => {
+      setName(saved.name);
+      setTimezone(saved.timezone);
+      setBrand(saved.brand);
+    },
+  );
+
+  function applyProfile(data: any) {
+    setClientActive(data.client_status === undefined || data.client_status === "active");
+    setName(data.name || "Brand Brain");
+    setTimezone(data.timezone || "");
+    const nextBrand = {
+      logoPreference: data.logo_preference || "primary",
+      voice: data.voice || "",
+      audience: data.audience || "",
+      tagline: data.tagline || "",
+      website: data.website || "",
+      preferredCtas: data.preferred_ctas || "",
+      imageryPreferences: data.imagery_preferences || "",
+      postingRules: data.posting_rules || "",
+      restrictedWords: data.restricted_words || "",
+      primaryColor: data.primary_color || "",
+      secondaryColor: data.secondary_color || "",
+      fonts: data.fonts || "",
+      brandExamples: data.brand_examples || "",
+      prohibitedVisualStyles: data.prohibited_visual_styles || "",
+      competitorReferences: data.competitor_references || "",
+      brandVocabulary: data.brand_vocabulary || "",
+      hashtagPolicy: data.hashtag_policy || "",
+      targetLocations: data.target_locations || "",
+      platformRules: data.platform_rules || "",
+    };
+    setBrand(nextBrand);
+    markSaved({
+      name: data.name || "Brand Brain",
+      timezone: data.timezone || "",
+      brand: nextBrand,
+    });
+    setRevision(data.revision);
+    setLoaded(true);
+  }
 
   async function load() {
+    const version = ++loadVersion.current;
+    setConflict(false);
     if (!clientId) return;
     setError("");
     try {
@@ -59,57 +106,37 @@ export default function BrandBrainScreen() {
         api.getBrand(clientId),
         api.getBrandAssets(clientId),
       ]);
-      setClientActive(data.client_status === "active");
-      setName(data.name || "Brand Brain");
-      setTimezone(data.timezone || "");
-      const nextBrand = {
-        logoPreference: data.logo_preference || "primary",
-        voice: data.voice || "",
-        audience: data.audience || "",
-        tagline: data.tagline || "",
-        website: data.website || "",
-        preferredCtas: data.preferred_ctas || "",
-        imageryPreferences: data.imagery_preferences || "",
-        postingRules: data.posting_rules || "",
-        restrictedWords: data.restricted_words || "",
-        primaryColor: data.primary_color || "",
-        secondaryColor: data.secondary_color || "",
-        fonts: data.fonts || "",
-        brandExamples: data.brand_examples || "",
-        prohibitedVisualStyles: data.prohibited_visual_styles || "",
-        competitorReferences: data.competitor_references || "",
-        brandVocabulary: data.brand_vocabulary || "",
-        hashtagPolicy: data.hashtag_policy || "",
-        targetLocations: data.target_locations || "",
-        platformRules: data.platform_rules || "",
-      };
-      setBrand(nextBrand);
-      markSaved({
-        name: data.name || "Brand Brain",
-        timezone: data.timezone || "",
-        brand: nextBrand,
-      });
-      setLoaded(true);
+      if (version !== loadVersion.current || entityRef.current !== clientId) return;
+      applyProfile(data);
       setAssets(assetResult.data);
     } catch (err) {
+      if (version !== loadVersion.current || entityRef.current !== clientId) return;
+      if (isEditConflict(err)) setConflict(true);
       setError(err instanceof Error ? err.message : "Unable to load Brand Brain.");
     }
   }
   useEffect(() => {
     void load();
+    return () => {
+      loadVersion.current++;
+    };
   }, [clientId]);
 
   async function save() {
     if (!clientId) return;
     setSaving(true);
     try {
-      await Promise.all([
-        api.saveBrand(clientId, brand),
-        api.updateClient(clientId, { name, timezone }),
-      ]);
-      markSaved({ name, timezone, brand });
+      const saved = await api.saveBrand(clientId, {
+        ...brand,
+        name,
+        timezone,
+        expectedRevision: revision,
+      });
+      if (entityRef.current !== clientId) return;
+      applyProfile(saved.data);
       Alert.alert("Brand Brain saved", "Future generations will use these rules.");
     } catch (err) {
+      if (isEditConflict(err)) setConflict(true);
       Alert.alert("Unable to save", err instanceof Error ? err.message : "Try again.");
     } finally {
       setSaving(false);
@@ -133,9 +160,19 @@ export default function BrandBrainScreen() {
         file.fileName || `brand-${role}.png`,
         file.mimeType || "image/png",
       );
-      await api.attachBrandAsset(clientId, uploaded.id, role, file.fileName || undefined);
+      const attached = await api.attachBrandAsset(
+        clientId,
+        uploaded.id,
+        role,
+        revision!,
+        file.fileName || undefined,
+      );
+      if (entityRef.current !== clientId) return;
+      setRevision(attached.revision);
       const extracted = role !== "reference" ? await logoColors(file.uri).catch(() => []) : [];
-      setAssets((await api.getBrandAssets(clientId)).data);
+      const refreshedAssets = await api.getBrandAssets(clientId);
+      if (entityRef.current !== clientId) return;
+      setAssets(refreshedAssets.data);
       if (role !== "reference" && !extracted.length)
         Alert.alert("Logo uploaded", "Choose the brand colors manually for this image.");
       if (extracted.length)
@@ -145,6 +182,7 @@ export default function BrandBrainScreen() {
           secondaryColor: extracted[1] || extracted[0],
         }));
     } catch (err) {
+      if (isEditConflict(err)) setConflict(true);
       Alert.alert("Unable to add brand asset", err instanceof Error ? err.message : "Try again.");
     } finally {
       setSaving(false);
@@ -153,6 +191,7 @@ export default function BrandBrainScreen() {
 
   return (
     <PageScroll>
+      {conflict && <EditConflict busy={saving} onReload={load} />}
       <PageHeader
         eyebrow="Client intelligence"
         title={name}
@@ -260,9 +299,15 @@ export default function BrandBrainScreen() {
                               return;
                             setSaving(true);
                             try {
-                              await api.removeBrandAsset(clientId, asset.id);
+                              const removed = await api.removeBrandAsset(
+                                clientId,
+                                asset.id,
+                                revision!,
+                              );
+                              setRevision(removed.revision);
                               setAssets((await api.getBrandAssets(clientId)).data);
                             } catch (e) {
+                              if (isEditConflict(e)) setConflict(true);
                               Alert.alert(
                                 "Unable to remove asset",
                                 e instanceof Error ? e.message : "Try again.",

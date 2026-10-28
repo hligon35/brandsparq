@@ -27,6 +27,7 @@ export default function AnalyticsScreen() {
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState(requestedClient || "all");
   const [days, setDays] = useState(30);
+  const [jobs, setJobs] = useState<any[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -41,11 +42,13 @@ export default function AnalyticsScreen() {
     setLoading(true);
     setError("");
     try {
-      const [analytics, clientRows] = await Promise.all([
+      const [analytics, clientRows, jobRows] = await Promise.all([
         api.getAnalyticsOverview(clientId === "all" ? undefined : clientId, days),
         api.getClients(),
+        api.getAnalyticsJobs(),
       ]);
       if (version !== loadVersion.current) return;
+      setJobs(jobRows.data);
       setData(analytics.data);
       setClients(clientRows);
     } catch (e) {
@@ -60,6 +63,12 @@ export default function AnalyticsScreen() {
     void load();
   }, [clientId, days]);
 
+  useEffect(() => {
+    if (!jobs.some((job) => ["queued", "running"].includes(job.status))) return;
+    const timer = setInterval(() => void load(), 5000);
+    return () => clearInterval(timer);
+  }, [jobs, clientId, days]);
+
   async function sync() {
     setSyncing(true);
     try {
@@ -67,12 +76,12 @@ export default function AnalyticsScreen() {
         .data;
       const failures: Array<{ error?: string }> = [];
       if (clientId === "all") {
-        const result = await api.syncAnalytics();
+        const result = await api.syncAnalytics(undefined, days);
         failures.push(...result.results.filter((row) => !row.ok || row.status === "unsupported"));
       } else {
         for (const account of accounts.filter((row: any) => row.status === "connected")) {
           try {
-            const result = await api.syncAnalytics(account.id);
+            const result = await api.syncAnalytics(account.id, days);
             failures.push(
               ...result.results.filter((row) => !row.ok || row.status === "unsupported"),
             );
@@ -171,6 +180,18 @@ export default function AnalyticsScreen() {
         </View>
       </Card>
 
+      {jobs
+        .filter((job) => clientId === "all" || job.client_id === clientId)
+        .slice(0, 10)
+        .map((job) => (
+          <Card key={job.id}>
+            <Text>
+              {job.account_name} · {job.range_days} days · {job.status} · {job.processed} processed
+              · {job.failed} failed
+            </Text>
+            {!!job.error_message && <Text>{job.error_message}</Text>}
+          </Card>
+        ))}
       {!!error && (
         <Card subtle>
           <Text accessibilityRole="alert" style={styles.error}>

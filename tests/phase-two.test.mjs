@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { workspace } from "./workspace.mjs";
+import { workspace, withCurrentRevision } from "./workspace.mjs";
 import { encryptSecret } from "../cloudflare/src/security.ts";
 import { runGenerationJob } from "../cloudflare/src/generation.ts";
 import { reserveSchedule } from "../cloudflare/src/scheduling.ts";
@@ -11,7 +11,8 @@ import { publishActions } from "../src/shared/publish-actions.ts";
 import worker from "../cloudflare/src/index.ts";
 import { campaignBoundary } from "../cloudflare/src/campaign-workflow.ts";
 
-const send = (w, path, body, user = "owner") => w.request(path, { method: "POST", user, body });
+const send = (w, path, body, user = "owner") =>
+  w.request(path, { method: "POST", user, body: withCurrentRevision(w, path, body) });
 const request = {
   clientId: "client-a",
   mode: "social",
@@ -334,8 +335,12 @@ test("campaign bulk actions report skips and preserve published and active publi
   assert.equal((await send(w, "/v1/campaigns/campaign/posts/pause", {}, "viewer")).status, 403);
   assert.equal((await send(w, "/v1/campaigns/campaign/posts/pause")).status, 200);
   assert.equal(w.row("SELECT status FROM posts WHERE id='review'").status, "paused");
-  await send(w, "/v1/campaigns/campaign/posts/resume");
-  assert.equal(w.row("SELECT status FROM posts WHERE id='review'").status, "calendar_scheduled");
+  const resumed = await (await send(w, "/v1/campaigns/campaign/posts/resume")).json();
+  assert.equal(
+    w.row("SELECT status FROM posts WHERE id='review'").status,
+    "calendar_scheduled",
+    JSON.stringify(resumed),
+  );
   const job = await ensurePublishJob(w.env, "review");
   w.exec("UPDATE posts SET prepublish_response='publish_now' WHERE id='review'");
   assert.equal((await claimPublishJob(w.env, job.jobId)).claimed, true);

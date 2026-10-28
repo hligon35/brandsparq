@@ -25,11 +25,16 @@ const indexes = db
     "SELECT name,sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL ORDER BY name",
   )
   .all();
+const triggers = db
+  .prepare("SELECT name,sql FROM sqlite_master WHERE type='trigger' ORDER BY name")
+  .all();
 const output =
   "// Generated from the ordered migrations by npm run schema:generate.\nexport const REQUIRED_SCHEMA = " +
   JSON.stringify(schema, null, 2) +
   " as const;\nexport const REQUIRED_INDEXES = " +
   JSON.stringify(indexes, null, 2) +
+  " as const;\nexport const REQUIRED_TRIGGERS = " +
+  JSON.stringify(triggers, null, 2) +
   " as const;\n";
 const target = "cloudflare/src/schema.ts";
 if (process.argv.includes("--check")) {
@@ -40,7 +45,8 @@ if (process.argv.includes("--check")) {
   const actual = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
   if (
     JSON.stringify(actual.REQUIRED_SCHEMA) !== JSON.stringify(schema) ||
-    JSON.stringify(actual.REQUIRED_INDEXES) !== JSON.stringify(indexes)
+    JSON.stringify(actual.REQUIRED_INDEXES) !== JSON.stringify(indexes) ||
+    JSON.stringify(actual.REQUIRED_TRIGGERS) !== JSON.stringify(triggers)
   )
     throw new Error("Schema manifest differs from migrations; run npm run schema:generate.");
 } else writeFileSync(target, output);

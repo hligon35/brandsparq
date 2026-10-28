@@ -1,3 +1,4 @@
+import { refreshPages } from "@/shared/refresh-pages";
 import { IconButton } from "@/components/icon-button";
 import { Link, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useRef, useState } from "react";
@@ -15,6 +16,7 @@ export default function GenerationScreen() {
   const [working, setWorking] = useState("");
   const [loaded, setLoaded] = useState(false);
   const loadVersion = useRef(0);
+  const visibleCount = useRef(0);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -34,19 +36,26 @@ export default function GenerationScreen() {
         }),
         jobId ? api.getGenerationJob(jobId) : Promise.resolve(null),
       ]);
+      if (refresh) {
+        const refreshed = await refreshPages(list, visibleCount.current, (cursor) =>
+          api.getGenerationJobs({ search: query, status, cursor }),
+        );
+        list.data = refreshed.data;
+        list.nextCursor = refreshed.nextCursor;
+      }
       if (version !== loadVersion.current) return;
       setJobs((old) => {
-        const rows =
-          more || refresh
-            ? [...old.filter((row) => !list.data.some((item) => item.id === row.id)), ...list.data]
-            : list.data;
+        visibleCount.current = more ? old.length + list.data.length : list.data.length;
+        const rows = more
+          ? [...old.filter((row) => !list.data.some((item) => item.id === row.id)), ...list.data]
+          : list.data;
         return [
           ...new Map(
             [...(requested ? [requested.data] : []), ...rows].map((row) => [row.id, row]),
           ).values(),
         ];
       });
-      if (!refresh) setNextCursor(list.nextCursor);
+      setNextCursor(list.nextCursor);
       setError("");
     } catch (e) {
       if (version !== loadVersion.current) return;

@@ -55,7 +55,7 @@ if (!app.expo?.extra?.eas?.projectId)
     "EAS projectId is not linked yet; native push/release setup remains incomplete until eas init.",
   );
 
-const api = read("src/api/client.ts");
+const api = read("src/api/client.ts") + read("src/shared/api-origin.ts");
 if (!api.includes("https://brandsparq.getsparqd.com"))
   fail("Native production API fallback is not configured.");
 if (!api.includes("__DEV__"))

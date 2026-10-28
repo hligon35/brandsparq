@@ -1,8 +1,10 @@
+import { verifyToolchainPatches } from "./lib/toolchain-patches.mjs";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { assessAudit } from "./lib/dependency-disposition.mjs";
 import { verifyReleaseEvidence } from "./lib/release-evidence.mjs";
 import { execFileSync } from "node:child_process";
+const remediated = verifyToolchainPatches();
 const release = process.argv.includes("--release");
 let ownerDisposition;
 if (release) {
@@ -14,15 +16,25 @@ if (release) {
 }
 if (!process.env.npm_execpath) throw new Error("Use npm run audit:dependencies.");
 for (const directory of [".", "cloudflare"]) {
-  const result = spawnSync(process.execPath, [process.env.npm_execpath, "audit", "--json"], {
-    cwd: directory,
-    encoding: "utf8",
-  });
+  const result = spawnSync(
+    process.execPath,
+    [process.env.npm_execpath, "audit", "--json", "--fetch-retries=0", "--fetch-timeout=30000"],
+    {
+      cwd: directory,
+      encoding: "utf8",
+      timeout: 90000,
+      maxBuffer: 16 * 1024 * 1024,
+    },
+  );
   if (result.error || ![0, 1].includes(result.status))
     throw new Error(`Audit failed for ${directory}.`);
   const report = JSON.parse(result.stdout);
   const lock = JSON.parse(readFileSync(`${directory}/package-lock.json`, "utf8"));
-  const disposition = assessAudit(report, lock, { release, disposition: ownerDisposition });
+  const disposition = assessAudit(report, lock, {
+    release,
+    disposition: ownerDisposition,
+    remediated: directory === "." ? remediated : [],
+  });
   if (directory === "cloudflare" && !disposition.securityClear)
     throw new Error("Worker tooling must have a clean audit.");
   console.log(directory, JSON.stringify(disposition));

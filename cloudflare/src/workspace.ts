@@ -1,3 +1,4 @@
+import { validRevision, revisionRequired, revisionConflict } from "./revisions";
 import { pageOptions, pageResult } from "./pagination";
 import { sendReviewLinks } from "./generation";
 import type { SessionUser } from "./auth";
@@ -154,14 +155,34 @@ export async function handleWorkspaceRoute(
       : { body: { error: "Archived client not found." }, status: 404 };
   }
   if (url.pathname === "/v1/posts/paused" && request.method === "GET") {
+    let page;
+    try {
+      page = pageOptions(url);
+    } catch (e) {
+      return { body: { error: (e as Error).message }, status: 400 };
+    }
     const rows =
-      await env.DB.prepare(`SELECT p.id,p.client_id,c.name AS client_name,c.status AS client_status,p.title,p.platform,p.approved_at,p.scheduled_publish_at,p.paused_from_status
-    FROM posts p JOIN clients c ON c.id=p.client_id WHERE p.status='paused' AND (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=p.client_id))
-    ORDER BY p.updated_at DESC LIMIT 100`)
-        .bind(user.role, user.id)
-        .all();
-    return { body: { data: rows.results } };
+      await env.DB.prepare(`SELECT p.id,p.created_at,p.client_id,c.name AS client_name,c.status AS client_status,p.title,p.platform,p.approved_at,p.scheduled_publish_at,p.paused_from_status
+      FROM posts p JOIN clients c ON c.id=p.client_id WHERE p.status='paused'
+      AND (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=p.client_id))
+      AND (?='' OR instr(lower(c.name || ' ' || p.title),lower(?))>0)
+      AND (? IS NULL OR p.created_at<? OR (p.created_at=? AND p.id<?))
+      ORDER BY p.created_at DESC,p.id DESC LIMIT ?`)
+        .bind(
+          user.role,
+          user.id,
+          page.search,
+          page.search,
+          page.cursor?.createdAt || null,
+          page.cursor?.createdAt || null,
+          page.cursor?.createdAt || null,
+          page.cursor?.id || null,
+          page.limit + 1,
+        )
+        .all<any>();
+    return { body: pageResult(rows.results, page.limit) };
   }
+
   const paused = url.pathname.match(/^\/v1\/posts\/([^/]+)\/(resume|restore-review|cancel)$/);
   if (paused && request.method === "POST") {
     const post = await env.DB.prepare("SELECT * FROM posts WHERE id=?")
@@ -229,17 +250,34 @@ export async function handleWorkspaceRoute(
       .bind(asset[2], asset[1])
       .first<any>();
     if (!row) return { body: { error: "Brand asset not found." }, status: 404 };
-    await env.DB.batch([
-      env.DB.prepare("DELETE FROM brand_assets WHERE id=? AND client_id=?").bind(
-        asset[2],
-        asset[1],
-      ),
+    const payload = await request.json<any>().catch(() => null);
+    if (!validRevision(payload?.expectedRevision)) return revisionRequired;
+    const token = crypto.randomUUID();
+    const removed = await env.DB.batch([
       env.DB.prepare(
-        "UPDATE brand_profiles SET logo_asset_id=CASE WHEN logo_asset_id=? AND ?='logo' THEN NULL ELSE logo_asset_id END,alternate_logo_asset_id=CASE WHEN alternate_logo_asset_id=? AND ?='alternate_logo' THEN NULL ELSE alternate_logo_asset_id END WHERE client_id=?",
-      ).bind(row.asset_id, row.role, row.asset_id, row.role, asset[1]),
+        "UPDATE clients SET edit_token=?,edit_revision=edit_revision+1 WHERE id=? AND status='active' AND edit_revision=?",
+      ).bind(token, asset[1], payload.expectedRevision),
+      env.DB.prepare(
+        "DELETE FROM brand_assets WHERE id=? AND client_id=? AND EXISTS(SELECT 1 FROM clients WHERE id=? AND edit_token=?)",
+      ).bind(asset[2], asset[1], asset[1], token),
+      env.DB.prepare(`UPDATE brand_profiles SET logo_asset_id=CASE WHEN logo_asset_id=? AND ?='logo' THEN NULL ELSE logo_asset_id END,
+        alternate_logo_asset_id=CASE WHEN alternate_logo_asset_id=? AND ?='alternate_logo' THEN NULL ELSE alternate_logo_asset_id END
+        WHERE client_id=? AND EXISTS(SELECT 1 FROM clients WHERE id=? AND edit_token=?)`).bind(
+        row.asset_id,
+        row.role,
+        row.asset_id,
+        row.role,
+        asset[1],
+        asset[1],
+        token,
+      ),
     ]);
-    return { body: { ok: true } };
+    if (!removed[0].meta.changes) return revisionConflict;
+    return {
+      body: { ok: true, revision: payload.expectedRevision + 1 + Number(removed[2].meta.changes) },
+    };
   }
+
   const reviewLinks = url.pathname.match(/^\/v1\/clients\/([^/]+)\/review-links$/);
   if (reviewLinks) {
     if (!(await allowed(env, user, "review", reviewLinks[1])))

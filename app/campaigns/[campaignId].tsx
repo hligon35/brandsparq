@@ -1,6 +1,7 @@
+import { EditConflict, isEditConflict } from "@/components/edit-conflict";
 import { GuardedLink as Link, useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { api } from "@/api/client";
 import { useCapabilities } from "@/auth/capabilities";
@@ -10,6 +11,10 @@ import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/
 export default function CampaignDetailScreen() {
   const { campaignId } = useLocalSearchParams<{ campaignId: string }>();
   const can = useCapabilities();
+  const [conflict, setConflict] = useState(false);
+  const entityRef = useRef(campaignId);
+  entityRef.current = campaignId;
+  const loadVersion = useRef(0);
   const [data, setData] = useState<any>();
   const [form, setForm] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
@@ -20,9 +25,12 @@ export default function CampaignDetailScreen() {
     setForm,
   );
   async function load() {
+    const version = ++loadVersion.current;
+    setConflict(false);
     setError("");
     try {
       const { data } = await api.getCampaign(campaignId);
+      if (version !== loadVersion.current || entityRef.current !== campaignId) return;
       setData(data);
       const c = data.campaign;
       const nextForm = {
@@ -37,19 +45,29 @@ export default function CampaignDetailScreen() {
       setForm(nextForm);
       markSaved(nextForm);
     } catch (e) {
+      if (version !== loadVersion.current || entityRef.current !== campaignId) return;
+      if (isEditConflict(e)) setConflict(true);
       setError(e instanceof Error ? e.message : "Unable to load campaign.");
     }
   }
   useEffect(() => {
     void load();
+    return () => {
+      loadVersion.current++;
+    };
   }, [campaignId]);
   async function save() {
     setSaving(true);
     try {
-      await api.updateCampaign(campaignId, { ...form, priority: Number(form.priority) });
+      await api.updateCampaign(campaignId, {
+        ...form,
+        priority: Number(form.priority),
+        expectedRevision: data.campaign.workflow_revision,
+      });
       await load();
       Alert.alert("Campaign saved");
     } catch (e) {
+      if (isEditConflict(e)) setConflict(true);
       Alert.alert("Unable to save", e instanceof Error ? e.message : "Try again.");
     } finally {
       setSaving(false);
@@ -78,10 +96,15 @@ export default function CampaignDetailScreen() {
       return;
     setSaving(true);
     try {
-      const result = await api.campaignPostAction(campaignId, action);
+      const result = await api.campaignPostAction(
+        campaignId,
+        action,
+        Object.fromEntries(data.posts.map((p: any) => [p.id, p.content_revision])),
+      );
       setBulkResults(result.results);
       await load();
     } catch (error) {
+      if (isEditConflict(error)) setConflict(true);
       Alert.alert(
         "Unable to update campaign posts",
         error instanceof Error ? error.message : "Try again.",
@@ -93,6 +116,7 @@ export default function CampaignDetailScreen() {
   const editable = !!data && can("client_manage", data.campaign.client_id);
   return (
     <PageScroll>
+      {conflict && <EditConflict busy={saving} onReload={load} />}
       <PageHeader
         title={data?.campaign.name || "Campaign"}
         eyebrow={data?.campaign.client_name || "Campaigns"}

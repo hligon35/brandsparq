@@ -163,3 +163,45 @@ export function workspace(t) {
   }
   return { sqlite, env, exec, row, post, request, objects, published, generated };
 }
+
+// Existing workflow tests model a freshly loaded editor. Concurrency regressions
+// pass explicit old revisions (or use raw worker requests to test missing revisions).
+export function withCurrentRevision(w, path, body = {}) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return body;
+  const next = { ...body };
+  const client = path.match(
+    /^\/v1\/clients\/([^/]+)(?:\/brand|\/brand-assets(?:\/[^/]+\/remove)?)?$/,
+  );
+  const campaign = path.match(/^\/v1\/campaigns\/([^/]+)$/);
+  const post = path.match(/^\/v1\/posts\/([^/]+)\/(edit|approve|social-account)$/);
+  const review = path.match(/^\/v1\/public\/review\/([^/]+)\/(edit|approve)$/);
+  let revision;
+  if (client) revision = w.row("SELECT edit_revision n FROM clients WHERE id=?", client[1]).n;
+  if (campaign)
+    revision = w.row("SELECT workflow_revision n FROM campaigns WHERE id=?", campaign[1]).n;
+  if (post) revision = w.row("SELECT content_revision n FROM posts WHERE id=?", post[1]).n;
+  if (review)
+    revision = w.row(
+      "SELECT p.content_revision n FROM posts p JOIN review_tokens r ON r.post_id=p.id WHERE r.token_hash=?",
+      digest(`${w.env.AUTH_PEPPER}:review:${review[1]}`),
+    ).n;
+  if (revision !== undefined && next.expectedRevision === undefined)
+    next.expectedRevision = revision;
+  const bulk = path === "/v1/posts/bulk/approve";
+  const campaignBulk = path.match(/^\/v1\/campaigns\/([^/]+)\/posts\/approve$/);
+  if ((bulk || campaignBulk) && next.expectedRevisions === undefined) {
+    const rows = campaignBulk
+      ? w.sqlite
+          .prepare("SELECT id,content_revision FROM posts WHERE campaign_id=?")
+          .all(campaignBulk[1])
+      : (Array.isArray(next.postIds) ? next.postIds : [])
+          .filter((id) => typeof id === "string")
+          .map((id) => ({
+            id,
+            content_revision: w.row("SELECT content_revision FROM posts WHERE id=?", id)
+              .content_revision,
+          }));
+    next.expectedRevisions = Object.fromEntries(rows.map((p) => [p.id, p.content_revision]));
+  }
+  return next;
+}

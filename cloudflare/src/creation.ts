@@ -1,3 +1,4 @@
+import { renewClientDestinations } from "./social";
 import { validTimezone } from "./settings-validation";
 import type { SessionUser } from "./auth";
 import { hasClientPermission } from "./authz";
@@ -44,6 +45,13 @@ export async function creationReadiness(env: Env, clientId: string) {
     blockers.push(
       "Creative generation is not configured. Ask the workspace owner to configure it.",
     );
+  try {
+    await renewClientDestinations(env, clientId);
+  } catch {
+    blockers.push(
+      "Publishing access could not be renewed. Retry shortly or verify the connection.",
+    );
+  }
   const accounts =
     await env.DB.prepare(`SELECT id,platform,account_name,status,health_status,token_expires_at,is_default,
     access_token_ciphertext IS NOT NULL AS has_token FROM social_accounts WHERE client_id=? ORDER BY platform,is_default DESC,account_name,id`)
@@ -71,6 +79,9 @@ export async function creationReadiness(env: Env, clientId: string) {
   return {
     ready: !blockers.length,
     blockers,
+    visualReviewRequired: true,
+    brandingNotice:
+      "AI graphics can alter logos and lettering. Inspect and approve the image before publishing; exact logo reproduction is not guaranteed.",
     warnings: client?.logo_asset_id
       ? []
       : ["No brand logo is selected; graphics will be generated without a logo."],

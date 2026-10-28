@@ -3785,3 +3785,37 @@ export const REQUIRED_INDEXES = [
     "sql": "CREATE INDEX idx_users_google_sub ON users(google_sub)"
   }
 ] as const;
+export const REQUIRED_TRIGGERS = [
+  {
+    name: "analytics_resource_budget",
+    sql: "CREATE TRIGGER analytics_resource_budget BEFORE INSERT ON analytics_jobs\nWHEN NOT EXISTS(SELECT 1 FROM analytics_jobs WHERE social_account_id=NEW.social_account_id AND status IN ('queued','running'))\nAND (SELECT COUNT(*) FROM analytics_jobs WHERE status IN ('queued','running'))>=100\nBEGIN SELECT RAISE(ABORT,'Analytics capacity reached. Wait for active syncs to finish, then retry.'); END",
+  },
+  {
+    name: "brand_delete_revision",
+    sql: "CREATE TRIGGER brand_delete_revision AFTER DELETE ON brand_profiles\nBEGIN UPDATE clients SET edit_revision=edit_revision+1 WHERE id=OLD.client_id; END",
+  },
+  {
+    name: "brand_insert_revision",
+    sql: "CREATE TRIGGER brand_insert_revision AFTER INSERT ON brand_profiles\nBEGIN UPDATE clients SET edit_revision=edit_revision+1 WHERE id=NEW.client_id; END",
+  },
+  {
+    name: "brand_update_revision",
+    sql: "CREATE TRIGGER brand_update_revision AFTER UPDATE ON brand_profiles\nBEGIN UPDATE clients SET edit_revision=edit_revision+1 WHERE id=NEW.client_id; END",
+  },
+  {
+    name: "clients_identity_revision",
+    sql: "CREATE TRIGGER clients_identity_revision AFTER UPDATE OF name,timezone ON clients\nWHEN NEW.name IS NOT OLD.name OR NEW.timezone IS NOT OLD.timezone\nBEGIN UPDATE clients SET edit_revision=edit_revision+1 WHERE id=NEW.id; END",
+  },
+  {
+    name: "generation_resource_budget",
+    sql: "CREATE TRIGGER generation_resource_budget BEFORE INSERT ON generation_jobs\nWHEN NEW.request_key IS NOT NULL AND NOT EXISTS(SELECT 1 FROM generation_jobs WHERE requested_by=NEW.requested_by AND request_key=NEW.request_key)\nAND ((SELECT COUNT(*) FROM generation_jobs WHERE client_id=NEW.client_id AND status IN ('queued','retrying','rendering','processing'))>=10\n OR (SELECT COUNT(*) FROM generation_jobs WHERE client_id=NEW.client_id AND created_at>=datetime('now','-1 day'))>=50)\nBEGIN SELECT RAISE(ABORT,'GENERATION_BUDGET_EXCEEDED'); END",
+  },
+  {
+    name: "media_resource_budget",
+    sql: "CREATE TRIGGER media_resource_budget BEFORE INSERT ON assets\nWHEN NOT EXISTS(SELECT 1 FROM assets WHERE id=NEW.id)\nAND (SELECT COUNT(*) FROM assets WHERE client_id=NEW.client_id)>=2000\nBEGIN SELECT RAISE(ABORT,'MEDIA_BUDGET_EXCEEDED'); END",
+  },
+  {
+    name: "post_content_revision",
+    sql: "CREATE TRIGGER post_content_revision AFTER UPDATE OF title,headline,caption,hashtags,graphic_key,social_account_id,reviewer_comment ON posts\nWHEN NEW.content_revision=OLD.content_revision AND (NEW.title IS NOT OLD.title OR NEW.headline IS NOT OLD.headline\n OR NEW.caption IS NOT OLD.caption OR NEW.hashtags IS NOT OLD.hashtags\n OR NEW.graphic_key IS NOT OLD.graphic_key OR NEW.social_account_id IS NOT OLD.social_account_id\n OR NEW.reviewer_comment IS NOT OLD.reviewer_comment)\nBEGIN UPDATE posts SET content_revision=content_revision+1 WHERE id=NEW.id; END",
+  },
+] as const;

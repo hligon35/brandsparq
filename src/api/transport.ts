@@ -44,7 +44,7 @@ export async function readResponse<T>(
     };
     return await Promise.race([deadline, operation()]);
   } finally {
-    clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
     init?.signal?.removeEventListener("abort", cancel);
   }
 }
@@ -98,7 +98,9 @@ export function createApiTransport(
               )
                 await unauthorized?.();
               if (!response.ok) {
-                const payload = await response.json().catch(() => null);
+                const payload = (await response.json().catch(() => null)) as {
+                  error?: string;
+                } | null;
                 throw new RequestError(
                   payload?.error || `Request failed: ${response.status}`,
                   "HTTP",

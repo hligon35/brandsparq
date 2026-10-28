@@ -1,3 +1,5 @@
+import { renderFinalCopy, finalCopyError } from "../../src/shared/final-copy";
+import { providerFetch } from "./provider-http";
 import { latestMetricsJoin } from "./analytics";
 import { hasClientPermission } from "./authz";
 import { decryptSecret, encryptSecret, hashSecret } from "./security";
@@ -42,7 +44,16 @@ type SocialAccountRow = {
   account_type?: string | null;
   health_status?: string | null;
   health_checked_at?: string | null;
+  connection_revision: number;
+  refresh_claim?: string | null;
+  refresh_until?: number | null;
 };
+
+export class SocialConnectionChanged extends Error {
+  constructor(message = "This connection changed. Refresh the list before trying again.") {
+    super(message);
+  }
+}
 
 export class SocialProviderError extends Error {
   status?: number;
@@ -198,10 +209,18 @@ export async function socialOAuthStart(
   const verifier = platform === "x" ? randomToken(48) : null;
   const expiresAt = Date.now() + 10 * 60 * 1000;
 
+  const revisions = await env.DB.prepare(
+    "SELECT id,connection_revision FROM social_accounts WHERE client_id=?",
+  )
+    .bind(clientId)
+    .all<any>();
+  const connectionRevisions = JSON.stringify(
+    Object.fromEntries(revisions.results.map((a) => [a.id, a.connection_revision])),
+  );
   await env.DB.prepare(
     `INSERT INTO social_oauth_states
-     (id, platform, client_id, user_id, state_hash, code_verifier, return_to, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (id, platform, client_id, user_id, state_hash, code_verifier, return_to, expires_at, created_at,connection_revisions)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,?)`,
   )
     .bind(
       crypto.randomUUID(),
@@ -213,6 +232,7 @@ export async function socialOAuthStart(
       returnTo,
       expiresAt,
       Date.now(),
+      connectionRevisions,
     )
     .run();
 
@@ -302,25 +322,30 @@ async function upsertAccount(
     metadata?: unknown;
     accountType?: string | null;
     connectedBy?: string | null;
+    connectionRevisions?: Record<string, number>;
   },
 ) {
   const existing = await env.DB.prepare(
-    "SELECT id FROM social_accounts WHERE client_id = ? AND platform = ? AND external_account_id = ?",
+    "SELECT id,connection_revision FROM social_accounts WHERE client_id = ? AND platform = ? AND external_account_id = ?",
   )
     .bind(input.clientId, input.platform, input.externalId)
-    .first<{ id: string }>();
+    .first<{ id: string; connection_revision: number }>();
 
-  const id = existing?.id || crypto.randomUUID();
+  let id = existing?.id || crypto.randomUUID();
   const access = await encryptSecret(input.accessToken, env);
   const refresh = await encryptSecret(input.refreshToken, env);
 
-  await env.DB.prepare(
+  const saved = await env.DB.prepare(
     `INSERT INTO social_accounts
      (id, client_id, platform, account_name, external_account_id, status,
       access_token_ciphertext, refresh_token_ciphertext, token_expires_at,
-      scopes, metadata, account_type, last_verified_at, connected_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'connected', ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-     ON CONFLICT(id) DO UPDATE SET
+      scopes, metadata, account_type, last_verified_at, connected_by, created_at, updated_at,health_status,permission_status)
+     SELECT ?, ?, ?, ?, ?, 'connected', ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,'healthy','verified'
+     WHERE EXISTS(SELECT 1 FROM clients WHERE id=? AND status='active')
+       AND EXISTS(SELECT 1 FROM users u WHERE u.id=? AND u.status='active' AND
+         (u.role='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=u.id AND a.client_id=? AND COALESCE(a.permission_role,u.role)='admin')))
+     ON CONFLICT(client_id,platform,external_account_id) WHERE external_account_id IS NOT NULL DO UPDATE SET
+       connection_revision=social_accounts.connection_revision+1,refresh_claim=NULL,refresh_until=NULL,
        account_name = excluded.account_name,
        status = 'connected',
        health_status = 'healthy',
@@ -333,7 +358,7 @@ async function upsertAccount(
        account_type = excluded.account_type,
        last_verified_at = excluded.last_verified_at,
        connected_by = excluded.connected_by,
-       updated_at = CURRENT_TIMESTAMP`,
+       updated_at = CURRENT_TIMESTAMP WHERE social_accounts.connection_revision=?`,
   )
     .bind(
       id,
@@ -349,19 +374,19 @@ async function upsertAccount(
       input.accountType || null,
       new Date().toISOString(),
       input.connectedBy || null,
+      input.clientId,
+      input.connectedBy || null,
+      input.clientId,
+      existing ? (input.connectionRevisions?.[existing.id] ?? -1) : -1,
     )
     .run();
-
-  await env.DB.prepare(
-    `UPDATE social_accounts SET
-     health_status='healthy',
-     health_checked_at=COALESCE(health_checked_at,last_verified_at,CURRENT_TIMESTAMP),
-     permission_status=COALESCE(permission_status,'verified'),
-     last_error=NULL
-     WHERE id=?`,
+  if (!saved.meta.changes) throw new SocialConnectionChanged();
+  const stored = await env.DB.prepare(
+    "SELECT id FROM social_accounts WHERE client_id=? AND platform=? AND external_account_id=?",
   )
-    .bind(id)
-    .run();
+    .bind(input.clientId, input.platform, input.externalId)
+    .first<{ id: string }>();
+  id = stored!.id;
 
   const defaultAccount = await env.DB.prepare(
     `SELECT id FROM social_accounts
@@ -373,7 +398,7 @@ async function upsertAccount(
 
   if (!defaultAccount) {
     await env.DB.prepare(
-      "UPDATE social_accounts SET is_default = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      "UPDATE social_accounts SET is_default = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status='connected'",
     )
       .bind(id)
       .run();
@@ -388,6 +413,7 @@ async function discoverLinkedInOrganizations(
     clientId: string;
     accessToken: string;
     connectedBy?: string | null;
+    connectionRevisions?: Record<string, number>;
     scopes?: string | null;
   },
 ) {
@@ -399,7 +425,7 @@ async function discoverLinkedInOrganizations(
 
   if (!hasOrgScope) return [];
 
-  const aclResponse = await fetch(
+  const aclResponse = await providerFetch(
     "https://api.linkedin.com/v2/organizationalEntityAcls?q=roleAssignee&state=APPROVED",
     { headers: { authorization: `Bearer ${input.accessToken}` } },
   );
@@ -415,7 +441,7 @@ async function discoverLinkedInOrganizations(
   for (const organizationId of organizationIds) {
     let name = `LinkedIn Organization ${organizationId}`;
     try {
-      const orgResponse = await fetch(
+      const orgResponse = await providerFetch(
         `https://api.linkedin.com/v2/organizations/${organizationId}`,
         { headers: { authorization: `Bearer ${input.accessToken}` } },
       );
@@ -435,6 +461,7 @@ async function discoverLinkedInOrganizations(
       metadata: { organizationUrn: `urn:li:organization:${organizationId}` },
       accountType: "organization",
       connectedBy: input.connectedBy,
+      connectionRevisions: input.connectionRevisions,
     });
     connected.push(organizationId);
   }
@@ -551,11 +578,11 @@ export async function socialOAuthCallback(
     tokenUrl.searchParams.set("client_secret", env.META_APP_SECRET!);
     tokenUrl.searchParams.set("redirect_uri", redirectUri);
     tokenUrl.searchParams.set("code", code);
-    const tokenResponse = await fetch(tokenUrl);
+    const tokenResponse = await providerFetch(tokenUrl);
     if (!tokenResponse.ok) throw new Error("Meta token exchange failed.");
     const token = await tokenResponse.json<any>();
 
-    const accountsResponse = await fetch(
+    const accountsResponse = await providerFetch(
       `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&access_token=${encodeURIComponent(token.access_token)}`,
     );
     if (!accountsResponse.ok) throw new Error("Meta account discovery failed.");
@@ -571,6 +598,7 @@ export async function socialOAuthCallback(
         metadata: { pageId: page.id },
         accountType: "page",
         connectedBy: saved.user_id,
+        connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
       });
 
       if (page.instagram_business_account?.id) {
@@ -583,6 +611,7 @@ export async function socialOAuthCallback(
           metadata: { pageId: page.id },
           accountType: "business",
           connectedBy: saved.user_id,
+          connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
         });
       }
     }
@@ -594,14 +623,14 @@ export async function socialOAuthCallback(
       client_secret: env.LINKEDIN_CLIENT_SECRET!,
       redirect_uri: env.LINKEDIN_REDIRECT_URI || `${url.origin}/v1/social/linkedin/callback`,
     });
-    const tokenResponse = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
+    const tokenResponse = await providerFetch("https://www.linkedin.com/oauth/v2/accessToken", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body,
     });
     if (!tokenResponse.ok) throw new Error("LinkedIn token exchange failed.");
     const token = await tokenResponse.json<any>();
-    const profileResponse = await fetch("https://api.linkedin.com/v2/userinfo", {
+    const profileResponse = await providerFetch("https://api.linkedin.com/v2/userinfo", {
       headers: { authorization: `Bearer ${token.access_token}` },
     });
     if (!profileResponse.ok) throw new Error("LinkedIn profile discovery failed.");
@@ -618,11 +647,13 @@ export async function socialOAuthCallback(
       metadata: { picture: profile.picture },
       accountType: "member",
       connectedBy: saved.user_id,
+      connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
     });
     await discoverLinkedInOrganizations(env, {
       clientId: saved.client_id,
       accessToken: token.access_token,
       connectedBy: saved.user_id,
+      connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
       scopes: token.scope,
     });
   } else if (provider === "tiktok") {
@@ -633,14 +664,14 @@ export async function socialOAuthCallback(
       grant_type: "authorization_code",
       redirect_uri: env.TIKTOK_REDIRECT_URI || `${url.origin}/v1/social/tiktok/callback`,
     });
-    const tokenResponse = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
+    const tokenResponse = await providerFetch("https://open.tiktokapis.com/v2/oauth/token/", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body,
     });
     if (!tokenResponse.ok) throw new Error("TikTok token exchange failed.");
     const token = await tokenResponse.json<any>();
-    const userResponse = await fetch(
+    const userResponse = await providerFetch(
       "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url",
       { headers: { authorization: `Bearer ${token.access_token}` } },
     );
@@ -658,6 +689,7 @@ export async function socialOAuthCallback(
       metadata: { avatar: user.avatar_url },
       accountType: "creator",
       connectedBy: saved.user_id,
+      connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
     });
   } else {
     const body = new URLSearchParams({
@@ -668,7 +700,7 @@ export async function socialOAuthCallback(
       code_verifier: saved.code_verifier,
     });
     const basic = env.X_CLIENT_SECRET ? btoa(`${env.X_CLIENT_ID}:${env.X_CLIENT_SECRET}`) : null;
-    const tokenResponse = await fetch("https://api.x.com/2/oauth2/token", {
+    const tokenResponse = await providerFetch("https://api.x.com/2/oauth2/token", {
       method: "POST",
       headers: {
         "content-type": "application/x-www-form-urlencoded",
@@ -678,7 +710,7 @@ export async function socialOAuthCallback(
     });
     if (!tokenResponse.ok) throw new Error("X token exchange failed.");
     const token = await tokenResponse.json<any>();
-    const userResponse = await fetch("https://api.x.com/2/users/me", {
+    const userResponse = await providerFetch("https://api.x.com/2/users/me", {
       headers: { authorization: `Bearer ${token.access_token}` },
     });
     if (!userResponse.ok) throw new Error("X account discovery failed.");
@@ -695,6 +727,7 @@ export async function socialOAuthCallback(
       metadata: user,
       accountType: "user",
       connectedBy: saved.user_id,
+      connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
     });
   }
 
@@ -727,6 +760,20 @@ async function createPublicMediaUrl(env: SocialEnv, post: any) {
 }
 
 async function accountToken(env: SocialEnv, account: SocialAccountRow) {
+  const authority = await env.DB.prepare(
+    "SELECT status,connection_revision,access_token_ciphertext FROM social_accounts WHERE id=?",
+  )
+    .bind(account.id)
+    .first<any>();
+  if (
+    !authority ||
+    authority.status !== "connected" ||
+    authority.access_token_ciphertext !== account.access_token_ciphertext ||
+    (account.connection_revision !== undefined &&
+      account.connection_revision !== authority.connection_revision)
+  )
+    throw new SocialConnectionChanged();
+  account.connection_revision = authority.connection_revision;
   const current = await decryptSecret(account.access_token_ciphertext, env);
   if (!current) throw new Error("Social account token is missing.");
 
@@ -735,93 +782,102 @@ async function accountToken(env: SocialEnv, account: SocialAccountRow) {
   if (!needsRefresh) return current;
 
   const refreshToken = await decryptSecret(account.refresh_token_ciphertext, env);
-  if (!refreshToken) {
-    await env.DB.prepare(
-      "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-    )
-      .bind("Access token expired and no refresh token is available.", account.id)
-      .run();
+  if (!refreshToken)
     throw new SocialProviderError("Social authorization expired. Reconnect this account.", {
       category: "authorization",
       retryable: false,
     });
-  }
 
-  let tokenResponse: Response;
-
-  if (account.platform === "linkedin") {
-    tokenResponse = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-        client_id: env.LINKEDIN_CLIENT_ID || "",
-        client_secret: env.LINKEDIN_CLIENT_SECRET || "",
-      }),
-    });
-  } else if (account.platform === "tiktok") {
-    tokenResponse = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-        client_key: env.TIKTOK_CLIENT_KEY || "",
-        client_secret: env.TIKTOK_CLIENT_SECRET || "",
-      }),
-    });
-  } else if (account.platform === "x") {
-    const basic =
-      env.X_CLIENT_SECRET && env.X_CLIENT_ID
-        ? btoa(`${env.X_CLIENT_ID}:${env.X_CLIENT_SECRET}`)
-        : null;
-    tokenResponse = await fetch("https://api.x.com/2/oauth2/token", {
-      method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-        ...(basic ? { authorization: `Basic ${basic}` } : {}),
-      },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-        client_id: env.X_CLIENT_ID || "",
-      }),
-    });
-  } else {
-    await env.DB.prepare(
-      "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-    )
-      .bind("Meta authorization expired. Reconnect this account.", account.id)
+  const claim = crypto.randomUUID();
+  const claimed =
+    await env.DB.prepare(`UPDATE social_accounts SET refresh_claim=?,refresh_until=? WHERE id=? AND status='connected'
+    AND connection_revision=? AND access_token_ciphertext IS ? AND (refresh_claim IS NULL OR refresh_until<=?)`)
+      .bind(
+        claim,
+        Date.now() + 90000,
+        account.id,
+        account.connection_revision,
+        account.access_token_ciphertext,
+        Date.now(),
+      )
       .run();
-    throw new SocialProviderError("Meta authorization expired. Reconnect this account.", {
-      category: "authorization",
-      retryable: false,
-    });
-  }
+  if (!claimed.meta.changes)
+    throw new SocialConnectionChanged(
+      "Connection changed or refresh is already running. Retry shortly.",
+    );
+  const refreshFetch = (url: string, init: RequestInit) =>
+    providerFetch(url, { ...init, signal: AbortSignal.timeout(30000) });
+  try {
+    let tokenResponse: Response;
 
-  if (!tokenResponse.ok) {
-    const detail = (await tokenResponse.text()).slice(0, 500);
-    await env.DB.prepare(
-      "UPDATE social_accounts SET status = 'reauth_required', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-    )
-      .bind(`Token refresh failed: ${detail}`, account.id)
-      .run();
-    throw new SocialProviderError("Social authorization refresh failed. Reconnect this account.", {
-      category: "authorization",
-      retryable: false,
-    });
-  }
+    if (account.platform === "linkedin") {
+      tokenResponse = await refreshFetch("https://www.linkedin.com/oauth/v2/accessToken", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+          client_id: env.LINKEDIN_CLIENT_ID || "",
+          client_secret: env.LINKEDIN_CLIENT_SECRET || "",
+        }),
+      });
+    } else if (account.platform === "tiktok") {
+      tokenResponse = await refreshFetch("https://open.tiktokapis.com/v2/oauth/token/", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+          client_key: env.TIKTOK_CLIENT_KEY || "",
+          client_secret: env.TIKTOK_CLIENT_SECRET || "",
+        }),
+      });
+    } else if (account.platform === "x") {
+      const basic =
+        env.X_CLIENT_SECRET && env.X_CLIENT_ID
+          ? btoa(`${env.X_CLIENT_ID}:${env.X_CLIENT_SECRET}`)
+          : null;
+      tokenResponse = await refreshFetch("https://api.x.com/2/oauth2/token", {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          ...(basic ? { authorization: `Basic ${basic}` } : {}),
+        },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+          client_id: env.X_CLIENT_ID || "",
+        }),
+      });
+    } else {
+      throw new SocialProviderError("Meta authorization expired. Reconnect this account.", {
+        category: "authorization",
+        retryable: false,
+      });
+    }
 
-  const refreshed = await tokenResponse.json<any>();
-  const nextAccess = refreshed.access_token;
-  const nextRefresh = refreshed.refresh_token || refreshToken;
-  const nextExpiresAt = refreshed.expires_in
-    ? Date.now() + Number(refreshed.expires_in) * 1000
-    : null;
+    if (!tokenResponse.ok) {
+      throw classifyProviderResponse(
+        tokenResponse,
+        "Social authorization refresh failed. Try again or reconnect this account.",
+      );
+    }
 
-  await env.DB.prepare(
-    `UPDATE social_accounts SET
+    const refreshed = await tokenResponse.json<any>();
+    const nextAccess = refreshed.access_token;
+    if (typeof nextAccess !== "string" || !nextAccess)
+      throw new SocialProviderError("Provider returned no refreshed access token.", {
+        category: "temporary",
+        retryable: true,
+      });
+    const nextRefresh = refreshed.refresh_token || refreshToken;
+    const nextExpiresAt = refreshed.expires_in
+      ? Date.now() + Number(refreshed.expires_in) * 1000
+      : null;
+
+    const accessCipher = await encryptSecret(nextAccess, env);
+    const refreshedWrite = await env.DB.prepare(
+      `UPDATE social_accounts SET
        access_token_ciphertext = ?,
        refresh_token_ciphertext = ?,
        token_expires_at = ?,
@@ -831,21 +887,50 @@ async function accountToken(env: SocialEnv, account: SocialAccountRow) {
        health_checked_at = ?,
        last_error = NULL,
        last_verified_at = ?,
+       refresh_claim=NULL,refresh_until=NULL,
        updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
-  )
-    .bind(
-      await encryptSecret(nextAccess, env),
-      await encryptSecret(nextRefresh, env),
-      nextExpiresAt,
-      refreshed.scope || null,
-      new Date().toISOString(),
-      new Date().toISOString(),
-      account.id,
+     WHERE id = ? AND status='connected' AND connection_revision=? AND refresh_claim=? AND access_token_ciphertext IS ?`,
     )
-    .run();
-
-  return nextAccess;
+      .bind(
+        accessCipher,
+        await encryptSecret(nextRefresh, env),
+        nextExpiresAt,
+        refreshed.scope || null,
+        new Date().toISOString(),
+        new Date().toISOString(),
+        account.id,
+        account.connection_revision,
+        claim,
+        account.access_token_ciphertext,
+      )
+      .run();
+    if (!refreshedWrite.meta.changes) throw new SocialConnectionChanged();
+    account.access_token_ciphertext = accessCipher;
+    return nextAccess;
+  } catch (error) {
+    if (
+      !(error instanceof SocialConnectionChanged) &&
+      error instanceof SocialProviderError &&
+      error.category === "authorization"
+    )
+      await env.DB.prepare(`UPDATE social_accounts SET status='reauth_required',health_status='reauth_required',last_error=?,updated_at=CURRENT_TIMESTAMP
+        WHERE id=? AND connection_revision=? AND refresh_claim=? AND access_token_ciphertext IS ?`)
+        .bind(
+          error.message,
+          account.id,
+          account.connection_revision,
+          claim,
+          account.access_token_ciphertext,
+        )
+        .run();
+    throw error;
+  } finally {
+    await env.DB.prepare(
+      "UPDATE social_accounts SET refresh_claim=NULL,refresh_until=NULL WHERE id=? AND refresh_claim=?",
+    )
+      .bind(account.id, claim)
+      .run();
+  }
 }
 
 function uncertainPublication(message: string) {
@@ -859,7 +944,7 @@ function uncertainPublication(message: string) {
 async function submitPost(url: string, init: RequestInit) {
   let response: Response;
   try {
-    response = await fetch(url, { ...init, signal: AbortSignal.timeout(60000) });
+    response = await providerFetch(url, { ...init, signal: AbortSignal.timeout(60000) });
   } catch {
     throw uncertainPublication("Provider submission response was lost.");
   }
@@ -889,6 +974,10 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
     .first<any>();
 
   if (!post) throw new Error("Post or social account not found.");
+  const finalCopy = renderFinalCopy(post.caption || "", post.hashtags);
+  const copyError = finalCopyError(post.platform, finalCopy);
+  if (copyError)
+    throw new SocialProviderError(copyError, { category: "permanent", retryable: false });
   const account = { ...post, id: post.social_account_id } as SocialAccountRow;
   const token = await accountToken(env, account);
   const mediaUrl = await createPublicMediaUrl(env, post);
@@ -898,14 +987,14 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
   let raw: unknown = null;
 
   if (post.platform === "instagram") {
-    const create = await fetch(
+    const create = await providerFetch(
       `https://graph.facebook.com/v23.0/${post.external_account_id}/media`,
       {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           image_url: mediaUrl,
-          caption: post.caption || "",
+          caption: finalCopy,
           access_token: token,
         }),
       },
@@ -934,7 +1023,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           url: mediaUrl,
-          caption: post.caption || "",
+          caption: finalCopy,
           access_token: token,
         }),
       },
@@ -947,23 +1036,26 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       post.account_type === "organization"
         ? `urn:li:organization:${post.external_account_id}`
         : `urn:li:person:${post.external_account_id}`;
-    const init = await fetch("https://api.linkedin.com/rest/images?action=initializeUpload", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
-        "LinkedIn-Version": "202610",
-        "X-Restli-Protocol-Version": "2.0.0",
+    const init = await providerFetch(
+      "https://api.linkedin.com/rest/images?action=initializeUpload",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          "LinkedIn-Version": "202610",
+          "X-Restli-Protocol-Version": "2.0.0",
+        },
+        body: JSON.stringify({ initializeUploadRequest: { owner } }),
       },
-      body: JSON.stringify({ initializeUploadRequest: { owner } }),
-    });
+    );
     await requireProviderOk(init, "LinkedIn upload initialization failed");
     const initPayload = await init.json<any>();
     const uploadUrl = initPayload.value?.uploadUrl;
     const imageUrn = initPayload.value?.image;
-    const imageResponse = await fetch(mediaUrl);
+    const imageResponse = await providerFetch(mediaUrl);
     const imageBlob = await imageResponse.blob();
-    const upload = await fetch(uploadUrl, {
+    const upload = await providerFetch(uploadUrl, {
       method: "PUT",
       headers: { authorization: `Bearer ${token}`, "content-type": imageBlob.type || "image/jpeg" },
       body: imageBlob,
@@ -980,7 +1072,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       },
       body: JSON.stringify({
         author: owner,
-        commentary: post.caption || "",
+        commentary: finalCopy,
         visibility: "PUBLIC",
         distribution: {
           feedDistribution: "MAIN_FEED",
@@ -1004,7 +1096,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
       },
       body: JSON.stringify({
         post_info: {
-          title: (post.caption || post.title || "").slice(0, 2200),
+          title: finalCopy,
           privacy_level: post.default_visibility || "PUBLIC_TO_EVERYONE",
           disable_comment: false,
           auto_add_music: false,
@@ -1022,12 +1114,12 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
     raw = await publicationPayload(publish);
     providerPostId = (raw as any).data?.publish_id || null;
   } else {
-    const imageResponse = await fetch(mediaUrl);
+    const imageResponse = await providerFetch(mediaUrl);
     const imageBlob = await imageResponse.blob();
     const form = new FormData();
     form.append("media", imageBlob, "brandsparq.jpg");
     form.append("media_category", "tweet_image");
-    const media = await fetch("https://api.x.com/2/media/upload", {
+    const media = await providerFetch("https://api.x.com/2/media/upload", {
       method: "POST",
       headers: { authorization: `Bearer ${token}` },
       body: form,
@@ -1042,7 +1134,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        text: (post.caption || post.title || "").slice(0, 280),
+        text: finalCopy,
         media: { media_ids: [mediaId] },
       }),
     });
@@ -1123,7 +1215,7 @@ export async function publishPostToSocial(env: SocialEnv, postId: string) {
   };
 }
 
-export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
+export async function syncAccountAnalytics(env: SocialEnv, accountId: string, onlyPostId?: string) {
   const account = await env.DB.prepare("SELECT * FROM social_accounts WHERE id = ?")
     .bind(accountId)
     .first<SocialAccountRow>();
@@ -1137,14 +1229,14 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
     .run();
 
   const analyticsFetch = (input: string, init: RequestInit = {}) =>
-    fetch(input, { ...init, signal: AbortSignal.timeout(15000) });
+    providerFetch(input, { ...init, signal: AbortSignal.timeout(15000) });
   try {
     const posts = await env.DB.prepare(
       `SELECT id, platform_post_id FROM posts
        WHERE social_account_id = ? AND status = 'published' AND platform_post_id IS NOT NULL
-       ORDER BY published_at DESC,id`,
+       AND (? IS NULL OR id=?) ORDER BY published_at DESC,id LIMIT 1000`,
     )
-      .bind(accountId)
+      .bind(accountId, onlyPostId || null, onlyPostId || null)
       .all<{ id: string; platform_post_id: string }>();
 
     if (account.platform === "linkedin" && account.account_type !== "organization") {
@@ -1454,15 +1546,29 @@ export async function syncAccountAnalytics(env: SocialEnv, accountId: string) {
   return { runId, status: "completed" };
 }
 
+export async function renewClientDestinations(
+  env: SocialEnv,
+  clientId: string,
+  accountId?: string | null,
+) {
+  const rows =
+    await env.DB.prepare(`SELECT * FROM social_accounts WHERE client_id=? AND status='connected'
+ AND (? IS NULL OR id=?) AND token_expires_at IS NOT NULL AND token_expires_at<=? AND refresh_token_ciphertext IS NOT NULL`)
+      .bind(clientId, accountId || null, accountId || null, Date.now() + 5 * 60000)
+      .all<SocialAccountRow>();
+  for (const account of rows.results) await accountToken(env, account);
+}
+
 export async function resolveDefaultSocialAccount(
   env: SocialEnv,
   clientId: string,
   platform: Platform,
 ) {
+  await renewClientDestinations(env, clientId);
   const preferred = await env.DB.prepare(
     `SELECT id, account_name
      FROM social_accounts
-     WHERE client_id = ? AND platform = ? AND status = 'connected' AND COALESCE(health_status,'healthy') NOT IN ('reauth_required','degraded','disconnected') AND (token_expires_at IS NULL OR token_expires_at>unixepoch('now')*1000)
+     WHERE client_id = ? AND platform = ? AND status = 'connected' AND access_token_ciphertext IS NOT NULL AND COALESCE(health_status,'healthy') NOT IN ('reauth_required','degraded','disconnected') AND (token_expires_at IS NULL OR token_expires_at>unixepoch('now')*1000)
      ORDER BY is_default DESC, created_at ASC
      LIMIT 2`,
   )
@@ -1474,7 +1580,7 @@ export async function resolveDefaultSocialAccount(
   const explicitDefault = await env.DB.prepare(
     `SELECT id, account_name
      FROM social_accounts
-     WHERE client_id = ? AND platform = ? AND status = 'connected' AND COALESCE(health_status,'healthy') NOT IN ('reauth_required','degraded','disconnected') AND (token_expires_at IS NULL OR token_expires_at>unixepoch('now')*1000) AND is_default = 1
+     WHERE client_id = ? AND platform = ? AND status = 'connected' AND access_token_ciphertext IS NOT NULL AND COALESCE(health_status,'healthy') NOT IN ('reauth_required','degraded','disconnected') AND (token_expires_at IS NULL OR token_expires_at>unixepoch('now')*1000) AND is_default = 1
      LIMIT 1`,
   )
     .bind(clientId, platform)
@@ -1492,30 +1598,41 @@ export async function ensurePostSocialDestination(
     client_id: string;
     platform: Platform;
     social_account_id?: string | null;
+    content_revision?: number;
   },
 ) {
   if (post.social_account_id) {
+    await renewClientDestinations(env, post.client_id, post.social_account_id);
     const assigned = await env.DB.prepare(
       `SELECT id, account_name
        FROM social_accounts
-       WHERE id = ? AND client_id = ? AND platform = ? AND status = 'connected' AND COALESCE(health_status,'healthy') NOT IN ('reauth_required','degraded','disconnected') AND (token_expires_at IS NULL OR token_expires_at>unixepoch('now')*1000)`,
+       WHERE id = ? AND client_id = ? AND platform = ? AND status = 'connected' AND access_token_ciphertext IS NOT NULL AND COALESCE(health_status,'healthy') NOT IN ('reauth_required','degraded','disconnected') AND (token_expires_at IS NULL OR token_expires_at>unixepoch('now')*1000)`,
     )
       .bind(post.social_account_id, post.client_id, post.platform)
       .first<{ id: string; account_name: string | null }>();
 
-    return assigned;
+    return assigned ? { ...assigned, contentRevision: post.content_revision } : null;
   }
 
   const fallback = await resolveDefaultSocialAccount(env, post.client_id, post.platform);
   if (!fallback) return null;
 
-  await env.DB.prepare(
-    "UPDATE posts SET social_account_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+  const current = await env.DB.prepare("SELECT content_revision,status FROM posts WHERE id=?")
+    .bind(post.id)
+    .first<any>();
+  if (
+    !current ||
+    (post.content_revision !== undefined && current.content_revision !== post.content_revision)
   )
-    .bind(fallback.id, post.id)
-    .run();
-
-  return fallback;
+    return null;
+  const changed =
+    await env.DB.prepare(`UPDATE posts SET social_account_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?
+    AND social_account_id IS NULL AND content_revision=? AND status=?`)
+      .bind(fallback.id, post.id, current.content_revision, current.status)
+      .run();
+  return changed.meta.changes
+    ? { ...fallback, contentRevision: current.content_revision + 1 }
+    : null;
 }
 
 export async function verifySocialAccount(env: SocialEnv, accountId: string) {
@@ -1529,20 +1646,20 @@ export async function verifySocialAccount(env: SocialEnv, accountId: string) {
     let response: Response;
 
     if (account.platform === "facebook" || account.platform === "instagram") {
-      response = await fetch(
+      response = await providerFetch(
         `https://graph.facebook.com/v23.0/${account.external_account_id}?fields=id,name&access_token=${encodeURIComponent(token)}`,
       );
     } else if (account.platform === "linkedin") {
-      response = await fetch("https://api.linkedin.com/v2/userinfo", {
+      response = await providerFetch("https://api.linkedin.com/v2/userinfo", {
         headers: { authorization: `Bearer ${token}` },
       });
     } else if (account.platform === "tiktok") {
-      response = await fetch(
+      response = await providerFetch(
         "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name",
         { headers: { authorization: `Bearer ${token}` } },
       );
     } else {
-      response = await fetch("https://api.x.com/2/users/me", {
+      response = await providerFetch("https://api.x.com/2/users/me", {
         headers: { authorization: `Bearer ${token}` },
       });
     }
@@ -1550,7 +1667,7 @@ export async function verifySocialAccount(env: SocialEnv, accountId: string) {
     await requireProviderOk(response, "Social connection verification failed");
     const now = new Date().toISOString();
 
-    await env.DB.prepare(
+    const verified = await env.DB.prepare(
       `UPDATE social_accounts SET
        status='connected',
        health_status='healthy',
@@ -1559,13 +1676,15 @@ export async function verifySocialAccount(env: SocialEnv, accountId: string) {
        last_verified_at=?,
        last_error=NULL,
        updated_at=CURRENT_TIMESTAMP
-       WHERE id=?`,
+       WHERE id=? AND status='connected' AND connection_revision=? AND access_token_ciphertext IS ?`,
     )
-      .bind(now, now, accountId)
+      .bind(now, now, accountId, account.connection_revision, account.access_token_ciphertext)
       .run();
 
+    if (!verified.meta.changes) throw new SocialConnectionChanged();
     return { ok: true, health: "healthy", checkedAt: now };
   } catch (error) {
+    if (error instanceof SocialConnectionChanged) throw error;
     const providerError = error instanceof SocialProviderError ? error : null;
     const reauth = providerError?.category === "authorization";
     const health = reauth ? "reauth_required" : "degraded";
@@ -1580,7 +1699,7 @@ export async function verifySocialAccount(env: SocialEnv, accountId: string) {
        last_error=?,
        rate_limit_reset_at=?,
        updated_at=CURRENT_TIMESTAMP
-       WHERE id=?`,
+       WHERE id=? AND status='connected' AND connection_revision=? AND access_token_ciphertext IS ?`,
     )
       .bind(
         reauth ? 1 : 0,
@@ -1592,6 +1711,8 @@ export async function verifySocialAccount(env: SocialEnv, accountId: string) {
           ? new Date(Date.now() + providerError.retryAfterSeconds * 1000).toISOString()
           : null,
         accountId,
+        account.connection_revision,
+        account.access_token_ciphertext,
       )
       .run();
 
@@ -1649,14 +1770,17 @@ export async function checkPublishReceipt(env: SocialEnv, receiptId: string) {
     };
   }
 
-  const response = await fetch("https://open.tiktokapis.com/v2/post/publish/status/fetch/", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json; charset=UTF-8",
+  const response = await providerFetch(
+    "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json; charset=UTF-8",
+      },
+      body: JSON.stringify({ publish_id: receipt.provider_post_id }),
     },
-    body: JSON.stringify({ publish_id: receipt.provider_post_id }),
-  });
+  );
   await requireProviderOk(response, "TikTok publish status check failed");
   const payload = await response.json<any>();
   const providerStatus = String(

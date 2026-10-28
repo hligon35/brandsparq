@@ -13,7 +13,7 @@
     "deploy:worker": "npm run deploy:production",
     "deploy:cloudflare": "npm run deploy:worker",
     "typecheck": "tsc --noEmit",
-    "validate": "npm run schema:check && npx expo install --check && npm run audit:launch && npm run audit:dependencies && npm run lint && npm run format:check && npm test && npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web && npm run test:e2e",
+    "validate": "npm run verify:toolchain && npm run schema:check && npx expo install --check && npm run audit:launch && npm run audit:dependencies && npm run lint && npm run format:check && npm test && npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web && npm run test:e2e",
     "deploy:production": "node scripts/deploy-production.mjs",
     "audit:launch": "node scripts/launch-audit.mjs",
     "smoke:production": "node scripts/smoke-production.mjs",
@@ -54,7 +54,10 @@
     "preflight:production": "node scripts/preflight-production.mjs",
     "release:verify": "node scripts/verify-release.mjs",
     "release:status": "node scripts/release-status.mjs",
-    "pilot:plan": "node scripts/prepare-pilot.mjs"
+    "pilot:plan": "node scripts/prepare-pilot.mjs",
+    "postinstall": "node scripts/patch-toolchain.mjs",
+    "verify:toolchain": "node scripts/patch-toolchain.mjs --check",
+    "validate:candidate": "node scripts/validate-candidate.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -72,6 +75,7 @@
     "expo-updates": "~58.0.18",
     "expo-web-browser": "~58.0.7",
     "fast-png": "^8.0.0",
+    "jpeg-js": "^0.4.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.0",
