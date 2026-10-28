@@ -12,6 +12,7 @@ GOOGLE_REDIRECT_URI=http://localhost:8787/v1/auth/google/callback
 
 META_APP_ID=
 META_APP_SECRET=
+META_LOGIN_CONFIG_ID=
 META_REDIRECT_URI=http://localhost:8787/v1/social/meta/callback
 META_WEBHOOK_VERIFY_TOKEN=
 

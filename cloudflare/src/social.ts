@@ -13,6 +13,7 @@ export interface SocialEnv {
   PUBLIC_BASE_URL?: string;
   META_APP_ID?: string;
   META_APP_SECRET?: string;
+  META_LOGIN_CONFIG_ID?: string;
   META_REDIRECT_URI?: string;
   LINKEDIN_CLIENT_ID?: string;
   LINKEDIN_CLIENT_SECRET?: string;
@@ -204,6 +205,14 @@ export async function socialOAuthStart(
   if (!validReturnTo(returnTo, url.origin, env)) {
     throw new Error("Invalid social OAuth return URL.");
   }
+  const metaConfigId = env.META_LOGIN_CONFIG_ID?.trim();
+  if (
+    (platform === "facebook" || platform === "instagram") &&
+    metaConfigId &&
+    !/^\d+$/.test(metaConfigId)
+  ) {
+    throw new Error("Meta login Configuration ID must contain only digits.");
+  }
 
   const state = randomToken();
   const verifier = platform === "x" ? randomToken(48) : null;
@@ -243,10 +252,16 @@ export async function socialOAuthStart(
     auth.searchParams.set("client_id", env.META_APP_ID!);
     auth.searchParams.set("redirect_uri", redirectUri);
     auth.searchParams.set("state", state);
-    auth.searchParams.set(
-      "scope",
-      "pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,business_management",
-    );
+    auth.searchParams.set("response_type", "code");
+    if (metaConfigId) {
+      // Business Login owns the permissions and assets selected in this configuration.
+      auth.searchParams.set("config_id", metaConfigId);
+    } else {
+      auth.searchParams.set(
+        "scope",
+        "pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,business_management",
+      );
+    }
     return auth.toString();
   }
 
