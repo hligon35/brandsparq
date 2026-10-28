@@ -1,3 +1,4 @@
+import { verifyE2eExport } from "../../scripts/lib/e2e-build.mjs";
 import http from "node:http";
 import { loadStaticAssets } from "./static-assets.mjs";
 import { createSerialQueue } from "../../src/shared/serial-queue.ts";
@@ -9,7 +10,9 @@ import { syncAccountAnalytics } from "../../cloudflare/src/social.ts";
 
 const port = Number(process.env.BRANDSPARQ_TEST_PORT || 8788);
 const base = `http://127.0.0.1:${port}`;
-const staticAsset = loadStaticAssets(path.resolve("dist"));
+const webRoot = process.env.BRANDSPARQ_TEST_WEB_ROOT || path.resolve("dist");
+if (process.env.BRANDSPARQ_TEST_WEB_ROOT) verifyE2eExport(process.cwd(), webRoot);
+const staticAsset = loadStaticAssets(webRoot);
 const serializeBackend = createSerialQueue();
 let closeWorkspace;
 let w;
