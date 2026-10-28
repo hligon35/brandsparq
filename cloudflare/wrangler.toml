@@ -12,6 +12,7 @@ GOOGLE_CLIENT_ID = "1096231725383-7lrjdhj0p4gp8ipbi6228tf03dhg5jqe.apps.googleus
 GOOGLE_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/auth/google/callback"
 LINKEDIN_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/linkedin/callback"
 META_APP_ID = "2050251078958295"
+META_LOGIN_CONFIG_ID = "2802616013504348"
 META_REDIRECT_URI = "https://brandsparq.getsparqd.com/v1/social/meta/callback"
 OPENAI_FAST_MODEL = "gpt-6-luna"
 OPENAI_IMAGE_EDIT_MODEL = "gpt-image-2.5-sunburst"
