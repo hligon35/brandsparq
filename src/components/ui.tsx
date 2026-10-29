@@ -86,11 +86,23 @@ export function Card({
   children,
   style,
   subtle = false,
+  accessibilityLabel,
+  role,
 }: PropsWithChildren<{
   style?: StyleProp<ViewStyle>;
   subtle?: boolean;
+  accessibilityLabel?: string;
+  role?: "group";
 }>) {
-  return <View style={[styles.card, subtle && styles.cardSubtle, style]}>{children}</View>;
+  return (
+    <View
+      role={role}
+      accessibilityLabel={accessibilityLabel}
+      style={[styles.card, subtle && styles.cardSubtle, style]}
+    >
+      {children}
+    </View>
+  );
 }
 
 export function Button({

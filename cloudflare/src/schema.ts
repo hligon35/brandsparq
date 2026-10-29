@@ -3048,7 +3048,7 @@ export const REQUIRED_SCHEMA = {
     {
       name: "client_id",
       type: "TEXT",
-      notnull: 1,
+      notnull: 0,
       pk: 0,
     },
     {
@@ -3096,6 +3096,12 @@ export const REQUIRED_SCHEMA = {
     {
       name: "connection_revisions",
       type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "import_clients",
+      type: "INTEGER",
       notnull: 1,
       pk: 0,
     },
@@ -3896,7 +3902,7 @@ export const REQUIRED_INDEXES = [
   },
   {
     name: "idx_social_oauth_state",
-    sql: "CREATE INDEX idx_social_oauth_state\n  ON social_oauth_states(state_hash, expires_at)",
+    sql: "CREATE INDEX idx_social_oauth_state ON social_oauth_states(state_hash,expires_at)",
   },
   {
     name: "idx_social_publish_receipts_post",
