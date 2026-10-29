@@ -1,4 +1,5 @@
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
+import { AssetThumbnail } from "@/components/asset-thumbnail";
 import { GuardedLink as Link, useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 
 import { useCapabilities } from "@/auth/capabilities";
@@ -278,7 +279,14 @@ export default function BrandBrainScreen() {
           <View style={styles.assetList}>
             {assets.map((asset) => (
               <View key={asset.id} style={styles.assetRow}>
-                <Text style={styles.assetName}>{asset.label || asset.filename}</Text>
+                {["logo", "alternate_logo"].includes(asset.role) ? (
+                  <AssetThumbnail
+                    assetId={asset.asset_id}
+                    label={`${asset.role === "logo" ? "Primary" : "Alternate"} logo preview`}
+                  />
+                ) : (
+                  <Text style={styles.assetName}>{asset.label || asset.filename}</Text>
+                )}
                 <Text style={styles.assetRole}>{String(asset.role).replace("_", " ")}</Text>
                 {editable && (
                   <Button

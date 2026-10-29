@@ -1,5 +1,6 @@
 import { renderFinalCopy, finalCopyError } from "../../src/shared/final-copy";
 import { providerFetch } from "./provider-http";
+import { socialProfileImage } from "./social-profile";
 import { latestMetricsJoin } from "./analytics";
 import { hasClientPermission } from "./authz";
 import { decryptSecret, encryptSecret, hashSecret } from "./security";
@@ -658,7 +659,7 @@ export async function socialOAuthCallback(
       const discovery = new URL("https://graph.facebook.com/v23.0/me/accounts");
       discovery.searchParams.set(
         "fields",
-        "id,name,access_token,instagram_business_account{id,username}",
+        "id,name,access_token,picture.type(square),instagram_business_account{id,username,profile_picture_url}",
       );
       discovery.searchParams.set("access_token", token.access_token);
       discovery.searchParams.set("limit", "100");
@@ -722,7 +723,7 @@ export async function socialOAuthCallback(
         name: page.name || "Facebook Page",
         externalId: page.id,
         accessToken: page.access_token || token.access_token,
-        metadata: { pageId: page.id },
+        metadata: { pageId: page.id, profileImageUrl: socialProfileImage(page) },
         accountType: "page",
         connectedBy: saved.user_id,
         connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
@@ -737,7 +738,10 @@ export async function socialOAuthCallback(
           name: page.instagram_business_account.username || page.name || "Instagram",
           externalId: page.instagram_business_account.id,
           accessToken: page.access_token || token.access_token,
-          metadata: { pageId: page.id },
+          metadata: {
+            pageId: page.id,
+            profileImageUrl: socialProfileImage(page.instagram_business_account),
+          },
           accountType: "business",
           connectedBy: saved.user_id,
           connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
@@ -841,9 +845,12 @@ export async function socialOAuthCallback(
     });
     if (!tokenResponse.ok) throw new Error("X token exchange failed.");
     const token = await tokenResponse.json<any>();
-    const userResponse = await providerFetch("https://api.x.com/2/users/me", {
-      headers: { authorization: `Bearer ${token.access_token}` },
-    });
+    const userResponse = await providerFetch(
+      "https://api.x.com/2/users/me?user.fields=profile_image_url",
+      {
+        headers: { authorization: `Bearer ${token.access_token}` },
+      },
+    );
     if (!userResponse.ok) throw new Error("X account discovery failed.");
     const user = (await userResponse.json<any>()).data;
     await upsertAccount(env, {
@@ -1785,8 +1792,12 @@ export async function verifySocialAccount(env: SocialEnv, accountId: string) {
     let response: Response;
 
     if (account.platform === "facebook" || account.platform === "instagram") {
+      const fields =
+        account.platform === "facebook"
+          ? "id,name,picture.type(square)"
+          : "id,name,username,profile_picture_url";
       response = await providerFetch(
-        `https://graph.facebook.com/v23.0/${account.external_account_id}?fields=id,name&access_token=${encodeURIComponent(token)}`,
+        `https://graph.facebook.com/v23.0/${account.external_account_id}?fields=${fields}&access_token=${encodeURIComponent(token)}`,
       );
     } else if (account.platform === "linkedin") {
       response = await providerFetch("https://api.linkedin.com/v2/userinfo", {
@@ -1794,16 +1805,22 @@ export async function verifySocialAccount(env: SocialEnv, accountId: string) {
       });
     } else if (account.platform === "tiktok") {
       response = await providerFetch(
-        "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name",
+        "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url",
         { headers: { authorization: `Bearer ${token}` } },
       );
     } else {
-      response = await providerFetch("https://api.x.com/2/users/me", {
+      response = await providerFetch("https://api.x.com/2/users/me?user.fields=profile_image_url", {
         headers: { authorization: `Bearer ${token}` },
       });
     }
 
     await requireProviderOk(response, "Social connection verification failed");
+    const profile = await response.json<any>().catch(() => null);
+    const image = socialProfileImage(profile?.data?.user || profile?.data || profile);
+    let metadata: Record<string, unknown> = {};
+    try {
+      metadata = JSON.parse(account.metadata || "{}");
+    } catch {}
     const now = new Date().toISOString();
 
     const verified = await env.DB.prepare(
@@ -1814,10 +1831,19 @@ export async function verifySocialAccount(env: SocialEnv, accountId: string) {
        permission_status='verified',
        last_verified_at=?,
        last_error=NULL,
+       metadata=CASE WHEN ? IS NULL THEN metadata ELSE ? END,
        updated_at=CURRENT_TIMESTAMP
        WHERE id=? AND status='connected' AND connection_revision=? AND access_token_ciphertext IS ?`,
     )
-      .bind(now, now, accountId, account.connection_revision, account.access_token_ciphertext)
+      .bind(
+        now,
+        now,
+        image,
+        JSON.stringify({ ...metadata, profileImageUrl: image }),
+        accountId,
+        account.connection_revision,
+        account.access_token_ciphertext,
+      )
       .run();
 
     if (!verified.meta.changes) throw new SocialConnectionChanged();

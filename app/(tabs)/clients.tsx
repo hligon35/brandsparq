@@ -1,4 +1,5 @@
 import { TimezonePicker } from "@/components/pickers";
+import { ClientAvatar } from "@/components/client-avatar";
 import { useAuth } from "@/auth/context";
 import { useCapabilities } from "@/auth/capabilities";
 import { StatusBadge } from "@/components/ui";
@@ -147,9 +148,7 @@ export default function ClientsScreen() {
       <View style={styles.grid}>
         {filtered.slice(0, visibleCount).map((client) => (
           <Card key={client.id} style={styles.gridItem}>
-            <View
-              style={[styles.clientColor, { backgroundColor: client.color || colors.primary }]}
-            />
+            <ClientAvatar client={client} />
             <Link
               href={{
                 pathname: "/clients/[clientId]",

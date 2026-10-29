@@ -23,6 +23,7 @@ export interface Client {
   id: string;
   name: string;
   color: string;
+  profileImageUrl?: string | null;
   timezone?: string;
   status?: "active" | "archived";
   archivedAt?: string;

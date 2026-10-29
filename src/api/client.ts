@@ -126,6 +126,20 @@ const sourceBlob = (uri: string) =>
   });
 
 export const api = {
+  async getAssetImage(assetId: string, signal?: AbortSignal) {
+    const session = transport.captureSession();
+    return readResponse(
+      resolveApiUrl(`/v1/assets/${encodeURIComponent(assetId)}`)!,
+      { headers: session.headers, signal, cache: "no-store" },
+      async (response) => {
+        if (!response.ok || !response.headers.get("content-type")?.startsWith("image/"))
+          throw new Error("Image preview unavailable.");
+        const blob = await response.blob();
+        if (!session.isCurrent()) throw new Error("Your sign-in changed.");
+        return blob;
+      },
+    );
+  },
   getProfile: () =>
     jsonRequest<{
       data: { id: string; name: string; email: string; role: string; avatar_url: string | null };
