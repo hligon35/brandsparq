@@ -260,17 +260,33 @@ export async function handleManagementRoute(
     const payload = await request.json<any>().catch(() => ({}));
     const platform = payload.platform;
     const clientId = typeof payload.clientId === "string" ? payload.clientId : "";
+    const importClients = payload.importClients === true;
     const returnTo =
       typeof payload.returnTo === "string" ? payload.returnTo : `${url.origin}/social`;
-    if (!["facebook", "instagram", "linkedin", "tiktok", "x"].includes(platform) || !clientId) {
+    if (
+      !["facebook", "instagram", "linkedin", "tiktok", "x"].includes(platform) ||
+      (!clientId && !importClients)
+    ) {
       return { body: { error: "platform and clientId are required." }, status: 400 };
     }
 
-    const denied = await authorize(env, user, "social_manage", clientId);
+    const denied = importClients
+      ? user.role !== "owner"
+        ? "Only a workspace owner can import clients from Meta."
+        : null
+      : await authorize(env, user, "social_manage", clientId);
     if (denied) return { body: { error: denied }, status: 403 };
 
     try {
-      const start = await socialOAuthStart(env, url, platform, clientId, user.id, returnTo);
+      const start = await socialOAuthStart(
+        env,
+        url,
+        platform,
+        clientId,
+        user.id,
+        returnTo,
+        importClients,
+      );
       return { body: { authorizationUrl: start } };
     } catch (error) {
       return {

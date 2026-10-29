@@ -299,10 +299,15 @@ export const api = {
       `/v1/social/accounts${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
     ),
 
-  startSocialConnection: (platform: string, clientId: string, returnTo: string) =>
+  startSocialConnection: (
+    platform: string,
+    clientId: string,
+    returnTo: string,
+    importClients = false,
+  ) =>
     jsonRequest<{ authorizationUrl: string }>("/v1/social/connect", {
       method: "POST",
-      body: JSON.stringify({ platform, clientId, returnTo }),
+      body: JSON.stringify({ platform, clientId, returnTo, importClients }),
     }),
 
   disconnectSocialAccount: (accountId: string) =>

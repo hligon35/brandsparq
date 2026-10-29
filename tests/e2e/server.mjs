@@ -122,7 +122,23 @@ const server = http.createServer(async (incoming, outgoing) => {
             return;
           }
           if (url.pathname === "/__test/reset") await reset();
-          else if (url.pathname === "/__test/inbox") {
+          else if (url.pathname === "/__test/social-imported") {
+            w.exec(
+              "INSERT INTO clients(id,name,timezone,status) VALUES('imported-client','Imported business','America/Indiana/Indianapolis','active')",
+            );
+            w.exec(
+              "INSERT INTO brand_profiles(id,client_id) VALUES('imported-brand','imported-client')",
+            );
+            for (const platform of ["facebook", "instagram"]) {
+              w.exec(
+                "INSERT INTO social_accounts(id,client_id,platform,account_name,external_account_id,status,health_status,is_default) VALUES(?,'imported-client',?,?,?,'connected','healthy',1)",
+                `imported-${platform}`,
+                platform,
+                `Imported ${platform}`,
+                `external-${platform}`,
+              );
+            }
+          } else if (url.pathname === "/__test/inbox") {
             w.exec(
               "INSERT INTO notifications(id,user_id,post_id,type,channel,status,title,deep_link) VALUES ('inbox-one','owner','fixture-post','review_ready','in_app','sent','Review your campaign','/posts/fixture-post'),('inbox-two','owner',NULL,'test','in_app','sent','Workspace update',NULL)",
             );

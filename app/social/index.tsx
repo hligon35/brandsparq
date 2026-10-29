@@ -1,9 +1,10 @@
 import { useCapabilities } from "@/auth/capabilities";
+import { useAuth } from "@/auth/context";
 import { Alert, confirmAction } from "@/components/feedback";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
-import { useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Image, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { IconButton } from "@/components/icon-button";
 import { api } from "@/api/client";
@@ -29,14 +30,28 @@ function expiryLabel(value?: number | null) {
 
 export default function SocialConnectionsScreen() {
   const can = useCapabilities();
-  const { social_error: callbackError, clientId: requestedClient } = useLocalSearchParams<{
+  const { user } = useAuth();
+  const {
+    social_error: callbackError,
+    social_connected: callbackConnected,
+    connected_accounts: connectedAccounts,
+    connected_clients: connectedClients,
+    instagram_accounts: connectedInstagram,
+    clientId: requestedClient,
+  } = useLocalSearchParams<{
     social_error?: string;
+    social_connected?: string;
+    connected_accounts?: string;
+    connected_clients?: string;
+    instagram_accounts?: string;
     clientId?: string;
   }>();
   const [clients, setClients] = useState<any[]>([]);
   const [clientId, setClientId] = useState(requestedClient || "");
   const [accounts, setAccounts] = useState<any[]>([]);
-  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [importClients, setImportClients] = useState(user?.role === "owner");
+  const [loading, setLoading] = useState(true);
+  const loadVersion = useRef(0);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [workingId, setWorkingId] = useState("");
 
@@ -48,49 +63,44 @@ export default function SocialConnectionsScreen() {
     if (requestedClient) setClientId(requestedClient);
   }, [requestedClient]);
 
-  async function load() {
+  async function load(preferredClient?: string) {
+    const version = ++loadVersion.current;
+    setLoading(true);
     try {
       const c = await api.getClients();
+      const preferred = preferredClient ?? clientId;
+      const selected = c.some((item) => item.id === preferred) ? preferred : c[0]?.id || "";
+      const result = selected ? await api.getSocialAccounts(selected) : { data: [] };
+      if (version !== loadVersion.current) return;
       setClients(c);
-      const selected = clientId || c[0]?.id || "";
-      if (!clientId && selected) setClientId(selected);
-      setRefreshVersion((value) => value + 1);
+      setClientId(selected);
+      setAccounts(result.data);
     } catch (error) {
+      if (version !== loadVersion.current) return;
       Alert.alert(
         "Unable to load social connections",
         error instanceof Error ? error.message : "Try again.",
       );
+    } finally {
+      if (version === loadVersion.current) setLoading(false);
     }
   }
 
-  useEffect(() => {
-    void load();
-  }, []);
-  useEffect(() => {
-    setAccounts([]);
-    setExpanded(null);
-    if (!clientId) return;
-    let active = true;
-    api
-      .getSocialAccounts(clientId)
-      .then((r) => {
-        if (active) setAccounts(r.data);
-      })
-      .catch(
-        (error) =>
-          active &&
-          Alert.alert(
-            "Unable to load social connections",
-            error instanceof Error ? error.message : "Try again.",
-          ),
-      );
-    return () => {
-      active = false;
-    };
-  }, [clientId, refreshVersion]);
+  useFocusEffect(
+    useCallback(() => {
+      setAccounts([]);
+      setExpanded(null);
+      void load(clientId);
+      return () => {
+        loadVersion.current++;
+      };
+    }, [clientId, callbackConnected]),
+  );
 
   async function connect(platformName: string) {
-    if (!clientId) return;
+    const importing =
+      importClients && user?.role === "owner" && ["facebook", "instagram"].includes(platformName);
+    if (!clientId && !importing) return;
     const returnTo =
       Platform.OS === "web"
         ? `${window.location.origin}/social?clientId=${encodeURIComponent(clientId)}`
@@ -101,6 +111,7 @@ export default function SocialConnectionsScreen() {
         platformName,
         clientId,
         returnTo,
+        importing,
       );
       if (Platform.OS === "web") {
         window.location.assign(url);
@@ -110,7 +121,8 @@ export default function SocialConnectionsScreen() {
       if (result.type === "success") {
         const error = Linking.parse(result.url).queryParams?.social_error;
         if (error) throw new Error(String(error));
-        await load();
+        const connectedClient = Linking.parse(result.url).queryParams?.clientId;
+        await load(typeof connectedClient === "string" ? connectedClient : undefined);
         return;
       }
       if (result.type !== "cancel" && result.type !== "dismiss") {
@@ -184,11 +196,59 @@ export default function SocialConnectionsScreen() {
         eyebrow="Publishing destinations"
         title="Social connections"
         subtitle="Connect, verify, and monitor each client's publishing destinations."
-        action={<IconButton label="Refresh social connections" onPress={load} />}
+        action={<IconButton label="Refresh social connections" onPress={() => load()} />}
       />
 
       <Card>
+        {user?.role === "owner" && (
+          <>
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityLabel="Create clients from detected Pages"
+              accessibilityState={{ checked: importClients }}
+              onPress={() => setImportClients((value) => !value)}
+              style={styles.chip}
+            >
+              <Text style={styles.chipText}>
+                {importClients ? "✓ " : ""}Create clients from detected Pages
+              </Text>
+            </Pressable>
+            <Text style={styles.meta}>
+              For Facebook and Instagram: each Page and its linked Instagram account share a client.
+              Reconnecting reuses existing profiles. Turn this off to connect everything to the
+              selected client.
+            </Text>
+          </>
+        )}
+        {callbackConnected && !callbackError && (
+          <Text
+            accessibilityRole="status"
+            accessibilityLiveRegion="polite"
+            style={styles.connected}
+          >
+            {connectedAccounts
+              ? `Connected ${connectedAccounts} accounts across ${connectedClients || "1"} clients.`
+              : "Connection completed. Account status is shown below."}
+          </Text>
+        )}
+        {callbackConnected === "meta" && !callbackError && connectedInstagram === "0" && (
+          <Text style={styles.warning}>
+            Facebook connected, but Meta did not return a linked Instagram account. Link your
+            professional Instagram account to its Facebook Page and grant access to both before
+            reconnecting.
+          </Text>
+        )}
+        {loading && (
+          <Text accessibilityLiveRegion="polite" style={styles.meta}>
+            Loading social connections…
+          </Text>
+        )}
         <Text style={styles.label}>Client</Text>
+        {!loading && !clients.length && (
+          <Text style={styles.meta}>
+            Connect Facebook or Instagram to create your first client, or add a client from Clients.
+          </Text>
+        )}
         <View style={styles.chips}>
           {clients.map((client) => (
             <Pressable
@@ -218,7 +278,12 @@ export default function SocialConnectionsScreen() {
               (!account.token_expires_at || Number(account.token_expires_at) > Date.now()),
           );
           return (
-            <Card key={platformName} style={styles.card}>
+            <Card
+              key={platformName}
+              style={styles.card}
+              role="group"
+              accessibilityLabel={`${platformName} connections`}
+            >
               <Image
                 source={icons[platformName]}
                 resizeMode="contain"
@@ -246,7 +311,14 @@ export default function SocialConnectionsScreen() {
                 <Button
                   label={workingId === platformName ? "Connecting…" : "Connect"}
                   onPress={
-                    workingId || !clientId || !can("social_manage", clientId)
+                    workingId ||
+                    loading ||
+                    (!(
+                      user?.role === "owner" &&
+                      importClients &&
+                      ["facebook", "instagram"].includes(platformName)
+                    ) &&
+                      (!clientId || !can("social_manage", clientId)))
                       ? undefined
                       : () => connect(platformName)
                   }

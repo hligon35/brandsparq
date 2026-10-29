@@ -198,12 +198,22 @@ export async function socialOAuthStart(
   clientId: string,
   userId: string,
   returnTo: string,
+  importClients = false,
 ) {
   if (!providerConfigured(platform, env)) {
     throw new Error(`${platform} OAuth is not configured.`);
   }
   if (!validReturnTo(returnTo, url.origin, env)) {
     throw new Error("Invalid social OAuth return URL.");
+  }
+  if (importClients) {
+    const owner = await env.DB.prepare(
+      "SELECT id FROM users WHERE id=? AND role='owner' AND status='active'",
+    )
+      .bind(userId)
+      .first();
+    if (!owner || !["facebook", "instagram"].includes(platform))
+      throw new Error("Only a workspace owner can import clients from Meta.");
   }
   const metaConfigId = env.META_LOGIN_CONFIG_ID?.trim();
   if (
@@ -218,23 +228,24 @@ export async function socialOAuthStart(
   const verifier = platform === "x" ? randomToken(48) : null;
   const expiresAt = Date.now() + 10 * 60 * 1000;
 
-  const revisions = await env.DB.prepare(
-    "SELECT id,connection_revision FROM social_accounts WHERE client_id=?",
-  )
-    .bind(clientId)
-    .all<any>();
+  const revisionQuery = env.DB.prepare(
+    importClients
+      ? "SELECT id,connection_revision FROM social_accounts"
+      : "SELECT id,connection_revision FROM social_accounts WHERE client_id=?",
+  );
+  const revisions = await (importClients ? revisionQuery : revisionQuery.bind(clientId)).all<any>();
   const connectionRevisions = JSON.stringify(
     Object.fromEntries(revisions.results.map((a) => [a.id, a.connection_revision])),
   );
   await env.DB.prepare(
     `INSERT INTO social_oauth_states
-     (id, platform, client_id, user_id, state_hash, code_verifier, return_to, expires_at, created_at,connection_revisions)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,?)`,
+     (id, platform, client_id, user_id, state_hash, code_verifier, return_to, expires_at, created_at,connection_revisions,import_clients)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,?,?)`,
   )
     .bind(
       crypto.randomUUID(),
       providerKey(platform),
-      clientId,
+      importClients ? null : clientId,
       userId,
       await hashSecret(state, env.AUTH_PEPPER || ""),
       verifier,
@@ -242,6 +253,7 @@ export async function socialOAuthStart(
       expiresAt,
       Date.now(),
       connectionRevisions,
+      importClients ? 1 : 0,
     )
     .run();
 
@@ -341,6 +353,7 @@ async function upsertAccount(
     accountType?: string | null;
     connectedBy?: string | null;
     connectionRevisions?: Record<string, number>;
+    newClient?: { name: string; timezone: string };
   },
 ) {
   const existing = await env.DB.prepare(
@@ -353,7 +366,7 @@ async function upsertAccount(
   const access = await encryptSecret(input.accessToken, env);
   const refresh = await encryptSecret(input.refreshToken, env);
 
-  const saved = await env.DB.prepare(
+  const save = env.DB.prepare(
     `INSERT INTO social_accounts
      (id, client_id, platform, account_name, external_account_id, status,
       access_token_ciphertext, refresh_token_ciphertext, token_expires_at,
@@ -377,27 +390,50 @@ async function upsertAccount(
        last_verified_at = excluded.last_verified_at,
        connected_by = excluded.connected_by,
        updated_at = CURRENT_TIMESTAMP WHERE social_accounts.connection_revision=?`,
-  )
-    .bind(
-      id,
-      input.clientId,
-      input.platform,
-      input.name,
-      input.externalId,
-      access,
-      refresh,
-      input.expiresAt || null,
-      input.scopes || null,
-      input.metadata ? JSON.stringify(input.metadata) : null,
-      input.accountType || null,
-      new Date().toISOString(),
-      input.connectedBy || null,
-      input.clientId,
-      input.connectedBy || null,
-      input.clientId,
-      existing ? (input.connectionRevisions?.[existing.id] ?? -1) : -1,
-    )
-    .run();
+  ).bind(
+    id,
+    input.clientId,
+    input.platform,
+    input.name,
+    input.externalId,
+    access,
+    refresh,
+    input.expiresAt || null,
+    input.scopes || null,
+    input.metadata ? JSON.stringify(input.metadata) : null,
+    input.accountType || null,
+    new Date().toISOString(),
+    input.connectedBy || null,
+    input.clientId,
+    input.connectedBy || null,
+    input.clientId,
+    existing ? (input.connectionRevisions?.[existing.id] ?? -1) : -1,
+  );
+  const statements: D1PreparedStatement[] = [];
+  if (input.newClient) {
+    statements.push(
+      env.DB.prepare(`INSERT INTO clients(id,name,timezone,status,created_at,updated_at)
+        SELECT ?,?,?,'active',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
+        WHERE EXISTS(SELECT 1 FROM users WHERE id=? AND role='owner' AND status='active')
+        ON CONFLICT(id) DO NOTHING`).bind(
+        input.clientId,
+        input.newClient.name,
+        input.newClient.timezone,
+        input.connectedBy || null,
+      ),
+      env.DB.prepare(`INSERT INTO brand_profiles(id,client_id)
+        SELECT ?,? WHERE EXISTS(SELECT 1 FROM clients WHERE id=? AND status='active')
+        AND EXISTS(SELECT 1 FROM users WHERE id=? AND role='owner' AND status='active')
+        ON CONFLICT(client_id) DO NOTHING`).bind(
+        `brand_${input.clientId}`,
+        input.clientId,
+        input.clientId,
+        input.connectedBy || null,
+      ),
+    );
+  }
+  statements.push(save);
+  const saved = input.newClient ? (await env.DB.batch(statements)).at(-1)! : await save.run();
   if (!saved.meta.changes) throw new SocialConnectionChanged();
   const stored = await env.DB.prepare(
     "SELECT id FROM social_accounts WHERE client_id=? AND platform=? AND external_account_id=?",
@@ -568,18 +604,23 @@ export async function socialOAuthCallback(
   const oauthError = url.searchParams.get("error");
 
   const saved = await loadOAuthState(env, state);
+  if (saved.platform !== provider)
+    throw new Error("Social OAuth provider does not match this connection attempt.");
   const actor = await env.DB.prepare(
     "SELECT id,email,role FROM users WHERE id=? AND status='active'",
   )
     .bind(saved.user_id)
     .first<any>();
-  const client = await env.DB.prepare("SELECT id FROM clients WHERE id=? AND status='active'")
-    .bind(saved.client_id)
-    .first();
+  const client = saved.import_clients
+    ? null
+    : await env.DB.prepare("SELECT id FROM clients WHERE id=? AND status='active'")
+        .bind(saved.client_id)
+        .first();
   if (
     !actor ||
-    !client ||
-    !(await hasClientPermission(env.DB, actor, "social_manage", saved.client_id))
+    (saved.import_clients
+      ? actor.role !== "owner" || provider !== "meta"
+      : !client || !(await hasClientPermission(env.DB, actor, "social_manage", saved.client_id)))
   )
     throw new Error("Social connection access was revoked.");
 
@@ -589,7 +630,13 @@ export async function socialOAuthCallback(
     });
   }
 
+  const connectedClients = new Set<string>();
+  let connectedAccounts = 0;
+  let connectedInstagram = 0;
   if (provider === "meta") {
+    const workspace = await env.DB.prepare(
+      "SELECT timezone FROM workspace_settings WHERE id='default'",
+    ).first<{ timezone: string }>();
     const redirectUri = env.META_REDIRECT_URI || `${url.origin}/v1/social/meta/callback`;
     const tokenUrl = new URL("https://graph.facebook.com/v23.0/oauth/access_token");
     tokenUrl.searchParams.set("client_id", env.META_APP_ID!);
@@ -600,15 +647,77 @@ export async function socialOAuthCallback(
     if (!tokenResponse.ok) throw new Error("Meta token exchange failed.");
     const token = await tokenResponse.json<any>();
 
-    const accountsResponse = await providerFetch(
-      `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&access_token=${encodeURIComponent(token.access_token)}`,
-    );
-    if (!accountsResponse.ok) throw new Error("Meta account discovery failed.");
-    const accounts = await accountsResponse.json<any>();
+    if (typeof token.access_token !== "string" || !token.access_token)
+      throw new Error(
+        "Meta did not return an access token. Reconnect and grant access to your Pages.",
+      );
+    const pages = new Map<string, any>();
+    const cursors = new Set<string>();
+    let after = "";
+    for (let batch = 0; ; batch++) {
+      const discovery = new URL("https://graph.facebook.com/v23.0/me/accounts");
+      discovery.searchParams.set(
+        "fields",
+        "id,name,access_token,instagram_business_account{id,username}",
+      );
+      discovery.searchParams.set("access_token", token.access_token);
+      discovery.searchParams.set("limit", "100");
+      if (after) discovery.searchParams.set("after", after);
+      const accountsResponse = await providerFetch(discovery);
+      if (!accountsResponse.ok)
+        throw new Error("Meta account discovery failed. Check Page permissions and reconnect.");
+      const accounts = await accountsResponse.json<any>();
+      if (!Array.isArray(accounts.data))
+        throw new Error("Meta returned an invalid account list. Reconnect to retry.");
+      for (const page of accounts.data) {
+        if (typeof page.id !== "string" || !page.id)
+          throw new Error("Meta returned an account without an ID.");
+        pages.set(page.id, page);
+      }
+      if (!accounts.paging?.next) break;
+      after = accounts.paging?.cursors?.after;
+      if (
+        typeof after !== "string" ||
+        !after ||
+        cursors.has(after) ||
+        batch >= 99 ||
+        pages.size >= 10000
+      )
+        throw new Error(
+          "Meta account discovery could not finish. Reconnect with a smaller selection of Pages.",
+        );
+      cursors.add(after);
+    }
+    if (!pages.size)
+      return redirectWithParams(saved.return_to, {
+        social_error:
+          "Meta granted login but returned no Facebook Pages. Grant Page access, select your Pages, and link each professional Instagram account to its Page before reconnecting.",
+      });
 
-    for (const page of accounts.data || []) {
+    for (const page of pages.values()) {
+      let destination = saved.client_id as string;
+      let newClient: { name: string; timezone: string } | undefined;
+      if (saved.import_clients) {
+        const matches = await env.DB.prepare(`SELECT DISTINCT client_id FROM social_accounts
+          WHERE (platform='facebook' AND external_account_id=?) OR (platform='instagram' AND external_account_id=?)`)
+          .bind(page.id, page.instagram_business_account?.id || "")
+          .all<{ client_id: string }>();
+        if (matches.results.length > 1)
+          throw new Error(
+            "This Page and Instagram account already belong to multiple clients. Reconnect them from the intended client instead of importing.",
+          );
+        if (matches.results.length) destination = matches.results[0].client_id;
+        else {
+          destination = `meta_${await hashSecret(`client:${page.id}`, "social-client-import")}`;
+          newClient = {
+            name: String(page.name || page.instagram_business_account?.username || "Facebook Page"),
+            timezone: workspace?.timezone || "America/New_York",
+          };
+        }
+      }
       await upsertAccount(env, {
-        clientId: saved.client_id,
+        clientId: destination,
+        newClient,
         platform: "facebook",
         name: page.name || "Facebook Page",
         externalId: page.id,
@@ -618,10 +727,12 @@ export async function socialOAuthCallback(
         connectedBy: saved.user_id,
         connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
       });
+      connectedClients.add(destination);
+      connectedAccounts++;
 
       if (page.instagram_business_account?.id) {
         await upsertAccount(env, {
-          clientId: saved.client_id,
+          clientId: destination,
           platform: "instagram",
           name: page.instagram_business_account.username || page.name || "Instagram",
           externalId: page.instagram_business_account.id,
@@ -631,6 +742,8 @@ export async function socialOAuthCallback(
           connectedBy: saved.user_id,
           connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
         });
+        connectedAccounts++;
+        connectedInstagram++;
       }
     }
   } else if (provider === "linkedin") {
@@ -751,6 +864,14 @@ export async function socialOAuthCallback(
 
   return redirectWithParams(saved.return_to, {
     social_connected: provider,
+    ...(provider === "meta"
+      ? {
+          clientId: [...connectedClients][0],
+          connected_accounts: String(connectedAccounts),
+          connected_clients: String(connectedClients.size),
+          instagram_accounts: String(connectedInstagram),
+        }
+      : {}),
   });
 }
 
