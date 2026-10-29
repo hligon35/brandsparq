@@ -1,4 +1,5 @@
 import { validatedRequest } from "./request-validation";
+import { socialProfileImage } from "./social-profile";
 import { enqueueAnalytics, recoverAnalyticsJobs, runAnalyticsJob } from "./analytics-jobs";
 import { inspectImage, readUpload, UploadError } from "./upload-validation";
 import { calendarDate, calendarDayStart } from "../../src/shared/calendar-time";
@@ -1295,11 +1296,26 @@ const worker = {
         .bind(includeArchived ? 1 : 0)
         .all<any>();
 
+      const visible =
+        allowedClients === null
+          ? result.results
+          : result.results.filter((row) => allowedClients.includes(row.id));
+      const photos = await env.DB.prepare(`SELECT client_id,metadata FROM social_accounts
+        WHERE status='connected' AND metadata IS NOT NULL
+        ORDER BY is_default DESC,CASE platform WHEN 'instagram' THEN 0 WHEN 'facebook' THEN 1 ELSE 2 END,id`).all<{
+        client_id: string;
+        metadata: string;
+      }>();
+      const images = new Map<string, string>();
+      for (const account of photos.results) {
+        const image = socialProfileImage(account.metadata);
+        if (image && !images.has(account.client_id)) images.set(account.client_id, image);
+      }
       return response(request, env, {
-        data:
-          allowedClients === null
-            ? result.results
-            : result.results.filter((row) => allowedClients.includes(row.id)),
+        data: visible.map((client) => ({
+          ...client,
+          profileImageUrl: images.get(client.id) || null,
+        })),
       });
     }
 

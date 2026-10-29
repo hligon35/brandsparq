@@ -429,6 +429,11 @@ test("inbox notices navigate, lose new state and can be selected and deleted", a
 });
 
 test("logo upload selects prominent colors and persists them", async ({ page, request }) => {
+  const assetReads = [];
+  page.on("request", (request) => {
+    if (request.method() === "GET" && /^\/v1\/assets\/[^/]+$/.test(new URL(request.url()).pathname))
+      assetReads.push(request);
+  });
   const { encode } = await import("fast-png");
   const pixels = new Uint8Array(10 * 10 * 4);
   for (let i = 0; i < 100; i++) {
@@ -450,10 +455,19 @@ test("logo upload selects prominent colors and persists them", async ({ page, re
   await expect(page.getByRole("button", { name: "Secondary color", exact: true })).toContainText(
     "#0000FF",
   );
+  const thumbnail = page.getByRole("img", { name: "Primary logo preview", exact: true });
+  await expect(thumbnail).toBeVisible();
+  await expect.poll(() => thumbnail.evaluate((image) => image.naturalWidth)).toBe(10);
+  await expect(page.getByText("logo.png", { exact: true })).toHaveCount(0);
+  expect(
+    assetReads.some((request) => /^Bearer .+/.test(request.headers().authorization || "")),
+  ).toBe(true);
   await page.getByRole("button", { name: "Save Brand Brain", exact: true }).click();
   await expect(page.getByRole("alert", { name: "Brand Brain saved" })).toBeVisible();
   await page.getByRole("button", { name: "Close message" }).click();
   await page.reload();
+  await expect(thumbnail).toBeVisible();
+  await expect.poll(() => thumbnail.evaluate((image) => image.naturalWidth)).toBe(10);
   await expect(page.getByRole("button", { name: "Primary color", exact: true })).toContainText(
     "#FF0000",
   );

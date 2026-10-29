@@ -122,7 +122,12 @@ const server = http.createServer(async (incoming, outgoing) => {
             return;
           }
           if (url.pathname === "/__test/reset") await reset();
-          else if (url.pathname === "/__test/social-imported") {
+          else if (url.pathname === "/__test/client-photo") {
+            w.exec(
+              "UPDATE social_accounts SET metadata=? WHERE id='fixture-social'",
+              JSON.stringify({ profileImageUrl: "https://images.example.test/client-a.png" }),
+            );
+          } else if (url.pathname === "/__test/social-imported") {
             w.exec(
               "INSERT INTO clients(id,name,timezone,status) VALUES('imported-client','Imported business','America/Indiana/Indianapolis','active')",
             );
