@@ -1,4 +1,5 @@
 import ts from "typescript";
+import { canonicalSchemaSql } from "../cloudflare/src/schema-sql.ts";
 import { DatabaseSync } from "node:sqlite";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 const db = new DatabaseSync(":memory:");
@@ -24,10 +25,12 @@ const indexes = db
   .prepare(
     "SELECT name,sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL ORDER BY name",
   )
-  .all();
+  .all()
+  .map(({ name, sql }) => ({ name, sql: canonicalSchemaSql(sql) }));
 const triggers = db
   .prepare("SELECT name,sql FROM sqlite_master WHERE type='trigger' ORDER BY name")
-  .all();
+  .all()
+  .map(({ name, sql }) => ({ name, sql: canonicalSchemaSql(sql) }));
 const output =
   "// Generated from the ordered migrations by npm run schema:generate.\nexport const REQUIRED_SCHEMA = " +
   JSON.stringify(schema, null, 2) +
@@ -43,10 +46,12 @@ if (process.argv.includes("--check")) {
     compilerOptions: { module: ts.ModuleKind.ESNext },
   }).outputText;
   const actual = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+  const definitions = (rows) =>
+    rows.map(({ name, sql }) => ({ name, sql: canonicalSchemaSql(sql) }));
   if (
     JSON.stringify(actual.REQUIRED_SCHEMA) !== JSON.stringify(schema) ||
-    JSON.stringify(actual.REQUIRED_INDEXES) !== JSON.stringify(indexes) ||
-    JSON.stringify(actual.REQUIRED_TRIGGERS) !== JSON.stringify(triggers)
+    JSON.stringify(definitions(actual.REQUIRED_INDEXES)) !== JSON.stringify(indexes) ||
+    JSON.stringify(definitions(actual.REQUIRED_TRIGGERS)) !== JSON.stringify(triggers)
   )
     throw new Error("Schema manifest differs from migrations; run npm run schema:generate.");
 } else writeFileSync(target, output);
