@@ -239,17 +239,28 @@ test("generation progress shows failures and supports retry then cancel", async 
 });
 
 test("campaign metadata saves and persists after reload", async ({ page }) => {
-  await signIn(page);
-  await page.goto("/campaigns/fixture-campaign");
-  await page.getByLabel("Campaign name", { exact: true }).fill("Updated community campaign");
-  await page.getByLabel("Notes", { exact: true }).fill("Ready for October outreach");
-  await page.getByRole("button", { name: "Save campaign", exact: true }).click();
-  await expect(page.getByRole("alert", { name: "Campaign saved" })).toBeVisible();
-  await page.reload();
-  await expect(page.getByLabel("Campaign name", { exact: true })).toHaveValue(
-    "Updated community campaign",
-  );
-  await expect(page.getByLabel("Notes", { exact: true })).toHaveValue("Ready for October outreach");
+  // Login, a second application boot, save/refetch, and a cold reload share this budget.
+  test.setTimeout(60000);
+  await test.step("sign in and open the campaign editor", async () => {
+    await signIn(page);
+    await page.goto("/campaigns/fixture-campaign");
+    await expect(page.getByLabel("Campaign name", { exact: true })).toBeEditable();
+  });
+  await test.step("save the edited campaign", async () => {
+    await page.getByLabel("Campaign name", { exact: true }).fill("Updated community campaign");
+    await page.getByLabel("Notes", { exact: true }).fill("Ready for October outreach");
+    await page.getByRole("button", { name: "Save campaign", exact: true }).click();
+    await expect(page.getByRole("alert", { name: "Campaign saved" })).toBeVisible();
+  });
+  await test.step("reload and verify both persisted fields", async () => {
+    await page.reload();
+    await expect(page.getByLabel("Campaign name", { exact: true })).toHaveValue(
+      "Updated community campaign",
+    );
+    await expect(page.getByLabel("Notes", { exact: true })).toHaveValue(
+      "Ready for October outreach",
+    );
+  });
 });
 
 test("archived clients can be found and restored explicitly", async ({ page }) => {
@@ -648,7 +659,9 @@ test("disconnect confirmation names the account and cancellation makes no mutati
 test("Calendar labels and API boundaries use a client zone rather than the device zone", async ({
   page,
 }) => {
-  await signIn(page);
+  // Login, two application boots, and intercepted API requests share this budget.
+  test.setTimeout(60000);
+  await test.step("sign in", () => signIn(page));
   await page.route("**/v1/clients", async (route) => {
     const response = await route.fetch();
     const json = await response.json();
@@ -656,19 +669,27 @@ test("Calendar labels and API boundaries use a client zone rather than the devic
     rows.find((client) => client.id === "client-b").timezone = "Pacific/Auckland";
     await route.fulfill({ response, json });
   });
-  await page.goto("/calendar?clientId=client-b");
-  await expect(page.getByLabel("Calendar time zone", { exact: true })).toContainText(
-    "Pacific/Auckland",
-  );
-  const response = page.waitForResponse((response) => {
-    if (!response.url().includes("/v1/posts/calendar") || !response.ok()) return false;
-    const url = new URL(response.url());
-    const duration =
-      Date.parse(url.searchParams.get("to")) - Date.parse(url.searchParams.get("from"));
-    return duration > 0 && duration <= 25 * 3600000;
+  await test.step("load the selected client's time zone", async () => {
+    await page.goto("/calendar?clientId=client-b");
+    await expect(page.getByLabel("Calendar time zone", { exact: true })).toContainText(
+      "Pacific/Auckland",
+    );
   });
-  await page.getByRole("button", { name: "day", exact: true }).click();
-  const url = new URL((await response).url());
+  const dayResponse =
+    await test.step("switch to day view and capture its API response", async () => {
+      const [response] = await Promise.all([
+        page.waitForResponse((response) => {
+          if (!response.url().includes("/v1/posts/calendar") || !response.ok()) return false;
+          const url = new URL(response.url());
+          const duration =
+            Date.parse(url.searchParams.get("to")) - Date.parse(url.searchParams.get("from"));
+          return duration > 0 && duration <= 25 * 3600000;
+        }),
+        page.getByRole("button", { name: "day", exact: true }).click(),
+      ]);
+      return response;
+    });
+  const url = new URL(dayResponse.url());
   const from = new Date(url.searchParams.get("from"));
   const to = new Date(url.searchParams.get("to"));
   expect(
