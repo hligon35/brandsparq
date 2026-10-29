@@ -1,6 +1,7 @@
 import { dispatchGeneration } from "./generation-dispatch";
 import { configurePilot, pilotOverview } from "./pilot";
 import { REQUIRED_SCHEMA, REQUIRED_INDEXES, REQUIRED_TRIGGERS } from "./schema";
+import { canonicalSchemaSql } from "./schema-sql";
 import { markGraphicJobFailure, recoverRevisionJobs } from "./generation";
 import type { SessionUser } from "./auth";
 import { hasPermission } from "./authz";
@@ -460,7 +461,7 @@ export async function runLaunchCertification(env: OperationsEnv, user: SessionUs
   for (const index of REQUIRED_INDEXES)
     check(
       `schema:index:${index.name}`,
-      indexNames.get(index.name) === index.sql,
+      canonicalSchemaSql(indexNames.get(index.name)) === canonicalSchemaSql(index.sql),
       "blocker",
       `Required index definition: ${index.name}.`,
     );
@@ -471,7 +472,7 @@ export async function runLaunchCertification(env: OperationsEnv, user: SessionUs
   for (const trigger of REQUIRED_TRIGGERS)
     check(
       `schema:trigger:${trigger.name}`,
-      triggerDefinitions.get(trigger.name) === trigger.sql,
+      canonicalSchemaSql(triggerDefinitions.get(trigger.name)) === canonicalSchemaSql(trigger.sql),
       "blocker",
       `Required trigger definition: ${trigger.name}.`,
     );
