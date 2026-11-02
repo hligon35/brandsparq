@@ -1,3 +1,4 @@
+import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { renderFinalCopy, finalCopyError } from "@/shared/final-copy";
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
 import { Alert } from "@/components/feedback";
@@ -27,6 +28,16 @@ export default function PublicReviewScreen() {
   const [approved, setApproved] = useState(false);
   const [error, setError] = useState("");
   const { wide } = useResponsive();
+  const { markSaved } = useUnsavedChanges(
+    { headline, caption, comment, instruction },
+    !!post && !approved,
+    (saved) => {
+      setHeadline(saved.headline);
+      setCaption(saved.caption);
+      setComment(saved.comment);
+      setInstruction(saved.instruction);
+    },
+  );
 
   async function load() {
     const version = ++loadVersion.current;
@@ -36,6 +47,14 @@ export default function PublicReviewScreen() {
     try {
       const result = await api.getPublicReview(token);
       if (version !== loadVersion.current || entityRef.current !== token) return;
+      markSaved({
+        headline: result.data.headline || result.data.title || "",
+        caption: renderFinalCopy(result.data.caption || "", result.data.hashtags),
+        comment: "",
+        instruction: "",
+      });
+      setComment("");
+      setInstruction("");
       setPost(result.data);
       setHeadline(result.data.headline || result.data.title || "");
       setCaption(renderFinalCopy(result.data.caption || "", result.data.hashtags));
@@ -217,8 +236,11 @@ export default function PublicReviewScreen() {
                 <Text style={styles.label}>Suggested publish time</Text>
                 <Text style={styles.heading}>
                   {post.suggested_publish_at
-                    ? new Date(post.suggested_publish_at).toLocaleString()
+                    ? new Date(post.suggested_publish_at).toLocaleString(undefined, {
+                        timeZone: post.client_timezone || "UTC",
+                      })
                     : "Not selected"}
+                  {` · ${post.client_timezone || "UTC"}`}
                 </Text>
               </Card>
 

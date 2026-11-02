@@ -2,12 +2,21 @@ import { syncAccountAnalytics } from "./social";
 import type { ManagementEnv } from "./management";
 type Env = ManagementEnv;
 export async function enqueueAnalytics(env: Env, accountId: string, days = 90) {
+  if (!Number.isInteger(days) || days < 1 || days > 365)
+    throw new Error("Choose an analytics range between 1 and 365 days.");
+  const checkRange = (job: any) => {
+    if (job && job.range_days !== days)
+      throw new Error(
+        `A ${job.range_days}-day analytics sync is already running. Wait for it to finish, then sync ${days} days.`,
+      );
+    return job;
+  };
   const existing = await env.DB.prepare(
-    "SELECT id,status FROM analytics_jobs WHERE social_account_id=? AND status IN ('queued','running')",
+    "SELECT id,status,range_days FROM analytics_jobs WHERE social_account_id=? AND status IN ('queued','running')",
   )
     .bind(accountId)
     .first<any>();
-  if (existing) return existing;
+  if (existing) return checkRange(existing);
   if (!Number.isInteger(days) || days < 1 || days > 365)
     throw new Error("Choose an analytics range between 1 and 365 days.");
   const posts = await env.DB.prepare(
@@ -29,10 +38,11 @@ export async function enqueueAnalytics(env: Env, accountId: string, days = 90) {
     ).bind(id, JSON.stringify(posts.results.map((p) => p.id)), id),
   ]);
   const job = await env.DB.prepare(
-    "SELECT id,status FROM analytics_jobs WHERE social_account_id=? AND status IN ('queued','running')",
+    "SELECT id,status,range_days FROM analytics_jobs WHERE social_account_id=? AND status IN ('queued','running')",
   )
     .bind(accountId)
     .first<any>();
+  checkRange(job);
   try {
     await env.GENERATION_QUEUE?.send({ kind: "analytics", jobId: job.id });
   } catch {

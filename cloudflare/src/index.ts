@@ -471,7 +471,7 @@ const worker = {
       const tokenHash = await hashReviewToken(publicReviewMatch[1], env);
       const row = await env.DB.prepare(
         `SELECT rt.id AS review_token_id, rt.expires_at, rt.used_at,
-                p.*, c.name AS client_name,
+                p.*, c.name AS client_name, c.timezone AS client_timezone,
                 COALESCE(bp.primary_color, '#A56CFF') AS client_color
          FROM review_tokens rt
          JOIN posts p ON p.id = rt.post_id
@@ -1241,7 +1241,7 @@ const worker = {
 
       const stats = await env.DB.prepare(
         `SELECT
-          SUM(CASE WHEN p.status = 'awaiting_approval' THEN 1 ELSE 0 END) AS needs_review,
+          SUM(CASE WHEN p.status IN ('awaiting_approval','edit_requested') THEN 1 ELSE 0 END) AS needs_review,
           SUM(CASE WHEN p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued') THEN 1 ELSE 0 END) AS scheduled,
           SUM(CASE WHEN p.scheduled_publish_at >= ? AND p.scheduled_publish_at < ? AND p.status NOT IN ('canceled','failed','published') THEN 1 ELSE 0 END) AS publishing_today,
           SUM(CASE WHEN p.status = 'failed' THEN 1 ELSE 0 END) AS failed
@@ -1652,9 +1652,9 @@ const worker = {
 
       const allowedClients = await accessibleClientIds(env.DB, sessionUser!);
       const result = await env.DB.prepare(
-        postSelect("WHERE p.status = ? ORDER BY p.suggested_publish_at ASC"),
+        postSelect("WHERE p.status IN (?,?) ORDER BY p.suggested_publish_at ASC"),
       )
-        .bind("awaiting_approval")
+        .bind("awaiting_approval", "edit_requested")
         .all<any>();
 
       const visible =

@@ -695,6 +695,11 @@ export async function socialOAuthCallback(
           "Meta granted login but returned no Facebook Pages. Grant Page access, select your Pages, and link each professional Instagram account to its Page before reconnecting.",
       });
 
+    const plans: Array<{
+      page: any;
+      destination: string;
+      newClient?: { name: string; timezone: string };
+    }> = [];
     for (const page of pages.values()) {
       let destination = saved.client_id as string;
       let newClient: { name: string; timezone: string } | undefined;
@@ -716,39 +721,57 @@ export async function socialOAuthCallback(
           };
         }
       }
-      await upsertAccount(env, {
-        clientId: destination,
-        newClient,
-        platform: "facebook",
-        name: page.name || "Facebook Page",
-        externalId: page.id,
-        accessToken: page.access_token || token.access_token,
-        metadata: { pageId: page.id, profileImageUrl: socialProfileImage(page) },
-        accountType: "page",
-        connectedBy: saved.user_id,
-        connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
-      });
-      connectedClients.add(destination);
-      connectedAccounts++;
-
-      if (page.instagram_business_account?.id) {
+      const target = await env.DB.prepare("SELECT status FROM clients WHERE id=?")
+        .bind(destination)
+        .first<{ status: string }>();
+      if (target && target.status !== "active")
+        throw new Error(
+          "A detected account belongs to an archived client. Restore that client before reconnecting. No accounts were imported.",
+        );
+      plans.push({ page, destination, newClient });
+    }
+    try {
+      for (const { page, destination, newClient } of plans) {
         await upsertAccount(env, {
           clientId: destination,
-          platform: "instagram",
-          name: page.instagram_business_account.username || page.name || "Instagram",
-          externalId: page.instagram_business_account.id,
+          newClient,
+          platform: "facebook",
+          name: page.name || "Facebook Page",
+          externalId: page.id,
           accessToken: page.access_token || token.access_token,
-          metadata: {
-            pageId: page.id,
-            profileImageUrl: socialProfileImage(page.instagram_business_account),
-          },
-          accountType: "business",
+          metadata: { pageId: page.id, profileImageUrl: socialProfileImage(page) },
+          accountType: "page",
           connectedBy: saved.user_id,
           connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
         });
+        connectedClients.add(destination);
         connectedAccounts++;
-        connectedInstagram++;
+
+        if (page.instagram_business_account?.id) {
+          await upsertAccount(env, {
+            clientId: destination,
+            platform: "instagram",
+            name: page.instagram_business_account.username || page.name || "Instagram",
+            externalId: page.instagram_business_account.id,
+            accessToken: page.access_token || token.access_token,
+            metadata: {
+              pageId: page.id,
+              profileImageUrl: socialProfileImage(page.instagram_business_account),
+            },
+            accountType: "business",
+            connectedBy: saved.user_id,
+            connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
+          });
+          connectedAccounts++;
+          connectedInstagram++;
+        }
       }
+    } catch (error) {
+      if (!connectedAccounts) throw error;
+      return redirectWithParams(saved.return_to, {
+        social_error: `${connectedAccounts} accounts connected across ${connectedClients.size} clients before import stopped. Review Social Connections, then reconnect to finish. ${error instanceof SocialConnectionChanged ? "Connection changed during import." : "An account could not be saved."}`,
+        clientId: [...connectedClients][0] || saved.client_id || "",
+      });
     }
   } else if (provider === "linkedin") {
     const body = new URLSearchParams({
