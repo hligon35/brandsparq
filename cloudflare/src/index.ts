@@ -1646,57 +1646,73 @@ const worker = {
       });
     }
 
-    if (request.method === "GET" && url.pathname === "/v1/posts/review") {
+    if (
+      request.method === "GET" &&
+      ["/v1/posts/review", "/v1/posts/calendar"].includes(url.pathname)
+    ) {
       const denied = await authorize(env, sessionUser!, "read");
       if (denied) return response(request, env, { error: denied }, { status: 403 });
-
-      const allowedClients = await accessibleClientIds(env.DB, sessionUser!);
-      const result = await env.DB.prepare(
-        postSelect("WHERE p.status IN (?,?) ORDER BY p.suggested_publish_at ASC"),
+      const limit = Number(url.searchParams.get("limit") || 100);
+      const cursor = url.searchParams.get("cursor") || "";
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100 || cursor.length > 128)
+        return response(
+          request,
+          env,
+          { error: "Choose a page size between 1 and 100 and a valid cursor." },
+          { status: 400 },
+        );
+      const calendar = url.pathname.endsWith("/calendar");
+      const from = url.searchParams.get("from") || "";
+      const to = url.searchParams.get("to") || "";
+      const start = Date.parse(from),
+        end = Date.parse(to);
+      if (
+        calendar &&
+        (!Number.isFinite(start) ||
+          !Number.isFinite(end) ||
+          end <= start ||
+          end - start > 93 * 86400000)
       )
-        .bind("awaiting_approval", "edit_requested")
-        .all<any>();
-
-      const visible =
-        allowedClients === null
-          ? result.results
-          : result.results.filter((row) => allowedClients.includes(row.client_id));
-
-      return response(request, env, {
-        data: await signPostRows(env, request.url, sessionUser!.id, visible),
-      });
-    }
-
-    if (request.method === "GET" && url.pathname === "/v1/posts/calendar") {
-      const denied = await authorize(env, sessionUser!, "read");
-      if (denied) return response(request, env, { error: denied }, { status: 403 });
-
-      const from = url.searchParams.get("from");
-      const to = url.searchParams.get("to");
-      if (!from || !to) {
-        return response(request, env, { error: "from and to are required" }, { status: 400 });
-      }
-
-      const allowedClients = await accessibleClientIds(env.DB, sessionUser!);
+        return response(
+          request,
+          env,
+          { error: "Choose a valid calendar range of up to 93 days." },
+          { status: 400 },
+        );
+      const conditions = calendar
+        ? "p.scheduled_publish_at >= ? AND p.scheduled_publish_at < ? AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued','publishing','provider_processing','published','failed')"
+        : "p.status IN ('awaiting_approval','edit_requested')";
       const result = await env.DB.prepare(
-        postSelect(
-          `WHERE p.scheduled_publish_at IS NOT NULL
-           AND p.scheduled_publish_at >= ?
-           AND p.scheduled_publish_at < ?
-           AND p.status IN ('calendar_scheduled','pre_publish','rescheduled','publish_queued','publishing','provider_processing','published','failed')
-           ORDER BY p.scheduled_publish_at ASC`,
-        ),
+        postSelect(`WHERE ${conditions}
+        AND (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=p.client_id))
+        AND p.id > ? ORDER BY p.id ASC LIMIT ?`),
       )
-        .bind(from, to)
+        .bind(
+          ...(calendar ? [new Date(start).toISOString(), new Date(end).toISOString()] : []),
+          sessionUser!.role,
+          sessionUser!.id,
+          cursor,
+          limit + 1,
+        )
         .all<any>();
-
-      const visible =
-        allowedClients === null
-          ? result.results
-          : result.results.filter((row) => allowedClients.includes(row.client_id));
-
+      if (
+        result.results.length > limit &&
+        !url.searchParams.has("limit") &&
+        !url.searchParams.has("cursor")
+      )
+        return response(
+          request,
+          env,
+          {
+            error:
+              "Update the app to load the complete post list. This version does not request continuation pages.",
+          },
+          { status: 426 },
+        );
+      const rows = result.results.slice(0, limit);
       return response(request, env, {
-        data: await signPostRows(env, request.url, sessionUser!.id, visible),
+        data: await signPostRows(env, request.url, sessionUser!.id, rows),
+        nextCursor: result.results.length > limit ? rows.at(-1)!.id : null,
       });
     }
 

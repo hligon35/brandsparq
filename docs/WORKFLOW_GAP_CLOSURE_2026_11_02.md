@@ -22,3 +22,12 @@ Four new backend regressions cover review reachability, analytics range reuse, p
 - Provider photo expiry recovery, live provider acceptance, physical Android/iOS acceptance, hosted CI, restoration and supervised pilot evidence remain unverified.
 
 No migrations, native dependencies, production deployment, OTA, social posts or pilot activation are included.
+
+## Follow-up: bounded post lists and preview recovery
+
+- Review and Calendar now authorize client membership in SQL before paging. Requests return up to 100 rows with an ID continuation cursor. Existing app callers follow all pages, deduplicate IDs, reject cursor loops, fence session changes, and restore chronological display order. This bounds each server request; the screens still collect the complete result into memory, so UI virtualization/incremental rendering remains future scale work. Legacy callers that omit pagination parameters receive an explicit update-required response when the list exceeds one page, rather than a silently incomplete list.
+- Calendar validates dates, enforces increasing bounds and a maximum 93-day window, and normalizes accepted bounds to UTC ISO strings. The current 42-day grid and client workspace 30-day summary fit this contract.
+- Post image failures trigger one automatic URL renewal and expose a manual retry on continued failure. Renewal updates only the image URL and preserves unsaved headline/caption and the original content revision. Native/browser acceptance of this component is still required.
+- Added regressions for page traversal beyond 100, access filtering before limits, date boundaries and invalid ranges, legacy unpaged responses, and repeated cursors.
+
+Meta event processing and standalone Instagram login support remain open. No webhook behavior is changed by this follow-up.

@@ -1,3 +1,4 @@
+import { collectPostPages } from "../shared/post-pages";
 import { resolveApiOrigin } from "../shared/api-origin";
 import { createApiTransport, readResponse } from "./transport";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -574,15 +575,31 @@ export const api = {
   },
 
   async getReviewQueue(): Promise<MarketingPost[]> {
-    const result = await jsonRequest<{ data: ApiPost[] }>("/v1/posts/review");
-    return result.data.map(mapPost);
+    const session = transport.captureSession();
+    const rows = await collectPostPages<ApiPost>(async (cursor) => {
+      if (!session.isCurrent()) throw new Error("Your sign-in changed. Reload the post list.");
+      return jsonRequest(
+        `/v1/posts/review?${new URLSearchParams({ limit: "100", ...(cursor ? { cursor } : {}) })}`,
+      );
+    });
+    if (!session.isCurrent()) throw new Error("Your sign-in changed.");
+    return rows
+      .map(mapPost)
+      .sort((a, b) => (a.suggestedPublishAt || "").localeCompare(b.suggestedPublishAt || ""));
   },
 
   async getCalendar(from: string, to: string): Promise<MarketingPost[]> {
-    const result = await jsonRequest<{ data: ApiPost[] }>(
-      `/v1/posts/calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-    );
-    return result.data.map(mapPost);
+    const session = transport.captureSession();
+    const rows = await collectPostPages<ApiPost>(async (cursor) => {
+      if (!session.isCurrent()) throw new Error("Your sign-in changed. Reload the calendar.");
+      return jsonRequest(
+        `/v1/posts/calendar?${new URLSearchParams({ from, to, limit: "100", ...(cursor ? { cursor } : {}) })}`,
+      );
+    });
+    if (!session.isCurrent()) throw new Error("Your sign-in changed.");
+    return rows
+      .map(mapPost)
+      .sort((a, b) => (a.scheduledPublishAt || "").localeCompare(b.scheduledPublishAt || ""));
   },
 
   getPostCreative: (postId: string) =>
