@@ -99,6 +99,7 @@ export default function ClientsScreen() {
           />
           <View style={styles.formRow}>
             <TextInput
+              accessibilityLabel="Client name"
               value={name}
               onChangeText={setName}
               placeholder="Client name"
@@ -106,7 +107,7 @@ export default function ClientsScreen() {
               style={styles.input}
             />
             <View style={{ flexGrow: 1, flexBasis: 240 }}>
-              <TimezonePicker value={timezone} onChange={setTimezone} />
+              <TimezonePicker value={timezone} onChange={setTimezone} showLabel={false} />
             </View>
             <View style={styles.createButton}>
               <Button
@@ -147,27 +148,38 @@ export default function ClientsScreen() {
       <Text style={{ color: colors.muted }}>{filtered.length} matching client workspaces</Text>
       <View style={styles.grid}>
         {filtered.slice(0, visibleCount).map((client) => (
-          <Card key={client.id} style={styles.gridItem}>
-            <ClientAvatar client={client} />
-            <Link
-              href={{
-                pathname: "/clients/[clientId]",
-                params: { clientId: client.id },
-              }}
-              asChild
-            >
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Open ${client.name} workspace`}
-                style={{ minHeight: 48, justifyContent: "center" }}
+          <Card
+            key={client.id}
+            style={styles.gridItem}
+            role="group"
+            accessibilityLabel={`${client.name} client card`}
+          >
+            <View style={styles.identity}>
+              <ClientAvatar client={client} />
+              <Link
+                href={{
+                  pathname: "/clients/[clientId]",
+                  params: { clientId: client.id },
+                }}
+                asChild
               >
-                <Text style={styles.cardTitle}>{client.name} →</Text>
-              </Pressable>
-            </Link>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${client.name} workspace`}
+                  style={styles.nameLink}
+                >
+                  <Text style={styles.cardTitle}>{client.name} →</Text>
+                </Pressable>
+              </Link>
+            </View>
             <StatusBadge label={client.status || "active"} />
-            <Text style={styles.sub}>{client.timezone || "Timezone not set"}</Text>
-            <Text style={styles.sub}>
-              Voice, audience, CTA, imagery, colors, assets, and posting rules
+            <Text
+              accessibilityLabel={`${client.name} brand voice`}
+              numberOfLines={4}
+              style={styles.voice}
+            >
+              {client.brandVoice?.trim() ||
+                "Add a brand voice in Brand Brain to guide this client’s content."}
             </Text>
             <View style={styles.actions}>
               <Link href={`/clients/${client.id}/brand`} asChild>
@@ -231,6 +243,7 @@ const styles = StyleSheet.create({
   input: {
     flexGrow: 1,
     flexBasis: 240,
+    minWidth: 0,
     minHeight: 48,
     color: colors.text,
     backgroundColor: colors.surface2,
@@ -242,7 +255,9 @@ const styles = StyleSheet.create({
   createButton: { minWidth: 150 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
   gridItem: { flexGrow: 1, flexBasis: 300, maxWidth: "100%", minHeight: 220 },
-  clientColor: { width: 46, height: 8, borderRadius: 999 },
+  identity: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  nameLink: { flex: 1, minWidth: 0, minHeight: 48, justifyContent: "center" },
+  voice: { color: colors.muted, fontSize: 15, lineHeight: 22, minHeight: 88 },
   cardTitle: { color: colors.text, fontSize: 20, fontWeight: "900" },
   sub: { color: colors.muted, fontSize: 15, lineHeight: 22 },
   actions: {
