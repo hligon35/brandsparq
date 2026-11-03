@@ -61,7 +61,7 @@
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
-    "expo": "~58.0.21",
+    "expo": "~58.0.22",
     "expo-constants": "~58.0.13",
     "expo-dev-client": "~58.0.17",
     "expo-font": "~58.0.10",
