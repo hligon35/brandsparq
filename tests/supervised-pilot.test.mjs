@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { publishingReleaseAccepted } from "../cloudflare/src/release-policy.ts";
 import { configurePilot } from "../cloudflare/src/pilot.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -43,6 +44,78 @@ async function job(w, id, client = "client-a", account = "accepted", supervisor 
   );
   return ensurePublishJob(w.env, id, null, supervisor);
 }
+
+test("held production builds cannot activate or publish even if database mode is normal", async (t) => {
+  const w = workspace(t);
+  destination(w);
+  const pending = await job(w, "held-build");
+  w.env.RELEASE_ACCEPTANCE_COMMIT = "held";
+  const overview = (await (await w.request("/v1/system/pilot", { user: "owner" })).json()).data;
+  assert.equal(overview.activationReady, false);
+  const activation = await activate(w);
+  assert.equal(activation.status, 409);
+  assert.match((await activation.json()).error, /deploy:production:accepted/);
+  assert.equal(w.row("SELECT mode FROM pilot_settings").mode, "normal");
+  assert.equal((await claimPublishJob(w.env, pending.jobId)).claimed, false);
+  assert.equal(
+    w.row("SELECT attempt_count FROM publish_jobs WHERE id=?", pending.jobId).attempt_count,
+    0,
+  );
+  assert.equal(
+    (await w.request("/v1/posts/held-build/publish-now", { user: "owner", method: "POST" })).status,
+    409,
+  );
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls++;
+    throw Error("No provider call allowed");
+  });
+  await worker.queue(
+    {
+      messages: [
+        {
+          body: {
+            kind: "publish",
+            publishJobId: pending.jobId,
+            postId: "held-build",
+            executionKey: pending.executionKey,
+          },
+          ack() {},
+          retry() {
+            throw Error("No retry expected");
+          },
+        },
+      ],
+    },
+    w.env,
+  );
+  assert.equal(calls, 0);
+  assert.equal(w.row("SELECT status FROM posts WHERE id='held-build'").status, "paused");
+  assert.equal(
+    (
+      await w.request("/v1/system/pilot", {
+        user: "owner",
+        method: "POST",
+        body: { mode: "hold", expectedRevision: 0 },
+      })
+    ).status,
+    200,
+  );
+});
+
+test("a held redeployment invalidates an earlier accepted supervised pilot", async (t) => {
+  const w = workspace(t);
+  destination(w);
+  assert.equal((await activate(w)).status, 200);
+  const pending = await job(w, "old-pilot");
+  for (const stamp of [undefined, "held", "b".repeat(40)]) {
+    w.env.RELEASE_ACCEPTANCE_COMMIT = stamp;
+    assert.equal((await claimPublishJob(w.env, pending.jobId)).claimed, false);
+    assert.equal((await activate(w, { expectedRevision: 1 })).status, 409);
+  }
+  w.env.RELEASE_ACCEPTANCE_COMMIT = w.env.RELEASE_COMMIT;
+  assert.equal((await claimPublishJob(w.env, pending.jobId)).claimed, true);
+});
 
 test("pilot controls require owner authentication and preserve normal deployments by default", async (t) => {
   const w = workspace(t);
@@ -332,4 +405,28 @@ test("a blocked old queue execution cannot pause or cancel a newer supervised ex
   assert.equal(w.row("SELECT status FROM posts WHERE id='post'").status, "publish_queued");
   assert.equal(w.row("SELECT status FROM publish_jobs WHERE id=?", current.jobId).status, "queued");
   assert.equal((await claimPublishJob(w.env, current.jobId)).claimed, true);
+});
+
+test("production release acceptance fails closed while isolated staging remains testable", () => {
+  for (const env of [
+    {},
+    { ENVIRONMENT: "unknown" },
+    { ENVIRONMENT: "production" },
+    { ENVIRONMENT: "production", RELEASE_COMMIT: "a".repeat(40) },
+    { ENVIRONMENT: "production", RELEASE_COMMIT: "invalid", RELEASE_ACCEPTANCE_COMMIT: "invalid" },
+    { ENVIRONMENT: "staging", RELEASE_ACCEPTANCE_COMMIT: "held" },
+  ])
+    assert.equal(publishingReleaseAccepted(env), false);
+  assert.equal(
+    publishingReleaseAccepted({ ENVIRONMENT: "staging", RELEASE_COMMIT: "a".repeat(40) }),
+    true,
+  );
+  assert.equal(
+    publishingReleaseAccepted({
+      ENVIRONMENT: "production",
+      RELEASE_COMMIT: "a".repeat(40),
+      RELEASE_ACCEPTANCE_COMMIT: "a".repeat(40),
+    }),
+    true,
+  );
 });

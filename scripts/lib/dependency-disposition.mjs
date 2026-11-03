@@ -64,7 +64,7 @@ export function verifyAdvisoryDispositions(gate, ids, { now = Date.now() } = {})
 export function assessAudit(
   report,
   lock,
-  { release = false, now = Date.now(), disposition, remediated = [] } = {},
+  { release = false, requireClear = false, now = Date.now(), disposition, remediated = [] } = {},
 ) {
   if (report.error || !report.metadata?.vulnerabilities || !report.vulnerabilities)
     throw new Error("Dependency audit did not return a complete report.");
@@ -118,6 +118,8 @@ export function assessAudit(
     throw new Error("Dependency audit findings do not match the reviewed advisory graph.");
   if (unresolved.size && now >= Date.parse("2026-11-08T00:00:00Z"))
     throw new Error("Dependency dispositions expired; refresh the upstream review.");
+  if (requireClear && unresolved.size)
+    throw new Error("Held deployment requires no unresolved dependency advisories.");
   if (release && unresolved.size) verifyAdvisoryDispositions(disposition, [...unresolved], { now });
   return {
     vulnerabilities: report.metadata.vulnerabilities,

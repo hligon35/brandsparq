@@ -26,6 +26,7 @@ export type PilotOverview = {
   expired: boolean;
   releaseCommit: string | null;
   deployedCommit?: string | null;
+  activationReady?: boolean;
   evidence: Partial<PilotEvidence>;
   destinations: PilotDestination[];
   availableDestinations: Array<

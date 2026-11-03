@@ -7,6 +7,7 @@ export function preparePilotPlan(
   if (
     pilot?.mode !== "hold" ||
     pilot.deployedCommit !== commit ||
+    pilot.activationReady !== true ||
     pilot.inFlight !== 0 ||
     !Number.isSafeInteger(pilot.revision)
   )

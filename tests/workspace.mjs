@@ -66,6 +66,7 @@ export function workspace(t) {
     DB: db,
     ENVIRONMENT: "production",
     RELEASE_COMMIT: "a".repeat(40),
+    RELEASE_ACCEPTANCE_COMMIT: "a".repeat(40),
     AUTH_PEPPER: "test-pepper",
     AUTH_ALLOWED_EMAILS: "owner@example.test",
     GOOGLE_CLIENT_ID: "test-google-client",

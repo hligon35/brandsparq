@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "validate": "npm run verify:toolchain && npm run schema:check && npm run check:expo && npm run audit:launch && npm run audit:dependencies && npm run lint && npm run format:check && npm test && npm run typecheck && npm --prefix cloudflare run typecheck && npm run build:web && npm run test:e2e",
     "deploy:production": "node scripts/deploy-production.mjs",
+    "deploy:production:accepted": "node scripts/deploy-production.mjs --accepted",
     "audit:launch": "node scripts/launch-audit.mjs",
     "smoke:production": "node scripts/smoke-production.mjs",
     "test": "node --import ./tests/register.mjs --test tests/*.test.mjs",

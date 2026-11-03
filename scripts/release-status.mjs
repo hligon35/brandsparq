@@ -15,6 +15,13 @@ console.log(
   JSON.stringify(
     {
       releaseCommit: commit,
+      scope: "live_activation",
+      heldDeployment: {
+        command: "npm run deploy:production",
+        status: "not_checked",
+        note: "Held deployment runs its own validation and production preflight; it does not require acceptance evidence.",
+      },
+      acceptedDeploymentCommand: "npm run deploy:production:accepted",
       status: error ? "blocked" : "attested_pending_live_ci_verification",
       reason: error || null,
       gates: RELEASE_GATES.map((name) => ({
