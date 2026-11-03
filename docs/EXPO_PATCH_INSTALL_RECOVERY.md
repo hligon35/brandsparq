@@ -24,3 +24,11 @@ Local verification: fresh `npm ci` with postinstall enabled, both security backp
 Production release evidence remains a separate gate. Do not copy the new commit SHA into an old report as a substitute for acceptance. Existing operational evidence must satisfy the checked-out candidate and release policy. Native dependencies changed; validate new native builds and choose a new compatible runtime before publishing OTA updates to existing installations.
 
 Four targeted desktop Chromium review/preview browser cases also passed after the update. A WebKit rerun was blocked before launch because its executable is absent in this workspace; no fresh WebKit or full-suite pass is claimed for these new dependency versions.
+
+## Production preflight follow-up
+
+The next SDK 58 compatibility set requires Expo 58.0.23, constants 58.0.15, linking 58.0.16, notifications 58.1.8, router 58.0.30, updates 58.0.21 and safe-area-context 5.11.1. The repository updates all seven and retains the live noninteractive compatibility check. Offline mode is not used to suppress version validation. Future SDK patch advisories can require further intentional package/lock updates.
+
+Production preflight now resolves the installed Cloudflare workspace Wrangler package's declared binary and runs it with Node directly. It preserves --json and the complete SQL argument without npm exec or shell argument parsing. Output can contain an ANSI/CRLF Wrangler banner, but must contain exactly one unambiguous structured D1 result; normal migration/hold/in-flight validation still applies. Exit failures, malformed or ambiguous data do not pass preflight. The query has a 90-second process deadline and bounded output.
+
+Regression tests exercise clean and banner-wrapped JSON, ambiguity, failed query results, missing migrations, unresolved publishing, and invoking the fake local Wrangler bin from a directory with spaces. These are local tests; they do not certify production database state or release acceptance. The private report's stale commit and blocked gates remain unresolved until actual acceptance is completed.
