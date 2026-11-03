@@ -1,3 +1,4 @@
+import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { renderFinalCopy, finalCopyError } from "@/shared/final-copy";
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
 import { Alert } from "@/components/feedback";
@@ -27,6 +28,16 @@ export default function PublicReviewScreen() {
   const [approved, setApproved] = useState(false);
   const [error, setError] = useState("");
   const { wide } = useResponsive();
+  const { markSaved } = useUnsavedChanges(
+    { headline, caption, comment, instruction },
+    !!post && !approved,
+    (saved) => {
+      setHeadline(saved.headline);
+      setCaption(saved.caption);
+      setComment(saved.comment);
+      setInstruction(saved.instruction);
+    },
+  );
 
   async function load() {
     const version = ++loadVersion.current;
@@ -36,6 +47,14 @@ export default function PublicReviewScreen() {
     try {
       const result = await api.getPublicReview(token);
       if (version !== loadVersion.current || entityRef.current !== token) return;
+      markSaved({
+        headline: result.data.headline || result.data.title || "",
+        caption: renderFinalCopy(result.data.caption || "", result.data.hashtags),
+        comment: "",
+        instruction: "",
+      });
+      setComment("");
+      setInstruction("");
       setPost(result.data);
       setHeadline(result.data.headline || result.data.title || "");
       setCaption(renderFinalCopy(result.data.caption || "", result.data.hashtags));
@@ -61,17 +80,34 @@ export default function PublicReviewScreen() {
     return () => clearInterval(timer);
   }, [post?.status, token]);
 
+  async function persistCopy(includeComment = false) {
+    const identity = token;
+    const saved = await api.editPublicReview(token, {
+      headline,
+      caption,
+      hashtags: [],
+      comment: includeComment ? comment : "",
+      expectedRevision: post.content_revision,
+    });
+    if (entityRef.current !== identity)
+      throw new Error("The review link changed. Reload before continuing.");
+    // If the next action fails, retry against the revision we just saved.
+    setPost((current: any) => ({
+      ...current,
+      headline,
+      title: headline,
+      caption,
+      hashtags: [],
+      content_revision: saved.revision,
+    }));
+    return saved;
+  }
+
   async function save() {
     if (!token) return;
     setWorking("save");
     try {
-      await api.editPublicReview(token, {
-        headline,
-        caption,
-        hashtags: [],
-        comment,
-        expectedRevision: post.content_revision,
-      });
+      await persistCopy(true);
       setComment("");
       await load();
     } catch (err) {
@@ -86,6 +122,7 @@ export default function PublicReviewScreen() {
     if (!token) return;
     setWorking("reject");
     try {
+      await persistCopy();
       await api.rejectPublicReview(token, comment || "Changes requested.");
       await load();
       Alert.alert(
@@ -104,6 +141,7 @@ export default function PublicReviewScreen() {
     if (!token) return;
     setWorking("regenerate");
     try {
+      await persistCopy();
       await api.regeneratePublicReview(token, instruction || comment || undefined);
       setInstruction("");
       setComment("");
@@ -120,13 +158,7 @@ export default function PublicReviewScreen() {
     if (!token) return;
     setWorking("approve");
     try {
-      const saved = await api.editPublicReview(token, {
-        headline,
-        caption,
-        hashtags: [],
-        comment,
-        expectedRevision: post.content_revision,
-      });
+      const saved = await persistCopy(true);
       await api.approvePublicReview(token, saved.revision);
       setApproved(true);
     } catch (err) {
@@ -189,7 +221,9 @@ export default function PublicReviewScreen() {
                 <Text style={styles.label}>Headline</Text>
                 <TextInput
                   accessibilityLabel="Headline"
-                  editable={!working}
+                  editable={
+                    !working && ["awaiting_approval", "edit_requested"].includes(post.status)
+                  }
                   value={headline}
                   onChangeText={setHeadline}
                   style={styles.input}
@@ -200,7 +234,9 @@ export default function PublicReviewScreen() {
                 )}
                 <TextInput
                   accessibilityLabel="Caption"
-                  editable={!working}
+                  editable={
+                    !working && ["awaiting_approval", "edit_requested"].includes(post.status)
+                  }
                   value={caption}
                   onChangeText={setCaption}
                   multiline
@@ -209,7 +245,11 @@ export default function PublicReviewScreen() {
                 <Button
                   label={working === "save" ? "Saving…" : "Save edits"}
                   secondary
-                  onPress={working ? undefined : save}
+                  onPress={
+                    working || !["awaiting_approval", "edit_requested"].includes(post.status)
+                      ? undefined
+                      : save
+                  }
                 />
               </Card>
 
@@ -217,8 +257,11 @@ export default function PublicReviewScreen() {
                 <Text style={styles.label}>Suggested publish time</Text>
                 <Text style={styles.heading}>
                   {post.suggested_publish_at
-                    ? new Date(post.suggested_publish_at).toLocaleString()
+                    ? new Date(post.suggested_publish_at).toLocaleString(undefined, {
+                        timeZone: post.client_timezone || "UTC",
+                      })
                     : "Not selected"}
+                  {` · ${post.client_timezone || "UTC"}`}
                 </Text>
               </Card>
 
@@ -228,6 +271,7 @@ export default function PublicReviewScreen() {
                   subtitle="Leave a comment, request changes, or regenerate a fresh variation."
                 />
                 <TextInput
+                  editable={!working && post.status !== "regenerating"}
                   value={comment}
                   onChangeText={setComment}
                   multiline
@@ -236,6 +280,7 @@ export default function PublicReviewScreen() {
                   style={[styles.input, styles.multiline]}
                 />
                 <TextInput
+                  editable={!working && post.status !== "regenerating"}
                   value={instruction}
                   onChangeText={setInstruction}
                   multiline
@@ -248,7 +293,7 @@ export default function PublicReviewScreen() {
                     <Button
                       label={working === "reject" ? "Requesting…" : "Request changes"}
                       secondary
-                      onPress={working ? undefined : reject}
+                      onPress={working || post.status === "regenerating" ? undefined : reject}
                     />
                   </View>
                   <View style={styles.action}>
@@ -263,7 +308,7 @@ export default function PublicReviewScreen() {
 
               <Button
                 label={working === "approve" ? "Approving…" : "Approve and add to calendar"}
-                onPress={working ? undefined : approve}
+                onPress={working || post.status === "regenerating" ? undefined : approve}
               />
             </View>
           </View>

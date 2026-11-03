@@ -1,3 +1,4 @@
+import { dispatchMetaWebhook } from "./meta-webhooks";
 import { renderFinalCopy, finalCopyError } from "../../src/shared/final-copy";
 import { providerFetch } from "./provider-http";
 import { socialProfileImage } from "./social-profile";
@@ -7,6 +8,7 @@ import { decryptSecret, encryptSecret, hashSecret } from "./security";
 
 export interface SocialEnv {
   DB: D1Database;
+  GENERATION_QUEUE?: Queue<any>;
   ENVIRONMENT?: string;
   MEDIA: R2Bucket;
   SOCIAL_TOKEN_KEY?: string;
@@ -558,7 +560,29 @@ export async function handleMetaWebhook(env: SocialEnv, request: Request, url: U
   }
 
   if (!env.META_APP_SECRET) return new Response("Meta webhook is not configured.", { status: 503 });
-  const raw = await request.text();
+  if (Number(request.headers.get("content-length") || 0) > 262144)
+    return new Response("Webhook too large", { status: 413 });
+  const reader = request.body?.getReader();
+  const decoder = new TextDecoder();
+  let raw = "",
+    size = 0;
+  if (reader) {
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        size += chunk.value.byteLength;
+        if (size > 262144) {
+          await reader.cancel();
+          return new Response("Webhook too large", { status: 413 });
+        }
+        raw += decoder.decode(chunk.value, { stream: true });
+      }
+      raw += decoder.decode();
+    } finally {
+      reader.releaseLock();
+    }
+  }
   const signature = request.headers.get("x-hub-signature-256") || "";
   if (!(await validMetaSignature(env.META_APP_SECRET, raw, signature))) {
     return new Response("Invalid signature", { status: 401 });
@@ -574,7 +598,8 @@ export async function handleMetaWebhook(env: SocialEnv, request: Request, url: U
     !payload ||
     typeof payload !== "object" ||
     Array.isArray(payload) ||
-    !Array.isArray(payload.entry)
+    !Array.isArray(payload.entry) ||
+    payload.entry.length > 100
   )
     return new Response("Invalid webhook payload", { status: 400 });
   // A delivery can contain several entries. Using just the first entry's id/time
@@ -586,12 +611,18 @@ export async function handleMetaWebhook(env: SocialEnv, request: Request, url: U
 
   await env.DB.prepare(
     `INSERT OR IGNORE INTO social_webhook_events
-     (id,provider,event_type,external_event_id,payload_json,processed_at)
-     VALUES (?,'meta',?,?,?,CURRENT_TIMESTAMP)`,
+     (id,provider,event_type,external_event_id,payload_json,processing_status)
+     VALUES (?,'meta',?,?,?,'pending')`,
   )
     .bind(crypto.randomUUID(), payload?.object || "unknown", eventId, raw)
     .run();
 
+  const stored = await env.DB.prepare(
+    "SELECT id FROM social_webhook_events WHERE provider='meta' AND external_event_id=? AND processing_status='pending'",
+  )
+    .bind(eventId)
+    .first<{ id: string }>();
+  if (stored) await dispatchMetaWebhook(env, stored.id);
   return new Response("EVENT_RECEIVED", { status: 200 });
 }
 
@@ -695,6 +726,11 @@ export async function socialOAuthCallback(
           "Meta granted login but returned no Facebook Pages. Grant Page access, select your Pages, and link each professional Instagram account to its Page before reconnecting.",
       });
 
+    const plans: Array<{
+      page: any;
+      destination: string;
+      newClient?: { name: string; timezone: string };
+    }> = [];
     for (const page of pages.values()) {
       let destination = saved.client_id as string;
       let newClient: { name: string; timezone: string } | undefined;
@@ -716,39 +752,57 @@ export async function socialOAuthCallback(
           };
         }
       }
-      await upsertAccount(env, {
-        clientId: destination,
-        newClient,
-        platform: "facebook",
-        name: page.name || "Facebook Page",
-        externalId: page.id,
-        accessToken: page.access_token || token.access_token,
-        metadata: { pageId: page.id, profileImageUrl: socialProfileImage(page) },
-        accountType: "page",
-        connectedBy: saved.user_id,
-        connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
-      });
-      connectedClients.add(destination);
-      connectedAccounts++;
-
-      if (page.instagram_business_account?.id) {
+      const target = await env.DB.prepare("SELECT status FROM clients WHERE id=?")
+        .bind(destination)
+        .first<{ status: string }>();
+      if (target && target.status !== "active")
+        throw new Error(
+          "A detected account belongs to an archived client. Restore that client before reconnecting. No accounts were imported.",
+        );
+      plans.push({ page, destination, newClient });
+    }
+    try {
+      for (const { page, destination, newClient } of plans) {
         await upsertAccount(env, {
           clientId: destination,
-          platform: "instagram",
-          name: page.instagram_business_account.username || page.name || "Instagram",
-          externalId: page.instagram_business_account.id,
+          newClient,
+          platform: "facebook",
+          name: page.name || "Facebook Page",
+          externalId: page.id,
           accessToken: page.access_token || token.access_token,
-          metadata: {
-            pageId: page.id,
-            profileImageUrl: socialProfileImage(page.instagram_business_account),
-          },
-          accountType: "business",
+          metadata: { pageId: page.id, profileImageUrl: socialProfileImage(page) },
+          accountType: "page",
           connectedBy: saved.user_id,
           connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
         });
+        connectedClients.add(destination);
         connectedAccounts++;
-        connectedInstagram++;
+
+        if (page.instagram_business_account?.id) {
+          await upsertAccount(env, {
+            clientId: destination,
+            platform: "instagram",
+            name: page.instagram_business_account.username || page.name || "Instagram",
+            externalId: page.instagram_business_account.id,
+            accessToken: page.access_token || token.access_token,
+            metadata: {
+              pageId: page.id,
+              profileImageUrl: socialProfileImage(page.instagram_business_account),
+            },
+            accountType: "business",
+            connectedBy: saved.user_id,
+            connectionRevisions: JSON.parse(saved.connection_revisions || "{}"),
+          });
+          connectedAccounts++;
+          connectedInstagram++;
+        }
       }
+    } catch (error) {
+      if (!connectedAccounts) throw error;
+      return redirectWithParams(saved.return_to, {
+        social_error: `${connectedAccounts} accounts connected across ${connectedClients.size} clients before import stopped. Review Social Connections, then reconnect to finish. ${error instanceof SocialConnectionChanged ? "Connection changed during import." : "An account could not be saved."}`,
+        clientId: [...connectedClients][0] || saved.client_id || "",
+      });
     }
   } else if (provider === "linkedin") {
     const body = new URLSearchParams({

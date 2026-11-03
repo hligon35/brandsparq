@@ -3303,6 +3303,42 @@ export const REQUIRED_SCHEMA = {
       notnull: 1,
       pk: 0,
     },
+    {
+      name: "processing_status",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "processing_error",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "attempt_count",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "claim_token",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "claim_until",
+      type: "INTEGER",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "processing_cursor",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
   ],
   sparq_scores: [
     {
@@ -3779,6 +3815,10 @@ export const REQUIRED_INDEXES = [
   {
     name: "idx_media_access_tokens_hash",
     sql: "CREATE INDEX idx_media_access_tokens_hash\n  ON media_access_tokens(token_hash, expires_at)",
+  },
+  {
+    name: "idx_meta_webhook_pending",
+    sql: "CREATE INDEX idx_meta_webhook_pending ON social_webhook_events(processing_status,claim_until,created_at)",
   },
   {
     name: "idx_notification_deliveries_notification",

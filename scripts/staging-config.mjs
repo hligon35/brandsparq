@@ -53,7 +53,23 @@ if (
     "Production resource layout changed. Add explicit staging isolation rules before deployment.",
   );
 }
+// Social providers are disabled unless explicitly configured for staging.
+const stagingMetaApp = (process.env.BRANDSPARQ_STAGING_META_APP_ID || "").trim();
+const stagingMetaConfig = (process.env.BRANDSPARQ_STAGING_META_LOGIN_CONFIG_ID || "").trim();
+for (const value of [stagingMetaApp, stagingMetaConfig])
+  if (value && !/^\d+$/.test(value)) throw new Error("Staging Meta IDs must contain only digits.");
+const productionMetaApp = source.match(/^META_APP_ID = "([^"\n]+)"/m)?.[1];
+const productionMetaConfig = source.match(/^META_LOGIN_CONFIG_ID = "([^"\n]+)"/m)?.[1];
+if (
+  (stagingMetaApp && stagingMetaApp === productionMetaApp) ||
+  (stagingMetaConfig && stagingMetaConfig === productionMetaConfig)
+)
+  throw new Error("Set separate staging Meta app and login configuration IDs.");
+if (stagingMetaConfig && !stagingMetaApp)
+  throw new Error("Set the staging Meta app ID with its login configuration.");
 let config = source
+  .replace(/^META_APP_ID = .*$/m, `META_APP_ID = "${stagingMetaApp}"`)
+  .replace(/^META_LOGIN_CONFIG_ID = .*$/m, `META_LOGIN_CONFIG_ID = "${stagingMetaConfig}"`)
   .replace(/^name = "brandsparq"/m, 'name = "brandsparq-staging"')
   .replace(/routes = \[[\s\S]*?\]/, "workers_dev = true")
   .replace('ENVIRONMENT = "production"', 'ENVIRONMENT = "staging"')

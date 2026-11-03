@@ -24,6 +24,27 @@ export default function PostReviewScreen() {
   const loadVersion = useRef(0);
   const [post, setPost] = useState<MarketingPost | undefined>();
   const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const previewAttempt = useRef("");
+  const [previewError, setPreviewError] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  async function renewPreview() {
+    if (previewBusy) return;
+    const id = postId;
+    setPreviewBusy(true);
+    try {
+      const fresh = await api.getPost(id);
+      if (entityRef.current !== id) return;
+      // Only renew media; never replace draft copy, approval state or edit revisions.
+      setPost((current) =>
+        current?.id === id ? { ...current, imageUrl: fresh.imageUrl } : current,
+      );
+      setPreviewError(!fresh.imageUrl);
+    } catch {
+      if (entityRef.current === id) setPreviewError(true);
+    } finally {
+      if (entityRef.current === id) setPreviewBusy(false);
+    }
+  }
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [aiAction, setAiAction] = useState<AiAction>(null);
@@ -59,6 +80,8 @@ export default function PostReviewScreen() {
         clients.find((client) => client.id === nextPost.clientId)?.timezone ||
           Intl.DateTimeFormat().resolvedOptions().timeZone,
       );
+      previewAttempt.current = "";
+      setPreviewError(false);
       setPost(nextPost);
       setHeadlineDraft(nextPost.title || "");
       setCaptionDraft(renderFinalCopy(nextPost.caption || "", nextPost.hashtags));
@@ -269,10 +292,32 @@ export default function PostReviewScreen() {
       <View style={[styles.reviewGrid, wide && styles.reviewGridWide]}>
         <Card style={[styles.mediaCard, wide && { flex: 1.05 }]}>
           {post.imageUrl ? (
-            <Image source={{ uri: post.imageUrl }} style={styles.image} resizeMode="cover" />
+            <Image
+              source={{ uri: post.imageUrl }}
+              style={styles.image}
+              resizeMode="cover"
+              onError={() => {
+                setPreviewError(true);
+                if (previewAttempt.current !== postId) {
+                  previewAttempt.current = postId;
+                  void renewPreview();
+                }
+              }}
+              onLoad={() => setPreviewError(false)}
+            />
           ) : (
             <View style={styles.placeholderWrap}>
               <Text style={styles.placeholder}>GRAPHIC GENERATION PENDING</Text>
+            </View>
+          )}
+          {previewError && (
+            <View>
+              <Text style={styles.body}>Image preview unavailable. Your edits are preserved.</Text>
+              <Button
+                label={previewBusy ? "Loading preview…" : "Retry image preview"}
+                secondary
+                onPress={previewBusy ? undefined : renewPreview}
+              />
             </View>
           )}
         </Card>

@@ -1,3 +1,4 @@
+import { WebhookJobs } from "@/components/WebhookJobs";
 import { PublishReconciliation } from "@/components/PublishReconciliation";
 import { IconButton } from "@/components/icon-button";
 import { PilotControls } from "@/components/PilotControls";
@@ -306,6 +307,7 @@ export default function SystemHealthScreen() {
           ))}
         </View>
       </Card>
+      <WebhookJobs />
     </PageScroll>
   );
 }

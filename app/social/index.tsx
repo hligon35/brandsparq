@@ -120,7 +120,11 @@ export default function SocialConnectionsScreen() {
       const result = await WebBrowser.openAuthSessionAsync(url, returnTo);
       if (result.type === "success") {
         const error = Linking.parse(result.url).queryParams?.social_error;
-        if (error) throw new Error(String(error));
+        if (error) {
+          const partialClient = Linking.parse(result.url).queryParams?.clientId;
+          await load(typeof partialClient === "string" ? partialClient : undefined);
+          throw new Error(String(error));
+        }
         const connectedClient = Linking.parse(result.url).queryParams?.clientId;
         await load(typeof connectedClient === "string" ? connectedClient : undefined);
         return;

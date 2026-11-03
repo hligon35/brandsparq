@@ -33,10 +33,19 @@ test("staging configuration rejects production bindings and derives only isolate
     run({ BRANDSPARQ_STAGING_DATABASE_ID: "1f6f0d67-1725-4f19-8fd9-0f80f600f5b1" }),
   );
   assert.throws(() => run({ BRANDSPARQ_STAGING_ALLOWED_EMAILS: "" }));
-  run({});
+  assert.throws(() => run({ BRANDSPARQ_STAGING_META_APP_ID: "2050251078958295" }));
+  assert.throws(() => run({ BRANDSPARQ_STAGING_META_LOGIN_CONFIG_ID: "123" }));
+  run({ BRANDSPARQ_STAGING_META_APP_ID: "123", BRANDSPARQ_STAGING_META_LOGIN_CONFIG_ID: "456" });
+  assert.ok(
+    readFileSync(join(dir, "cloudflare/wrangler.staging.toml"), "utf8").includes(
+      'META_APP_ID = "123"',
+    ),
+  );
+  run({ BRANDSPARQ_STAGING_META_APP_ID: "", BRANDSPARQ_STAGING_META_LOGIN_CONFIG_ID: "" });
   const config = readFileSync(join(dir, "cloudflare/wrangler.staging.toml"), "utf8");
   assert.ok(!config.includes("brandsparq.getsparqd.com"));
   assert.ok(!config.includes("custom_domain"));
+  assert.ok(config.includes('META_APP_ID = ""'));
   for (const name of ["media", "publish", "generation", "publish-dlq", "generation-dlq"])
     assert.ok(config.includes(`"brandsparq-staging-${name}"`));
   assert.ok(config.includes('ENVIRONMENT = "staging"'));

@@ -1,3 +1,4 @@
+import { dispatchMetaWebhook } from "./meta-webhooks";
 import { enqueueAnalytics } from "./analytics-jobs";
 import { validRevision, revisionRequired, revisionConflict } from "./revisions";
 import { pageOptions, pageResult } from "./pagination";
@@ -88,6 +89,33 @@ export async function handleManagementRoute(
   env: ManagementEnv,
   user: User,
 ): Promise<ManagementResult | null> {
+  if (url.pathname === "/v1/social/webhook-events" && request.method === "GET") {
+    if (user.role !== "owner") return { status: 403, body: { error: "Owner access required." } };
+    const cursor = url.searchParams.get("cursor") || "";
+    const rows = await env.DB.prepare(
+      "SELECT id,event_type,processing_status,processing_error,attempt_count,created_at,processed_at FROM social_webhook_events WHERE provider='meta' AND id>? ORDER BY id LIMIT 51",
+    )
+      .bind(cursor)
+      .all<any>();
+    const data = rows.results.slice(0, 50);
+    return { body: { data, nextCursor: rows.results.length > 50 ? data.at(-1)!.id : null } };
+  }
+  const webhookRetry = url.pathname.match(/^\/v1\/social\/webhook-events\/([^/]+)\/retry$/);
+  if (webhookRetry && request.method === "POST") {
+    if (user.role !== "owner") return { status: 403, body: { error: "Owner access required." } };
+    const result = await env.DB.prepare(
+      "UPDATE social_webhook_events SET processing_status='pending',processing_error=NULL,attempt_count=0,claim_token=NULL,claim_until=NULL WHERE id=? AND provider='meta' AND processing_status='failed' AND claim_token IS NULL",
+    )
+      .bind(webhookRetry[1])
+      .run();
+    if (!result.meta.changes)
+      return {
+        status: 409,
+        body: { error: "Only failed, unclaimed webhook jobs can be retried." },
+      };
+    await dispatchMetaWebhook(env, webhookRetry[1]);
+    return { status: 202, body: { ok: true } };
+  }
   const profileResult = await handleProfile(request, url, env, user);
   if (profileResult) return profileResult;
   if (request.method === "GET" && url.pathname === "/v1/campaigns") {
