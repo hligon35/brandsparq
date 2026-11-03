@@ -220,9 +220,49 @@ npm run deploy:production
 npm run smoke:production
 ```
 
-Production deployment runs the complete quality gate and the acceptance safeguards in [RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md). Complete that runbook before using the deployment commands above.
+### Deploy fixes with publishing held
 
-The deploy script exports Expo web to `dist/` and deploys the Worker plus static assets. It now also requires exact-commit acceptance evidence and a live publishing-hold/migration preflight; see [RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md).
+`npm run deploy:production` (also `npm run deploy`) deploys the Worker and web assets
+with publishing disabled. It requires a clean checkout, the full `validate` suite,
+a dependency audit with no unresolved advisories, all migrations applied, workspace
+no-response policy `hold`, pilot mode `hold`, and no unresolved publishing outcomes.
+The remote preflight runs before validation and again immediately before upload.
+The checkout must still match the validated commit after that final preflight.
+
+This path does **not** require `BRANDSPARQ_RELEASE_EVIDENCE` or hosted CI. It does
+not mark any acceptance gate passed. OAuth connections, client setup, uploads and
+other application testing remain available. The Worker refuses pilot activation,
+new invitations and provider publishing, including queued claims, even if database
+pilot settings are changed out of hold. Existing provider outcomes still require
+reconciliation; a held deployment cannot undo an already sent provider request.
+
+### Deploy an accepted release, then activate a pilot
+
+After completing the physical-device, provider, restore and other acceptance
+requirements in [PHASE_FOUR_RELEASE_ACCEPTANCE.md](PHASE_FOUR_RELEASE_ACCEPTANCE.md),
+use the **same clean source commit**:
+
+```powershell
+$env:BRANDSPARQ_RELEASE_EVIDENCE = "$PWD\release-evidence\accepted.json"
+npm run release:verify
+npm run deploy:production:accepted
+npm run smoke:production
+```
+
+The accepted command additionally verifies the private version 2 report and actual
+successful hosted CI for the exact commit, plus the release dependency disposition.
+It retains the same validation and production preflights. It still does not activate
+publishing: use `pilot:plan` and the owner controls in System Health to configure an
+accepted destination, expiry and supervision. The deployed acceptance stamp must
+match `RELEASE_COMMIT`; held or unstamped production builds cannot activate pilots.
+A later held deployment removes activation eligibility, even for the same commit.
+
+`release:status` describes **live acceptance**, not whether code can be deployed
+with publishing held. Its blocked result is expected while operational acceptance
+is incomplete. Do not edit an old report merely to replace its commit hash.
+
+Neither command migrates the database, changes hold settings or certifies device
+acceptance. Administrative direct Wrangler/D1 access remains outside these guards.
 
 ## Production verification
 
@@ -287,7 +327,21 @@ Use the repository root (`/`) as the root directory, `npm run build:web` as the 
 
 A successful Expo export only creates `dist`; it does not deploy the Worker. A failed deploy leaves the previous Worker version serving the custom domain, even if its variables have been edited. Inspect the deployment result, not just the build result.
 
-Cloudflare's isolated Git build does not automatically receive ignored private `release-evidence/accepted.json` from an operator's computer. The guarded command requires that accepted report to exist in its execution environment, plus current hosted CI, credentials and production preflight. Keep automatic production deployment disabled until this evidence provisioning is arranged. The supported operator path is `npm run deploy:production` from the clean accepted checkout with `BRANDSPARQ_RELEASE_EVIDENCE` set. Do not use a raw Wrangler deploy to treat incomplete release acceptance as passed.
+Cloudflare Git Builds can use the default **held** deployment without a private
+acceptance report. Provision Cloudflare credentials and install both root and
+`cloudflare` dependencies, plus the Chromium/WebKit browsers and system libraries
+required by `validate`, in the build environment. The deploy command runs validation
+and the production database preflight; a successful web export alone is insufficient.
+Set the build command to install prerequisites as needed for your runner, for example
+`npm ci && npm ci --prefix cloudflare && npx playwright install --with-deps chromium webkit`.
+The deploy script itself builds production assets during validation.
+
+Keep the Git Build deploy command `npm run deploy`. Perform accepted deployments
+through the separate operator command above with privately provisioned evidence;
+never put the report or owner credentials into the public repository. Each later
+Git Build returns the application to a held deployment, so pause automatic builds
+while an accepted supervised pilot is active. The live preflight also rejects a
+build while the database pilot mode is supervised.
 
 The production-readiness migration `0017_production_readiness.sql` and workflow-safety migration `0017_workflow_safety.sql` both precede Phase 2 migration 0018. Apply all pending migrations in filename order.
 

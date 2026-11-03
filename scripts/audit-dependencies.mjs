@@ -32,10 +32,9 @@ for (const directory of [".", "cloudflare"]) {
   const lock = JSON.parse(readFileSync(`${directory}/package-lock.json`, "utf8"));
   const disposition = assessAudit(report, lock, {
     release,
+    requireClear: directory === "cloudflare" || process.argv.includes("--require-clear"),
     disposition: ownerDisposition,
     remediated: directory === "." ? remediated : [],
   });
-  if (directory === "cloudflare" && !disposition.securityClear)
-    throw new Error("Worker tooling must have a clean audit.");
   console.log(directory, JSON.stringify(disposition));
 }

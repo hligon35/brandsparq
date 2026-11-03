@@ -92,13 +92,15 @@ export function PilotControls() {
             <>
               <StatusBadge
                 label={
-                  pilot.expired
-                    ? "Pilot expired · publishing held"
-                    : pilot.mode === "normal"
-                      ? "Pilot not enabled"
-                      : pilot.mode === "hold"
-                        ? "Publishing held"
-                        : "Supervised pilot active"
+                  pilot.activationReady === false
+                    ? "Publishing held · acceptance pending"
+                    : pilot.expired
+                      ? "Pilot expired · publishing held"
+                      : pilot.mode === "normal"
+                        ? "Pilot not enabled"
+                        : pilot.mode === "hold"
+                          ? "Publishing held"
+                          : "Supervised pilot active"
                 }
               />
               <Text style={styles.muted}>
@@ -109,6 +111,12 @@ export function PilotControls() {
                   ? "Existing workspace rules still apply. Enable a hold before preparing live acceptance."
                   : "One approved destination per client, up to two clients, and one publishing execution per client per UTC day. Every publish requires an active owner."}
               </Text>
+              {pilot.activationReady === false && (
+                <Text style={styles.warning}>
+                  This deployment holds publishing. Complete release acceptance and deploy the
+                  accepted release before activating a pilot.
+                </Text>
+              )}
               {pilot.endsAt && (
                 <Text style={styles.muted}>
                   Pilot ends {new Date(pilot.endsAt).toLocaleString()}. Expiration keeps publishing
@@ -231,7 +239,11 @@ export function PilotControls() {
                   ))}
                   <Button
                     label={saving ? "Saving…" : "Save supervised pilot"}
-                    onPress={saving || !pilot.deployedCommit ? undefined : () => save("supervised")}
+                    onPress={
+                      saving || !pilot.deployedCommit || pilot.activationReady !== true
+                        ? undefined
+                        : () => save("supervised")
+                    }
                   />
                 </View>
               )}

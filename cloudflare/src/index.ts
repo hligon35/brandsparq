@@ -10,6 +10,7 @@ import { validRevision, revisionRequired, revisionConflict } from "./revisions";
 import { postCampaign, campaignOpen } from "./campaign-workflow";
 import { handleCreationRoute } from "./creation";
 import { validTimezone } from "./settings-validation";
+import { publishingReleaseAccepted } from "./release-policy";
 import { getPilot, pilotPublishError } from "./pilot";
 import { handleWorkspaceRoute } from "./workspace";
 import { handleTeamRoute, invitationPreview } from "./team";
@@ -72,6 +73,8 @@ interface Env {
   GENERATION_QUEUE: Queue<JobMessage>;
   ALLOWED_ORIGINS?: string;
   ENVIRONMENT?: string;
+  RELEASE_COMMIT?: string;
+  RELEASE_ACCEPTANCE_COMMIT?: string;
   AUTH_PEPPER?: string;
   AUTH_ALLOWED_EMAILS?: string;
   GOOGLE_CLIENT_ID?: string;
@@ -2824,7 +2827,11 @@ const worker = {
 
       const claim = await claimPublishJob(env, message.body.publishJobId);
       if (!claim.claimed) {
-        if (claim.eligible && claim.postId && (await getPilot(env)).mode !== "normal") {
+        if (
+          claim.eligible &&
+          claim.postId &&
+          (!publishingReleaseAccepted(env) || (await getPilot(env)).mode !== "normal")
+        ) {
           await stopScheduledPost(env, claim.postId, "paused", false, claim.executionKey);
         }
         message.ack();

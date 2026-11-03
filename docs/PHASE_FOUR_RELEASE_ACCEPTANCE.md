@@ -1,5 +1,22 @@
 # Phase 4 — release acceptance and supervised pilot
 
+## Deployment policy update — November 3, 2026
+
+Code deployment and live activation are separate. `npm run deploy:production`
+and the root `deploy` aliases now deploy **with publishing held** after full local
+validation, a clear dependency audit and two live production preflights. They do
+not require the private acceptance report or successful hosted CI.
+
+`npm run deploy:production:accepted` retains the full exact-commit report and hosted
+CI checks and stamps the deployed commit as eligible for pilot activation. Both
+paths require publishing/no-response holds and no unresolved executions before
+upload. The default path stamps the Worker as held and blocks activation and new
+publishing regardless of the stored pilot mode. An accepted deployment still needs
+explicit owner pilot activation. Staging can exercise publishing for acceptance.
+See [PRODUCTION.md](PRODUCTION.md#deployment) for current commands. Historical
+references below to acceptance being required for every deployment are superseded
+by this policy; existing manual evidence requirements remain unchanged.
+
 ## Current status: implementation complete; live acceptance blocked
 
 The code follow-up and manual testing handoff are recorded in
@@ -20,7 +37,7 @@ external invitation or pilot activation was performed here.
 - `release:verify` validates evidence and reads the actual GitHub Actions run.
   Repository, quality workflow identity, run ID, exact source SHA, completed status
   and success must match.
-  Production deployment runs this check before its existing quality gates,
+  Accepted production deployment runs this check before its quality gates,
   dependency disposition and live D1 preflight.
 - Guarded deployments stamp `RELEASE_COMMIT`. Staging also requires a clean
   checkout. Pilot activation and queued pilot claims must match that deployed

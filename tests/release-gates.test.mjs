@@ -84,6 +84,18 @@ test("dependency checks track only the reviewed package/version and block unknow
   const lock = { packages: { "node_modules/zod": { version: "3.25.76" } } };
   const options = { now: Date.parse("2026-10-25") };
   assert.equal(assessAudit(report, lock, options).securityClear, false);
+  assert.throws(
+    () => assessAudit(report, lock, { ...options, requireClear: true }),
+    /no unresolved/,
+  );
+  assert.equal(
+    assessAudit(report, lock, {
+      ...options,
+      requireClear: true,
+      remediated: ["GHSA-mrhx-c7xc-m3w5"],
+    }).securityClear,
+    true,
+  );
   assert.throws(() => assessAudit(report, lock, { ...options, release: true }), /owner/);
   assert.throws(() => assessAudit(report, lock, { now: Date.parse("2026-11-09") }), /expired/);
   report.vulnerabilities["zod"].via[0].url += "-unknown";

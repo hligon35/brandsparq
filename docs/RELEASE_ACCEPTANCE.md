@@ -1,3 +1,5 @@
+> Deployment policy update: the default production command now deploys with publishing held, without a private acceptance report. Full acceptance and hosted CI remain mandatory for `npm run deploy:production:accepted` and subsequent owner pilot activation. See [current production deployment instructions](PRODUCTION.md#deployment). The deployment requirements below describe the historical policy.
+
 > Historical October 25 acceptance record. See [Phase 4 current status and runbook](PHASE_FOUR_RELEASE_ACCEPTANCE.md) for current gates, counts, blockers and version 2 evidence.
 
 # Release acceptance: October 25, 2026

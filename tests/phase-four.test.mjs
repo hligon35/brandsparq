@@ -311,6 +311,7 @@ test("pilot plan is limited to the accepted receipt destination and a held match
       pilot: {
         mode: "hold",
         deployedCommit: report.releaseCommit,
+        activationReady: true,
         inFlight: 0,
         revision: 2,
         availableDestinations: [{ clientId: "client", socialAccountId: "destination" }],
@@ -320,6 +321,11 @@ test("pilot plan is limited to the accepted receipt destination and a held match
       endsAt: new Date(Date.now() + 3600000).toISOString(),
     };
   assert.equal(preparePilotPlan(report, options).expectedRevision, 2);
+  assert.throws(
+    () =>
+      preparePilotPlan(report, { ...options, pilot: { ...options.pilot, activationReady: false } }),
+    /matching deployed release/,
+  );
   assert.throws(
     () => preparePilotPlan(report, { ...options, socialAccountId: "other" }),
     /exact active destination/,

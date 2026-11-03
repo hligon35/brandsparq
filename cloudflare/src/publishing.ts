@@ -1,7 +1,7 @@
+import { publishingReleaseAccepted, type ReleaseEnvironment } from "./release-policy";
 import { postCampaign, campaignOpen } from "./campaign-workflow";
-export interface PublishingEnv {
+export interface PublishingEnv extends ReleaseEnvironment {
   DB: D1Database;
-  RELEASE_COMMIT?: string;
 }
 
 export type PublishQueueMessage = {
@@ -100,7 +100,7 @@ export async function claimPublishJob(
   }
 
   const campaign = await postCampaign(env, row.post_id);
-  if (!campaignOpen(campaign))
+  if (!publishingReleaseAccepted(env) || !campaignOpen(campaign))
     return {
       claimed: false,
       eligible: true,

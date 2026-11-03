@@ -1,3 +1,8 @@
+import {
+  publishingReleaseAccepted,
+  HELD_RELEASE_MESSAGE,
+  type ReleaseEnvironment,
+} from "./release-policy";
 import type { SessionUser } from "./auth";
 import {
   PILOT_EVIDENCE,
@@ -5,7 +10,7 @@ import {
   type PilotOverview,
 } from "../../src/shared/pilot";
 
-type Env = { DB: D1Database; RELEASE_COMMIT?: string };
+type Env = ReleaseEnvironment & { DB: D1Database };
 export async function getPilot(env: Env) {
   const row = await env.DB.prepare("SELECT * FROM pilot_settings WHERE id='default'").first<any>();
   if (!row)
@@ -33,6 +38,7 @@ export async function pilotOverview(env: Env): Promise<PilotOverview> {
     expired: row.mode === "supervised" && (!row.ends_at || Date.parse(row.ends_at) <= Date.now()),
     releaseCommit: row.release_commit,
     deployedCommit: /^[a-f0-9]{40}$/.test(env.RELEASE_COMMIT || "") ? env.RELEASE_COMMIT : null,
+    activationReady: publishingReleaseAccepted(env),
     evidence: JSON.parse(row.evidence_json),
     destinations: destinations.results,
     availableDestinations: available.results,
@@ -41,6 +47,7 @@ export async function pilotOverview(env: Env): Promise<PilotOverview> {
 }
 
 export async function pilotPublishError(env: Env, user: SessionUser, postId: string) {
+  if (!publishingReleaseAccepted(env)) return HELD_RELEASE_MESSAGE;
   const config = await getPilot(env);
   if (config.mode === "normal") return null;
   if (config.mode !== "supervised" || !config.ends_at || Date.parse(config.ends_at) <= Date.now())
@@ -68,6 +75,7 @@ export async function pilotPublishError(env: Env, user: SessionUser, postId: str
 }
 
 export async function pilotInvitationError(env: Env, clientIds: string[]) {
+  if (!publishingReleaseAccepted(env)) return HELD_RELEASE_MESSAGE;
   const config = await getPilot(env);
   if (config.mode === "normal") return null;
   if (config.mode !== "supervised" || !config.ends_at || Date.parse(config.ends_at) <= Date.now())
@@ -114,6 +122,8 @@ export async function configurePilot(env: Env, user: SessionUser, inputValue: un
   let evidence: Record<string, string> = {};
   let endsAt: string | null = null;
   if (input.mode === "supervised") {
+    if (!publishingReleaseAccepted(env))
+      return { body: { error: HELD_RELEASE_MESSAGE }, status: 409 };
     const end = typeof input.endsAt === "string" ? Date.parse(input.endsAt) : NaN;
     if (
       !Number.isFinite(end) ||
