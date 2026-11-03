@@ -54,3 +54,15 @@ New browser regressions cover request-changes persistence, approval retry after 
 Standalone Instagram Login remains open. Meta's available official collection distinguishes Instagram Login permissions from Facebook Login, but the directly referenced authentication documentation returned HTTP 429 during verification. No partial direct-login adapter was shipped or represented as supported.
 
 Verification for this follow-up: 314 unit/backend tests passed; 8 targeted browser cases passed across desktop/mobile Chromium; TypeScript, lint and formatting passed. The standard Chromium download was invalid; the same official Chrome-for-Testing headless build was obtained from Google's storage endpoint. Browser tests used freshly exported app source and the isolated authenticated fixture API. These are not real provider/device acceptance.
+
+## Follow-up: webhook progress and interrupted final claims
+
+Migration `0031_webhook_batch_progress.sql` adds a durable account cursor. Large deliveries now advance through batches of ten accounts, queueing continuation after each saved batch. Completed batches are not rechecked on the next delivery. The lease is fifteen minutes to accommodate bounded refresh/verification calls. Attempt limits apply to the current batch; successful progress resets the batch attempt counter.
+
+Maintenance now marks an expired fifth claim failed, including a worker crash before its failure handler ran. Active leases are preserved. Owners can retry that terminal failure through System Health while retaining the completed batch cursor.
+
+Webhook body admission reads the request as a stream and cancels beyond 256 KiB; it no longer buffers an unbounded body before applying the cap.
+
+Added regression tests for 23-account continuation without repeating completed accounts, a worker crash on its fifth claim before/after lease expiry, owner recovery, and oversized bodies without a Content-Length header. All 317 unit/backend tests passed; TypeScript, schema, lint and formatting passed. Apply migration 0031 alongside any earlier unapplied migrations before deploying.
+
+Fresh mobile WebKit verification: six targeted cases passed (public request changes, approval retry, regeneration failure, preview renewal, stale Brand Brain conflict/discard, stale post approval protection). The initial run failed at browser launch due to absent host libraries, before app execution; the repeat used the installed WebKit engine and required libraries. This closes the targeted WebKit gap for those flows, not physical iOS or the entire browser suite.

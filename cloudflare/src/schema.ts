@@ -3333,6 +3333,12 @@ export const REQUIRED_SCHEMA = {
       notnull: 0,
       pk: 0,
     },
+    {
+      name: "processing_cursor",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
   ],
   sparq_scores: [
     {

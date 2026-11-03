@@ -93,3 +93,81 @@ test("failed provider checks retry finitely and only owners can restart failed j
   const list = await (await w.request("/v1/social/webhook-events", { user: "owner" })).json();
   assert.equal(list.data[0].payload_json, undefined);
 });
+
+test("large webhook deliveries advance durable batches without repeating completed accounts", async (t) => {
+  const w = workspace(t),
+    entries = [];
+  for (let i = 0; i < 23; i++) {
+    const id = String(i).padStart(3, "0");
+    entries.push({ id: "external-" + id });
+    w.exec(
+      "INSERT INTO social_accounts(id,client_id,platform,external_account_id,status,access_token_ciphertext) VALUES(?,'client-a','instagram',?,'connected',?)",
+      id,
+      "external-" + id,
+      await encryptSecret("token", w.env),
+    );
+  }
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (input) => {
+    calls.push(new URL(input).pathname);
+    return Response.json({ id: "verified" });
+  });
+  await receive(w, { object: "instagram", entry: entries });
+  const event = w.row("SELECT id FROM social_webhook_events");
+  await processMetaWebhook(w.env, event.id);
+  assert.equal(calls.length, 10);
+  assert.equal(
+    w.row("SELECT processing_status FROM social_webhook_events").processing_status,
+    "pending",
+  );
+  await processMetaWebhook(w.env, event.id);
+  assert.equal(calls.length, 20);
+  await processMetaWebhook(w.env, event.id);
+  assert.equal(calls.length, 23);
+  assert.equal(new Set(calls).size, 23);
+  assert.equal(
+    w.row("SELECT processing_status FROM social_webhook_events").processing_status,
+    "completed",
+  );
+});
+test("a crash on the final claim becomes an actionable failure only after its lease expires", async (t) => {
+  const w = workspace(t);
+  await receive(w, payload);
+  const event = w.row("SELECT id FROM social_webhook_events");
+  w.exec(
+    "UPDATE social_webhook_events SET attempt_count=5,claim_token='dead-worker',claim_until=?",
+    Date.now() + 60000,
+  );
+  await recoverMetaWebhooks(w.env);
+  assert.equal(
+    w.row("SELECT processing_status FROM social_webhook_events").processing_status,
+    "pending",
+  );
+  w.exec("UPDATE social_webhook_events SET claim_until=?", Date.now() - 1);
+  await recoverMetaWebhooks(w.env);
+  const failed = w.row("SELECT * FROM social_webhook_events");
+  assert.equal(failed.processing_status, "failed");
+  assert.equal(failed.claim_token, null);
+  assert.equal(
+    (
+      await w.request("/v1/social/webhook-events/" + event.id + "/retry", {
+        user: "owner",
+        method: "POST",
+      })
+    ).status,
+    202,
+  );
+});
+
+test("oversized webhook streams are rejected before persistence without trusting content length", async (t) => {
+  const w = workspace(t);
+  w.env.META_APP_SECRET = "secret";
+  const url = new URL(w.env.PUBLIC_BASE_URL + "/v1/social/webhooks/meta");
+  const result = await handleMetaWebhook(
+    w.env,
+    new Request(url, { method: "POST", body: "x".repeat(262145) }),
+    url,
+  );
+  assert.equal(result.status, 413);
+  assert.equal(w.row("SELECT COUNT(*) n FROM social_webhook_events").n, 0);
+});

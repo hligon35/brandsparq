@@ -562,9 +562,27 @@ export async function handleMetaWebhook(env: SocialEnv, request: Request, url: U
   if (!env.META_APP_SECRET) return new Response("Meta webhook is not configured.", { status: 503 });
   if (Number(request.headers.get("content-length") || 0) > 262144)
     return new Response("Webhook too large", { status: 413 });
-  const raw = await request.text();
-  if (new TextEncoder().encode(raw).length > 262144)
-    return new Response("Webhook too large", { status: 413 });
+  const reader = request.body?.getReader();
+  const decoder = new TextDecoder();
+  let raw = "",
+    size = 0;
+  if (reader) {
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        size += chunk.value.byteLength;
+        if (size > 262144) {
+          await reader.cancel();
+          return new Response("Webhook too large", { status: 413 });
+        }
+        raw += decoder.decode(chunk.value, { stream: true });
+      }
+      raw += decoder.decode();
+    } finally {
+      reader.releaseLock();
+    }
+  }
   const signature = request.headers.get("x-hub-signature-256") || "";
   if (!(await validMetaSignature(env.META_APP_SECRET, raw, signature))) {
     return new Response("Invalid signature", { status: 401 });
