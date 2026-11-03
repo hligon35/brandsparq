@@ -283,7 +283,11 @@ Apply migration `0018_workspace_experience.sql` before deploying the Phase 2 Wor
 
 ## Cloudflare Workers Builds configuration
 
-Use `/cloudflare` as the root directory, `npm run build` as the build command and `npm run deploy` as the deploy command. The build installs parent Expo dependencies and exports `../dist` for the Worker assets binding.
+Use the repository root (`/`) as the root directory, `npm run build:web` as the build command and `npm run deploy` as the deploy command. The root deploy alias forwards to the guarded `deploy:production` script, including optional command arguments. The production script resolves `cloudflare/wrangler.toml` explicitly and builds the assets with the production API origin.
+
+A successful Expo export only creates `dist`; it does not deploy the Worker. A failed deploy leaves the previous Worker version serving the custom domain, even if its variables have been edited. Inspect the deployment result, not just the build result.
+
+Cloudflare's isolated Git build does not automatically receive ignored private `release-evidence/accepted.json` from an operator's computer. The guarded command requires that accepted report to exist in its execution environment, plus current hosted CI, credentials and production preflight. Keep automatic production deployment disabled until this evidence provisioning is arranged. The supported operator path is `npm run deploy:production` from the clean accepted checkout with `BRANDSPARQ_RELEASE_EVIDENCE` set. Do not use a raw Wrangler deploy to treat incomplete release acceptance as passed.
 
 The production-readiness migration `0017_production_readiness.sql` and workflow-safety migration `0017_workflow_safety.sql` both precede Phase 2 migration 0018. Apply all pending migrations in filename order.
 
