@@ -42,3 +42,15 @@ Migration `0030_meta_webhook_jobs.sql` adds processing state, bounded attempts, 
 - Duplicate deliveries share a durable inbox row and queue claim. Processing has a five-minute lease, at most five attempts, a one-minute failure delay and a maximum ten matched accounts per delivery. Oversized batches fail visibly rather than silently skipping accounts. Payloads are capped at 256 KiB and 100 entries.
 - Owners can inspect paginated processing status and retry failed jobs in System Health → Meta webhook jobs. The API excludes raw payloads and denies nonowners. Historical webhook rows remain `recorded`; they are not replayed automatically.
 - No new native dependency or build configuration is introduced. Remote migration, webhook subscription, live provider acceptance, device testing and deployment remain outstanding. Standalone Instagram Login is still not implemented; current Instagram connections use the Page-linked Meta flow.
+
+## Follow-up: public review action integrity
+
+Public Request changes and Regenerate now save the visible edited headline/caption with the expected revision before performing the action. Approval/save/reject/regenerate share persistence logic; if a follow-up action fails after the save succeeded, the editor retains the new revision for a safe retry. Failed regeneration preserves the instruction. A late save from a different review link is rejected locally.
+
+Public headline, caption and feedback controls are disabled while regeneration polling is active; polling can no longer overwrite newly typed changes in those fields. Approval and other mutation controls are also blocked during regeneration.
+
+New browser regressions cover request-changes persistence, approval retry after a simulated provider outage, failed regeneration preserving copy/instruction, and signed preview renewal preserving an unsaved caption. Chromium desktop/mobile acceptance is recorded after the run below; physical iOS/Android and WebKit remain separate gates.
+
+Standalone Instagram Login remains open. Meta's available official collection distinguishes Instagram Login permissions from Facebook Login, but the directly referenced authentication documentation returned HTTP 429 during verification. No partial direct-login adapter was shipped or represented as supported.
+
+Verification for this follow-up: 314 unit/backend tests passed; 8 targeted browser cases passed across desktop/mobile Chromium; TypeScript, lint and formatting passed. The standard Chromium download was invalid; the same official Chrome-for-Testing headless build was obtained from Google's storage endpoint. Browser tests used freshly exported app source and the isolated authenticated fixture API. These are not real provider/device acceptance.
