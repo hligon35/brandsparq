@@ -383,7 +383,7 @@ test("Cloudflare compilation fixes the origin, clears fixture flags and checks s
   assert.deepEqual(
     commands.map((c) => c.args),
     [
-      ["ci", "--prefix", "cloudflare"],
+      ["ci", "--prefix", "cloudflare", "--legacy-peer-deps=false"],
       ["run", "build:web"],
     ],
   );

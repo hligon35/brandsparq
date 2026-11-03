@@ -16,7 +16,7 @@ if (staging && !/^https:\/\/brandsparq-staging\.[a-z0-9-]+\.workers\.dev$/.test(
 // Compilation never publishes or migrates. Deployment still uses the guarded
 // production command or the separately configured, isolated staging Worker.
 for (const args of [
-  ["ci", "--prefix", "cloudflare"],
+  ["ci", "--prefix", "cloudflare", "--legacy-peer-deps=false"],
   ["run", "build:web"],
 ]) {
   const result = spawnSync(process.execPath, [npmCli, ...args], {
