@@ -28,3 +28,54 @@ export function verifyProductionState(results, migrations) {
     inFlight: 0,
   };
 }
+
+export function parseWranglerD1Output(stdout) {
+  const text = stdout
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/^\uFEFF/, "")
+    .trim();
+  try {
+    return JSON.parse(text);
+  } catch {
+    /* Some Wrangler versions print banners around JSON. */
+  }
+  const candidates = [];
+  for (let start = 0; start < text.length; start++) {
+    if (text[start] !== "[") continue;
+    let depth = 0,
+      quoted = false,
+      escaped = false;
+    for (let end = start; end < text.length; end++) {
+      const char = text[end];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') quoted = false;
+      } else if (char === '"') quoted = true;
+      else if (char === "[") depth++;
+      else if (char === "]" && --depth === 0) {
+        try {
+          const value = JSON.parse(text.slice(start, end + 1));
+          if (
+            Array.isArray(value) &&
+            value.length === 3 &&
+            value.every(
+              (row) => row && typeof row.success === "boolean" && Array.isArray(row.results),
+            )
+          ) {
+            candidates.push(value);
+            start = end;
+          }
+        } catch {
+          /* Banner brackets are not JSON results. */
+        }
+        break;
+      }
+    }
+  }
+  if (candidates.length !== 1)
+    throw new Error(
+      "Wrangler did not return one unambiguous D1 preflight result. Check Wrangler authentication and query output.",
+    );
+  return candidates[0];
+}
