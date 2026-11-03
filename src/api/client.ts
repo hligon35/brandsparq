@@ -381,6 +381,12 @@ export const api = {
 
   testNotifications: () => jsonRequest<{ ok: true }>("/v1/notifications/test", { method: "POST" }),
 
+  getWebhookEvents: (cursor?: string) =>
+    jsonRequest<{ data: any[]; nextCursor: string | null }>(
+      `/v1/social/webhook-events${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
+  retryWebhookEvent: (id: string) =>
+    jsonRequest(`/v1/social/webhook-events/${encodeURIComponent(id)}/retry`, { method: "POST" }),
   getSystemOverview: () => jsonRequest<{ data: any }>("/v1/system/overview"),
 
   getPilot: () => jsonRequest<{ data: PilotOverview }>("/v1/system/pilot"),

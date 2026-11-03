@@ -1,3 +1,4 @@
+import { processMetaWebhook, recoverMetaWebhooks } from "./meta-webhooks";
 import { validatedRequest } from "./request-validation";
 import { socialProfileImage } from "./social-profile";
 import { enqueueAnalytics, recoverAnalyticsJobs, runAnalyticsJob } from "./analytics-jobs";
@@ -119,6 +120,7 @@ type GraphicMessage = {
 };
 
 type JobMessage =
+  | { kind: "meta_webhook"; eventId: string }
   | { kind: "analytics"; jobId: string }
   | PublishMessage
   | GenerationMessage
@@ -265,6 +267,7 @@ async function audit(
 
 async function runMaintenance(env: Env) {
   await recoverAnalyticsJobs(env);
+  await recoverMetaWebhooks(env);
   try {
     await retryNotificationDeliveries(env);
     await checkExpoPushReceipts(env);
@@ -2712,6 +2715,15 @@ const worker = {
 
   async queue(batch: MessageBatch<JobMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
+      if (message.body.kind === "meta_webhook") {
+        try {
+          await processMetaWebhook(env, message.body.eventId);
+          message.ack();
+        } catch {
+          message.retry({ delaySeconds: 60 });
+        }
+        continue;
+      }
       if (message.body.kind === "analytics") {
         try {
           await runAnalyticsJob(env, message.body.jobId);

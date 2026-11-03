@@ -1,3 +1,4 @@
+import { dispatchMetaWebhook } from "./meta-webhooks";
 import { renderFinalCopy, finalCopyError } from "../../src/shared/final-copy";
 import { providerFetch } from "./provider-http";
 import { socialProfileImage } from "./social-profile";
@@ -7,6 +8,7 @@ import { decryptSecret, encryptSecret, hashSecret } from "./security";
 
 export interface SocialEnv {
   DB: D1Database;
+  GENERATION_QUEUE?: Queue<any>;
   ENVIRONMENT?: string;
   MEDIA: R2Bucket;
   SOCIAL_TOKEN_KEY?: string;
@@ -558,7 +560,11 @@ export async function handleMetaWebhook(env: SocialEnv, request: Request, url: U
   }
 
   if (!env.META_APP_SECRET) return new Response("Meta webhook is not configured.", { status: 503 });
+  if (Number(request.headers.get("content-length") || 0) > 262144)
+    return new Response("Webhook too large", { status: 413 });
   const raw = await request.text();
+  if (new TextEncoder().encode(raw).length > 262144)
+    return new Response("Webhook too large", { status: 413 });
   const signature = request.headers.get("x-hub-signature-256") || "";
   if (!(await validMetaSignature(env.META_APP_SECRET, raw, signature))) {
     return new Response("Invalid signature", { status: 401 });
@@ -574,7 +580,8 @@ export async function handleMetaWebhook(env: SocialEnv, request: Request, url: U
     !payload ||
     typeof payload !== "object" ||
     Array.isArray(payload) ||
-    !Array.isArray(payload.entry)
+    !Array.isArray(payload.entry) ||
+    payload.entry.length > 100
   )
     return new Response("Invalid webhook payload", { status: 400 });
   // A delivery can contain several entries. Using just the first entry's id/time
@@ -586,12 +593,18 @@ export async function handleMetaWebhook(env: SocialEnv, request: Request, url: U
 
   await env.DB.prepare(
     `INSERT OR IGNORE INTO social_webhook_events
-     (id,provider,event_type,external_event_id,payload_json,processed_at)
-     VALUES (?,'meta',?,?,?,CURRENT_TIMESTAMP)`,
+     (id,provider,event_type,external_event_id,payload_json,processing_status)
+     VALUES (?,'meta',?,?,?,'pending')`,
   )
     .bind(crypto.randomUUID(), payload?.object || "unknown", eventId, raw)
     .run();
 
+  const stored = await env.DB.prepare(
+    "SELECT id FROM social_webhook_events WHERE provider='meta' AND external_event_id=? AND processing_status='pending'",
+  )
+    .bind(eventId)
+    .first<{ id: string }>();
+  if (stored) await dispatchMetaWebhook(env, stored.id);
   return new Response("EVENT_RECEIVED", { status: 200 });
 }
 

@@ -31,3 +31,14 @@ No migrations, native dependencies, production deployment, OTA, social posts or 
 - Added regressions for page traversal beyond 100, access filtering before limits, date boundaries and invalid ranges, legacy unpaged responses, and repeated cursors.
 
 Meta event processing and standalone Instagram login support remain open. No webhook behavior is changed by this follow-up.
+
+## Follow-up: durable Meta webhook reconciliation
+
+Migration `0030_meta_webhook_jobs.sql` adds processing state, bounded attempts, lease fencing and an inbox recovery index. Apply migrations before deploying this Worker.
+
+- Valid signed deliveries persist as pending before queue dispatch. A queue send failure does not lose the event; minute maintenance retries pending unclaimed work.
+- Page/Instagram deliveries identify matching connected accounts belonging to active clients. The job verifies those accounts against Meta using existing connection-revision fences and refreshes profile metadata. Payload values never directly authorize publishing, reconnect disconnected accounts, modify posts, or assert publication receipts.
+- Unknown objects and unmatched identities are explicitly ignored. This is account-health reconciliation, not a comment/DM inbox, semantic permission event parser, analytics trigger or provider publication confirmation.
+- Duplicate deliveries share a durable inbox row and queue claim. Processing has a five-minute lease, at most five attempts, a one-minute failure delay and a maximum ten matched accounts per delivery. Oversized batches fail visibly rather than silently skipping accounts. Payloads are capped at 256 KiB and 100 entries.
+- Owners can inspect paginated processing status and retry failed jobs in System Health → Meta webhook jobs. The API excludes raw payloads and denies nonowners. Historical webhook rows remain `recorded`; they are not replayed automatically.
+- No new native dependency or build configuration is introduced. Remote migration, webhook subscription, live provider acceptance, device testing and deployment remain outstanding. Standalone Instagram Login is still not implemented; current Instagram connections use the Page-linked Meta flow.
