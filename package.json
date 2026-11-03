@@ -58,7 +58,8 @@
     "postinstall": "node scripts/patch-toolchain.mjs",
     "verify:toolchain": "node scripts/patch-toolchain.mjs --check",
     "validate:candidate": "node scripts/validate-candidate.mjs",
-    "check:expo": "node scripts/check-expo-dependencies.mjs"
+    "check:expo": "node scripts/check-expo-dependencies.mjs",
+    "deploy": "npm run deploy:production --"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
