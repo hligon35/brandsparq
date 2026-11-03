@@ -323,7 +323,7 @@ Apply migration `0018_workspace_experience.sql` before deploying the Phase 2 Wor
 
 ## Cloudflare Workers Builds configuration
 
-Use the repository root (`/`) as the root directory, `npm run build:web` as the build command and `npm run deploy` as the deploy command. The root deploy alias forwards to the guarded `deploy:production` script, including optional command arguments. The production script resolves `cloudflare/wrangler.toml` explicitly and builds the assets with the production API origin.
+Use the repository root (`/`) as the root directory, `npm run build:cloudflare && npx playwright install --with-deps chromium webkit` as the build command and `npm run deploy` as the deploy command. The root deploy alias forwards to the guarded `deploy:production` script, including optional command arguments. The production script resolves `cloudflare/wrangler.toml` explicitly and builds the assets with the production API origin.
 
 A successful Expo export only creates `dist`; it does not deploy the Worker. A failed deploy leaves the previous Worker version serving the custom domain, even if its variables have been edited. Inspect the deployment result, not just the build result.
 
@@ -333,8 +333,13 @@ acceptance report. Provision Cloudflare credentials and install both root and
 required by `validate`, in the build environment. The deploy command runs validation
 and the production database preflight; a successful web export alone is insufficient.
 Set the build command to install prerequisites as needed for your runner, for example
-`npm ci && npm ci --prefix cloudflare && npx playwright install --with-deps chromium webkit`.
+`npm run build:cloudflare && npx playwright install --with-deps chromium webkit`.
 The deploy script itself builds production assets during validation.
+
+The Worker install checks peer dependencies explicitly. Wrangler 4.151.3 requires
+Workers types v5. Its Undici security override is declared at package scope so
+clean installs resolve the same patched version under npm 10 and npm 11. Do not
+work around a lockfile failure with `--force` or by installing an unpatched Undici.
 
 Keep the Git Build deploy command `npm run deploy`. Perform accepted deployments
 through the separate operator command above with privately provisioned evidence;
