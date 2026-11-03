@@ -18,18 +18,20 @@ export function SelectField({
   values,
   onChange,
   disabled = false,
+  showLabel = true,
 }: {
   label: string;
   value: string;
   values: string[];
   onChange: (value: string) => void;
   disabled?: boolean;
+  showLabel?: boolean;
 }) {
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState("");
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
+      {showLabel && <Text style={styles.label}>{label}</Text>}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label}
@@ -85,6 +87,7 @@ export function TimezonePicker(props: {
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
+  showLabel?: boolean;
 }) {
   return <SelectField label="Timezone" values={TIMEZONES} {...props} />;
 }

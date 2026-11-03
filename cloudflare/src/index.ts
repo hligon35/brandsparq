@@ -1290,7 +1290,8 @@ const worker = {
       const includeArchived = url.searchParams.get("includeArchived") === "1";
       const result = await env.DB.prepare(
         `SELECT c.id, c.name, c.timezone, c.status, c.archived_at,
-                COALESCE(bp.primary_color, '#A56CFF') AS color
+                COALESCE(bp.primary_color, '#A56CFF') AS color,
+                substr(bp.voice, 1, 1000) AS brandVoice
          FROM clients c
          LEFT JOIN brand_profiles bp ON bp.client_id = c.id
          WHERE (? = 1 OR c.status = 'active')

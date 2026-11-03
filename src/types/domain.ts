@@ -24,6 +24,7 @@ export interface Client {
   name: string;
   color: string;
   profileImageUrl?: string | null;
+  brandVoice?: string | null;
   timezone?: string;
   status?: "active" | "archived";
   archivedAt?: string;

@@ -115,3 +115,16 @@ test("Meta connection saves Facebook and Instagram photos for the imported clien
     "https://images.example.test/ig.png",
   );
 });
+
+test("client voice previews are bounded and restricted to accessible clients", async (t) => {
+  const w = workspace(t);
+  w.exec(
+    "INSERT INTO brand_profiles(id,client_id,voice) VALUES('a','client-a',?),('b','client-b','Private client voice')",
+    "Friendly ".repeat(200),
+  );
+  const data = (await (await w.request("/v1/clients", { user: "viewer" })).json()).data;
+  assert.equal(data.length, 1);
+  assert.equal(data[0].brandVoice.length, 1000);
+  assert.equal(data[0].brandVoice, "Friendly ".repeat(200).slice(0, 1000));
+  assert.equal(JSON.stringify(data).includes("Private client voice"), false);
+});
