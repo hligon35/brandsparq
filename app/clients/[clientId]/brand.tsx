@@ -1,3 +1,4 @@
+import { EssentialSection } from "@/components/essential";
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
 import { AssetThumbnail } from "@/components/asset-thumbnail";
 import { GuardedLink as Link, useUnsavedChanges } from "@/hooks/useUnsavedChanges";
@@ -193,11 +194,7 @@ export default function BrandBrainScreen() {
   return (
     <PageScroll>
       {conflict && <EditConflict busy={saving} onReload={load} />}
-      <PageHeader
-        eyebrow="Client intelligence"
-        title={name}
-        subtitle="These rules shape creative direction, captions, CTAs, and scheduling recommendations."
-      />
+      <PageHeader title={name} subtitle="Brand Brain · Voice, visuals, and publishing rules." />
 
       {error && (
         <Card subtle>
@@ -352,25 +349,53 @@ export default function BrandBrainScreen() {
         </View>
       </Card>
 
-      <View style={styles.grid}>
-        {fields.map(([key, label, multiline]) => (
-          <View key={key} style={[styles.gridItem, multiline && wide && styles.gridItemWide]}>
-            <Card style={styles.fieldCard}>
-              <Text style={styles.label}>{label}</Text>
-              <TextInput
-                editable={editable}
-                accessibilityLabel={label}
-                style={[styles.input, multiline && styles.multiline]}
-                value={brand[key] || ""}
-                onChangeText={(v) => setBrand({ ...brand, [key]: v })}
-                placeholder={label}
-                placeholderTextColor={colors.muted}
-                multiline={multiline}
-              />
-            </Card>
+      {[
+        {
+          title: "Voice & audience",
+          keys: ["voice", "audience", "tagline", "website", "preferredCtas"],
+          open: true,
+        },
+        {
+          title: "Visual direction",
+          keys: ["imageryPreferences", "fonts", "prohibitedVisualStyles", "competitorReferences"],
+          open: false,
+        },
+        {
+          title: "Content & publishing rules",
+          keys: [
+            "postingRules",
+            "restrictedWords",
+            "brandExamples",
+            "brandVocabulary",
+            "hashtagPolicy",
+            "targetLocations",
+            "platformRules",
+          ],
+          open: false,
+        },
+      ].map((group) => (
+        <EssentialSection key={group.title} title={group.title} defaultOpen={group.open}>
+          <View style={styles.grid}>
+            {fields
+              .filter(([key]) => group.keys.includes(key))
+              .map(([key, label, multiline]) => (
+                <View key={key} style={[styles.gridItem, multiline && wide && styles.gridItemWide]}>
+                  <Text style={styles.label}>{label}</Text>
+                  <TextInput
+                    editable={editable}
+                    accessibilityLabel={label}
+                    style={[styles.input, multiline && styles.multiline]}
+                    value={brand[key] || ""}
+                    onChangeText={(v) => setBrand({ ...brand, [key]: v })}
+                    placeholder={label}
+                    placeholderTextColor={colors.muted}
+                    multiline={multiline}
+                  />
+                </View>
+              ))}
           </View>
-        ))}
-      </View>
+        </EssentialSection>
+      ))}
 
       {editable && (
         <View style={styles.saveWrap}>
@@ -410,13 +435,15 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 15,
   },
-  multiline: { minHeight: 118, textAlignVertical: "top" },
-  saveWrap: { alignSelf: "flex-end", minWidth: 220 },
+  multiline: { minHeight: 96, textAlignVertical: "top" },
+  saveWrap: { alignSelf: "stretch" },
   assetActions: { flexDirection: "row", flexWrap: "wrap", columnGap: "4%", rowGap: 12 },
   assetCell: { width: "48%", justifyContent: "center" },
   assetList: { gap: 8 },
   assetRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: spacing.sm,
     paddingVertical: 8,

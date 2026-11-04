@@ -1,3 +1,4 @@
+import { EssentialSection } from "@/components/essential";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
@@ -51,18 +52,14 @@ export default function ReviewersScreen() {
   }
   return (
     <PageScroll>
-      <PageHeader
-        title="Client reviewers"
-        eyebrow="Review delivery"
-        subtitle="Configure who receives secure review links and track delivery."
-      />
+      <PageHeader title="Client reviewers" subtitle="People and review-link delivery." />
       {!!error && (
         <Card>
           <Text style={styles.error}>{error}</Text>
           <Button label="Try again" onPress={load} />
         </Card>
       )}
-      <Card>
+      <EssentialSection title="Reviewers">
         <Text style={styles.text}>
           With no configured reviewers, review email uses the workspace recipient. Disabling a
           reviewer revokes their existing links.
@@ -102,10 +99,10 @@ export default function ReviewersScreen() {
             )}
           </View>
         ))}
-      </Card>
+      </EssentialSection>
       {review && (
         <>
-          <Card>
+          <EssentialSection title="Review delivery">
             <Button
               label="Send review links"
               onPress={
@@ -133,9 +130,8 @@ export default function ReviewersScreen() {
                 {!!d.error_message && <Text style={styles.error}>{d.error_message}</Text>}
               </View>
             ))}
-          </Card>
-          <Card>
-            <Text style={styles.text}>Review links</Text>
+          </EssentialSection>
+          <EssentialSection title="Review links" defaultOpen={false}>
             {!links.tokens.length && <Text style={styles.text}>No review links yet.</Text>}
             {links.tokens.map((t) => (
               <View key={t.id}>
@@ -168,7 +164,7 @@ export default function ReviewersScreen() {
                 )}
               </View>
             ))}
-          </Card>
+          </EssentialSection>
         </>
       )}
     </PageScroll>

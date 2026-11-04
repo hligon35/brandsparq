@@ -1,3 +1,4 @@
+import { EssentialSection } from "@/components/essential";
 import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { renderFinalCopy, finalCopyError } from "@/shared/final-copy";
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
@@ -7,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { Image, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { BrandLogo } from "@/components/brand";
-import { Button, Card, PageHeader, PageScroll, SectionTitle, StatusBadge } from "@/components/ui";
+import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
 import { useResponsive } from "@/hooks/useResponsive";
 import { colors, radius, spacing } from "@/theme/tokens";
 
@@ -195,7 +196,6 @@ export default function PublicReviewScreen() {
       ) : post ? (
         <>
           <PageHeader
-            eyebrow="Review request"
             title={post.client_name}
             subtitle={String(post.platform).toUpperCase()}
             action={<StatusBadge label={post.status} />}
@@ -204,7 +204,7 @@ export default function PublicReviewScreen() {
           <View style={[styles.grid, wide && styles.gridWide]}>
             <Card style={styles.mediaCard}>
               {post.image_url ? (
-                <Image source={{ uri: post.image_url }} style={styles.image} resizeMode="cover" />
+                <Image source={{ uri: post.image_url }} style={styles.image} resizeMode="contain" />
               ) : (
                 <View style={styles.previewWrap}>
                   <Text style={styles.preview}>GRAPHIC GENERATION PENDING</Text>
@@ -213,11 +213,11 @@ export default function PublicReviewScreen() {
             </Card>
 
             <View style={styles.copyColumn}>
-              <Card>
-                <SectionTitle
-                  title="Final publication copy"
-                  subtitle="Inspect the graphic, logos and lettering before approval. AI may alter branding; exact logo reproduction is not guaranteed."
-                />
+              <EssentialSection
+                title="Final publication copy"
+                summary="Check the graphic and branding. AI can alter logos."
+                collapsible={false}
+              >
                 <Text style={styles.label}>Headline</Text>
                 <TextInput
                   accessibilityLabel="Headline"
@@ -251,7 +251,7 @@ export default function PublicReviewScreen() {
                       : save
                   }
                 />
-              </Card>
+              </EssentialSection>
 
               <Card subtle>
                 <Text style={styles.label}>Suggested publish time</Text>
@@ -265,11 +265,7 @@ export default function PublicReviewScreen() {
                 </Text>
               </Card>
 
-              <Card>
-                <SectionTitle
-                  title="Feedback"
-                  subtitle="Leave a comment, request changes, or regenerate a fresh variation."
-                />
+              <EssentialSection title="Feedback">
                 <TextInput
                   editable={!working && post.status !== "regenerating"}
                   value={comment}
@@ -304,7 +300,7 @@ export default function PublicReviewScreen() {
                     />
                   </View>
                 </View>
-              </Card>
+              </EssentialSection>
 
               <Button
                 label={working === "approve" ? "Approving…" : "Approve and add to calendar"}
@@ -342,12 +338,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   preview: { color: colors.muted, textAlign: "center", fontWeight: "800" },
-  heading: { color: colors.text, fontSize: 20, lineHeight: 27, fontWeight: "900" },
+  heading: { color: colors.text, fontSize: 17, lineHeight: 24, fontWeight: "700" },
   sub: { color: colors.muted, fontSize: 16, lineHeight: 24 },
   label: {
     color: colors.primary,
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.7,
   },
@@ -380,6 +376,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  approvedCheck: { color: colors.success, fontSize: 30, fontWeight: "900" },
-  approvedTitle: { color: colors.text, fontSize: 28, fontWeight: "900" },
+  approvedCheck: { color: colors.success, fontSize: 30, fontWeight: "700" },
+  approvedTitle: { color: colors.text, fontSize: 23, fontWeight: "700" },
 });

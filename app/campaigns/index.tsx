@@ -32,11 +32,7 @@ export default function CampaignsScreen() {
   }, []);
   return (
     <PageScroll>
-      <PageHeader
-        eyebrow="Campaign management"
-        title="Campaigns"
-        subtitle="Track generated campaigns, review progress, and see what has been published."
-      />
+      <PageHeader title="Campaigns" subtitle="Plans, progress, and published content." />
       {error && (
         <Card subtle>
           <Text style={styles.title}>Campaigns unavailable</Text>
@@ -72,7 +68,9 @@ export default function CampaignsScreen() {
                   <StatusBadge label={campaign.status || "draft"} />
                   <Text style={styles.client}>{campaign.client_name || campaign.client_id}</Text>
                 </View>
-                <Text style={styles.title}>{campaign.name}</Text>
+                <Text style={styles.title} numberOfLines={2}>
+                  {campaign.name}
+                </Text>
                 <Text style={styles.meta}>{campaign.objective || "General campaign"}</Text>
                 <View style={styles.stats}>
                   <Text style={styles.stat}>{campaign.post_count || 0} posts</Text>
@@ -100,9 +98,9 @@ export default function CampaignsScreen() {
   );
 }
 const styles = StyleSheet.create({
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
-  item: { flexGrow: 1, flexBasis: 300, maxWidth: "100%" },
-  card: { minHeight: 190 },
+  grid: { gap: spacing.sm },
+  item: { width: "100%" },
+  card: { minHeight: 0, gap: 8 },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -110,7 +108,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   client: { color: colors.muted, fontSize: 12, fontWeight: "800" },
-  title: { color: colors.text, fontSize: 20, fontWeight: "900" },
+  title: { color: colors.text, fontSize: 16, fontWeight: "700" },
   meta: { color: colors.muted, lineHeight: 21 },
   stats: { marginTop: "auto", flexDirection: "row", flexWrap: "wrap", gap: 12 },
   stat: { color: colors.primary, fontWeight: "800", fontSize: 12 },

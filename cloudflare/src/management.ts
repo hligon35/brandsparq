@@ -783,6 +783,29 @@ export async function handleManagementRoute(
     return { body: { ok: true } };
   }
 
+  if (request.method === "GET" && url.pathname === "/v1/analytics/health") {
+    const denied = await authorize(env, user, "read");
+    if (denied) return { body: { error: denied }, status: 403 };
+    const clientId = url.searchParams.get("clientId");
+    if (clientId) {
+      const clientDenied = await authorize(env, user, "read", clientId);
+      if (clientDenied) return { body: { error: clientDenied }, status: 403 };
+    }
+    const allowed = await accessibleClientIds(env.DB, user);
+    if (allowed !== null && !allowed.length) return { body: { data: [] } };
+    const scope = clientId ? [clientId] : allowed;
+    const rows =
+      await env.DB.prepare(`SELECT r.id,r.status,r.started_at,r.completed_at,r.error_message,
+      sa.platform,sa.account_name,sa.client_id,c.name AS client_name
+      FROM analytics_sync_runs r JOIN social_accounts sa ON sa.id=r.social_account_id
+      JOIN clients c ON c.id=sa.client_id WHERE c.status!='removed'
+      ${scope !== null ? `AND sa.client_id IN (${scope.map(() => "?").join(",")})` : ""}
+      ORDER BY r.started_at DESC,r.rowid DESC LIMIT 50`)
+        .bind(...(scope || []))
+        .all();
+    return { body: { data: rows.results } };
+  }
+
   if (request.method === "GET" && url.pathname === "/v1/analytics/overview") {
     const denied = await authorize(env, user, "read");
     if (denied) return { body: { error: denied }, status: 403 };

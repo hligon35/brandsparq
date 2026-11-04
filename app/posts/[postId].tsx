@@ -1,3 +1,4 @@
+import { EssentialSection } from "@/components/essential";
 import { renderFinalCopy, finalCopyError } from "@/shared/final-copy";
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
 import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
@@ -7,7 +8,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Image, StyleSheet, Text, TextInput, Pressable, View } from "react-native";
 import { api } from "@/api/client";
-import { Button, Card, PageHeader, PageScroll, SectionTitle, StatusBadge } from "@/components/ui";
+import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
 import { useResponsive } from "@/hooks/useResponsive";
 import { colors, radius, spacing } from "@/theme/tokens";
 import type { MarketingPost } from "@/types/domain";
@@ -283,7 +284,6 @@ export default function PostReviewScreen() {
     <PageScroll>
       {conflict && <EditConflict busy={saving || assigningAccount} onReload={reload} />}
       <PageHeader
-        eyebrow="Review content"
         title={post.clientName || "Client"}
         subtitle={post.platform.toUpperCase()}
         action={<StatusBadge label={post.status} />}
@@ -295,7 +295,7 @@ export default function PostReviewScreen() {
             <Image
               source={{ uri: post.imageUrl }}
               style={styles.image}
-              resizeMode="cover"
+              resizeMode="contain"
               onError={() => {
                 setPreviewError(true);
                 if (previewAttempt.current !== postId) {
@@ -324,11 +324,11 @@ export default function PostReviewScreen() {
 
         <View style={[styles.copyColumn, wide && { flex: 0.95 }]}>
           {editable && (
-            <Card>
-              <SectionTitle
-                title="Final publication copy"
-                subtitle="Inspect the graphic, logos and lettering before approval. AI may alter branding; exact logo reproduction is not guaranteed."
-              />
+            <EssentialSection
+              title="Final publication copy"
+              summary="Check the graphic and branding. AI can alter logos."
+              collapsible={false}
+            >
               <Text style={styles.label}>Headline</Text>
               <TextInput
                 accessibilityLabel="Headline"
@@ -354,18 +354,10 @@ export default function PostReviewScreen() {
                 secondary
                 onPress={saving || aiAction ? undefined : saveCopy}
               />
-            </Card>
+            </EssentialSection>
           )}
 
-          <Card>
-            <SectionTitle
-              title="Publishing account"
-              subtitle={
-                post.socialAccountName
-                  ? "This post is ready to publish to the selected account."
-                  : "Choose the connected account that should receive this post."
-              }
-            />
+          <EssentialSection title="Publishing account">
             {socialAccounts.length ? (
               <View style={styles.accountList}>
                 {socialAccounts.map((account: any) => {
@@ -393,14 +385,13 @@ export default function PostReviewScreen() {
                 More → Social connections before publishing.
               </Text>
             )}
-          </Card>
+          </EssentialSection>
 
           {!!creative?.score && (
-            <Card>
-              <SectionTitle
-                title={`SparQ Score · ${creative.score.overall}`}
-                subtitle={creative.score.rationale || "Independent creative quality evaluation"}
-              />
+            <EssentialSection title={`SparQ Score · ${creative.score.overall}`} defaultOpen={false}>
+              {!!creative.score.rationale && (
+                <Text style={styles.body}>{creative.score.rationale}</Text>
+              )}
               <View style={styles.scoreGrid}>
                 {[
                   ["Brand match", creative.score.brand_match],
@@ -417,7 +408,7 @@ export default function PostReviewScreen() {
                   </View>
                 ))}
               </View>
-            </Card>
+            </EssentialSection>
           )}
 
           <Card subtle>
@@ -452,11 +443,7 @@ export default function PostReviewScreen() {
       </View>
 
       {reviewable && can("ai_edit", post.clientId) && (
-        <Card>
-          <SectionTitle
-            title="AI change request"
-            subtitle="Rewrite the caption, edit the graphic, or regenerate the whole post."
-          />
+        <EssentialSection title="AI change request">
           <TextInput
             value={instruction}
             onChangeText={setInstruction}
@@ -494,7 +481,7 @@ export default function PostReviewScreen() {
               />
             </View>
           </View>
-        </Card>
+        </EssentialSection>
       )}
     </PageScroll>
   );
@@ -503,8 +490,8 @@ export default function PostReviewScreen() {
 const styles = StyleSheet.create({
   title: {
     color: colors.text,
-    fontSize: 28,
-    fontWeight: "900",
+    fontSize: 23,
+    fontWeight: "700",
   },
   reviewGrid: {
     gap: spacing.md,
@@ -541,7 +528,7 @@ const styles = StyleSheet.create({
   heading: {
     color: colors.text,
     fontSize: 18,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   body: {
     color: colors.textSoft,
@@ -601,7 +588,7 @@ const styles = StyleSheet.create({
   accountPlatform: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   accountNameActive: {
     color: colors.white,
@@ -644,7 +631,7 @@ const styles = StyleSheet.create({
   scoreMetricValue: {
     color: colors.text,
     fontSize: 20,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   scoreMetricLabel: {
     color: colors.muted,

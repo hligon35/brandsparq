@@ -1,3 +1,4 @@
+import { EssentialRow, EssentialSection } from "@/components/essential";
 import { useCallback, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
@@ -107,9 +108,8 @@ export default function ClientWorkspace() {
               onPress={() => router.push({ pathname: "/create", params: { clientId } })}
             />
           )}
-          <Card>
+          <EssentialSection title="Connected channels">
             <View style={styles.section}>
-              <Text style={styles.title}>Connected channels</Text>
               <Link href={{ pathname: "/social", params: { clientId } }} style={styles.link}>
                 Manage →
               </Link>
@@ -126,60 +126,57 @@ export default function ClientWorkspace() {
                 No channels connected yet. Connect a channel before publishing.
               </Text>
             )}
-          </Card>
+          </EssentialSection>
           <Link href={{ pathname: "/calendar", params: { clientId } }} style={styles.link}>
             View client calendar →
           </Link>
           <Link href={{ pathname: "/analytics", params: { clientId } }} style={styles.link}>
             View client analytics →
           </Link>
-          <Text accessibilityRole="header" style={styles.title}>
-            Next up
-          </Text>
-          <Text style={styles.body}>
-            Times shown in {client.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}
-          </Text>
-          {posts.length ? (
-            posts.slice(0, 3).map((post) => (
-              <Card key={post.id}>
-                <StatusBadge label={post.status} />
-                <Text style={styles.title}>{post.title}</Text>
+          <EssentialSection title="Next up">
+            <Text style={styles.body}>
+              Times shown in {client.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}
+            </Text>
+            {posts.length ? (
+              posts.slice(0, 3).map((post) => (
+                <EssentialRow key={post.id} title={post.title}>
+                  <StatusBadge label={post.status} />
+
+                  <Text style={styles.body}>
+                    {post.platform} ·{" "}
+                    {post.scheduledPublishAt
+                      ? new Date(post.scheduledPublishAt).toLocaleString(undefined, {
+                          timeZone:
+                            client.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        })
+                      : "Schedule pending"}
+                  </Text>
+                  <Link href={`/posts/${post.id}`} style={styles.link}>
+                    View post →
+                  </Link>
+                </EssentialRow>
+              ))
+            ) : (
+              <Card>
                 <Text style={styles.body}>
-                  {post.platform} ·{" "}
-                  {post.scheduledPublishAt
-                    ? new Date(post.scheduledPublishAt).toLocaleString(undefined, {
-                        timeZone:
-                          client.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-                      })
-                    : "Schedule pending"}
+                  No scheduled posts for this client in the next 30 days.
                 </Text>
-                <Link href={`/posts/${post.id}`} style={styles.link}>
-                  View post →
-                </Link>
               </Card>
-            ))
-          ) : (
-            <Card>
-              <Text style={styles.body}>
-                No scheduled posts for this client in the next 30 days.
-              </Text>
-            </Card>
-          )}
-          <Text accessibilityRole="header" style={styles.title}>
-            Needs review
-          </Text>
-          {review.length ? (
-            review.slice(0, 3).map((post) => (
-              <Card key={post.id}>
-                <Text style={styles.title}>{post.title}</Text>
-                <Link href={`/posts/${post.id}`} style={styles.link}>
-                  Review post →
-                </Link>
-              </Card>
-            ))
-          ) : (
-            <Text style={styles.body}>You're all caught up.</Text>
-          )}
+            )}
+          </EssentialSection>
+          <EssentialSection title="Needs review">
+            {review.length ? (
+              review.slice(0, 3).map((post) => (
+                <EssentialRow key={post.id} title={post.title}>
+                  <Link href={`/posts/${post.id}`} style={styles.link}>
+                    Review post →
+                  </Link>
+                </EssentialRow>
+              ))
+            ) : (
+              <Text style={styles.body}>You're all caught up.</Text>
+            )}
+          </EssentialSection>
           <Link href={`/clients/${clientId}/brand`} style={styles.link}>
             Edit Brand Brain →
           </Link>
@@ -189,11 +186,11 @@ export default function ClientWorkspace() {
   );
 }
 const styles = StyleSheet.create({
-  title: { fontSize: 20, fontWeight: "800", color: colors.text },
+  title: { fontSize: 16, fontWeight: "700", color: colors.text },
   body: { fontSize: 15, color: colors.muted, lineHeight: 23 },
   metrics: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   metric: { flexGrow: 1, flexBasis: 120, minWidth: 0, padding: 16 },
-  number: { fontSize: 30, fontWeight: "900", color: colors.text },
+  number: { fontSize: 25, fontWeight: "800", color: colors.text },
   section: {
     flexDirection: "row",
     flexWrap: "wrap",

@@ -1,3 +1,4 @@
+import { EssentialSection } from "@/components/essential";
 import { AppUpdateControl } from "@/components/AppUpdateControl";
 import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { TimezonePicker, TimeWindows } from "@/components/pickers";
@@ -147,11 +148,7 @@ export default function SettingsScreen() {
       )}
       {!can("settings_manage") && <Text>Workspace settings are read-only for your role.</Text>}
 
-      <Card>
-        <SectionTitle
-          title="Notification devices"
-          subtitle="Register this device or send a test through your enabled channels."
-        />
+      <EssentialSection title="Notification devices">
         <View style={{ flexDirection: "row", gap: 8 }}>
           <View style={{ flex: 1 }}>
             {" "}
@@ -173,12 +170,8 @@ export default function SettingsScreen() {
             />
           </View>
         </View>
-      </Card>
-      <Card>
-        <SectionTitle
-          title="Scheduling"
-          subtitle="Default rules apply to every client unless you later override them."
-        />
+      </EssentialSection>
+      <EssentialSection title="Scheduling">
         <View style={styles.grid}>
           <View style={styles.field}>
             <TimezonePicker
@@ -215,10 +208,9 @@ export default function SettingsScreen() {
           values={workspace.blackoutWindows || []}
           onChange={(blackoutWindows) => setWorkspace({ ...workspace, blackoutWindows })}
         />
-      </Card>
+      </EssentialSection>
 
-      <Card>
-        <SectionTitle title="Notifications" subtitle="Choose how BrandSparQ contacts you." />
+      <EssentialSection title="Notifications">
         {toggle("Email notifications", "emailEnabled")}
         {toggle("Push notifications", "pushEnabled")}
         {toggle("In-app notifications", "inAppEnabled")}
@@ -228,7 +220,7 @@ export default function SettingsScreen() {
         {toggle("Pre-publish decisions", "prepublishEnabled")}
         {toggle("Publish confirmations", "publishSuccessEnabled")}
         {toggle("Publish failures", "publishFailureEnabled")}
-      </Card>
+      </EssentialSection>
       <Card>
         <SectionTitle
           title="Publishing safeguards"

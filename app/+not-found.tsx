@@ -24,8 +24,8 @@ export default function NotFoundScreen() {
 const styles = StyleSheet.create({
   page: { justifyContent: "center" },
   wrap: { width: "100%", maxWidth: 520, alignSelf: "center" },
-  card: { alignItems: "center", padding: spacing.xl },
+  card: { alignItems: "center", padding: spacing.lg },
   code: { color: colors.primary, fontSize: 13, fontWeight: "900", letterSpacing: 2 },
-  title: { color: colors.text, fontSize: 28, fontWeight: "900", textAlign: "center" },
+  title: { color: colors.text, fontSize: 23, fontWeight: "800", textAlign: "center" },
   copy: { color: colors.muted, lineHeight: 22, textAlign: "center", marginBottom: spacing.sm },
 });

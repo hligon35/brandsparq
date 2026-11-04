@@ -1,3 +1,4 @@
+import { EssentialRow, essentialStyles } from "@/components/essential";
 import { IconButton } from "@/components/icon-button";
 import { Link } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -67,8 +68,7 @@ export default function PausedScreen() {
     <PageScroll>
       <PageHeader
         title="Paused content"
-        eyebrow="Calendar recovery"
-        subtitle="Resume approved content at a new valid slot, or return unfinished content to review."
+        subtitle="Resume approved work or return it to review."
         action={<IconButton label="Refresh paused content" onPress={() => void load()} />}
       />
       <TextInput
@@ -80,7 +80,7 @@ export default function PausedScreen() {
           setNextCursor(null);
         }}
         onSubmitEditing={() => void load()}
-        style={{ minHeight: 48, padding: 12 }}
+        style={essentialStyles.input}
       />
       <Button label="Search" onPress={() => void load()} />
       {!!error && (
@@ -94,43 +94,45 @@ export default function PausedScreen() {
       ) : !posts.length ? (
         <Text style={styles.text}>No paused posts.</Text>
       ) : (
-        posts.map((post) => (
-          <Card key={post.id}>
-            <Text style={styles.text}>
-              {post.client_name} · {post.platform}
-            </Text>
-            <Text style={styles.text}>{post.title}</Text>
-            {post.client_status === "archived" ? (
-              <Text style={styles.text}>Restore this client before resuming work.</Text>
-            ) : (
-              <View style={styles.row}>
-                {post.approved_at
-                  ? can("calendar_manage", post.client_id) && (
-                      <Button
-                        label="Resume at next slot"
-                        onPress={working ? undefined : () => act(post.id, "resume")}
-                      />
-                    )
-                  : can("review", post.client_id) && (
-                      <Button
-                        label="Return to review"
-                        onPress={working ? undefined : () => act(post.id, "restore-review")}
-                      />
-                    )}{" "}
-                {can("calendar_manage", post.client_id) && (
-                  <Button
-                    label="Cancel post"
-                    secondary
-                    onPress={working ? undefined : () => act(post.id, "cancel")}
-                  />
-                )}
-              </View>
-            )}
-            <Link href={`/posts/${post.id}`} asChild>
-              <Button label="Open post" secondary />
-            </Link>
-          </Card>
-        ))
+        <Card>
+          {posts.map((post) => (
+            <EssentialRow key={post.id} title={post.title || "Paused post"}>
+              <Text style={styles.text}>
+                {post.client_name} · {post.platform}
+              </Text>
+
+              {post.client_status === "archived" ? (
+                <Text style={styles.text}>Restore this client before resuming work.</Text>
+              ) : (
+                <View style={styles.row}>
+                  {post.approved_at
+                    ? can("calendar_manage", post.client_id) && (
+                        <Button
+                          label="Resume at next slot"
+                          onPress={working ? undefined : () => act(post.id, "resume")}
+                        />
+                      )
+                    : can("review", post.client_id) && (
+                        <Button
+                          label="Return to review"
+                          onPress={working ? undefined : () => act(post.id, "restore-review")}
+                        />
+                      )}{" "}
+                  {can("calendar_manage", post.client_id) && (
+                    <Button
+                      label="Cancel post"
+                      secondary
+                      onPress={working ? undefined : () => act(post.id, "cancel")}
+                    />
+                  )}
+                </View>
+              )}
+              <Link href={`/posts/${post.id}`} asChild>
+                <Button label="Open post" secondary />
+              </Link>
+            </EssentialRow>
+          ))}
+        </Card>
       )}
       {!!nextCursor && <Button label="Load more paused posts" onPress={() => void load(true)} />}
     </PageScroll>

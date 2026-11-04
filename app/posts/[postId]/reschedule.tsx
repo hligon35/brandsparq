@@ -1,3 +1,4 @@
+import { EssentialSection } from "@/components/essential";
 import { zonedTime, zonedParts, schedulePreset } from "@/shared/zoned-time";
 import { TimePicker } from "@/components/pickers";
 import { Alert } from "@/components/feedback";
@@ -6,7 +7,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
-import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";
+import { Button, Card, PageHeader, PageScroll } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";
 
 function localDateValue(date: Date) {
@@ -146,11 +147,7 @@ export default function RescheduleScreen() {
 
   return (
     <PageScroll>
-      <PageHeader
-        eyebrow="Calendar control"
-        title="Reschedule"
-        subtitle="Choose a quick option or enter an exact date and time. BrandSparQ validates every change against spacing, blackout, daily-limit, and preferred-window rules."
-      />
+      <PageHeader title="Reschedule" subtitle="Choose a time in your client’s timezone." />
 
       {loading && <Text accessibilityLiveRegion="polite">Loading schedule…</Text>}
       {!!error && (
@@ -178,11 +175,7 @@ export default function RescheduleScreen() {
         ))}
       </View>
 
-      <Card>
-        <SectionTitle
-          title="Custom date & time"
-          subtitle={`Scheduling in ${timezone || "the client timezone"}.`}
-        />
+      <EssentialSection title="Custom date & time" collapsible={false}>
         <View style={styles.formRow}>
           <View style={styles.field}>
             <Text style={styles.label}>Date</Text>
@@ -215,7 +208,7 @@ export default function RescheduleScreen() {
             onPress={working || loading || !!error ? undefined : submitCustom}
           />
         </View>
-      </Card>
+      </EssentialSection>
     </PageScroll>
   );
 }
@@ -223,8 +216,8 @@ export default function RescheduleScreen() {
 const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
   gridItem: { flexGrow: 1, flexBasis: 250, maxWidth: "100%" },
-  optionCard: { minHeight: 170, justifyContent: "center" },
-  optionTitle: { color: colors.text, fontSize: 19, fontWeight: "900" },
+  optionCard: { minHeight: 76, justifyContent: "center" },
+  optionTitle: { color: colors.text, fontSize: 15, fontWeight: "700" },
   optionHint: { color: colors.primary, fontWeight: "800" },
   formRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
   field: { flexGrow: 1, flexBasis: 220, gap: 6 },

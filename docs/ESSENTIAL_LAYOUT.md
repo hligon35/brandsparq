@@ -64,3 +64,37 @@ this button does not publish updates or replace incompatible native binaries.
 On the web, **Refresh web app** confirms a page reload and protects unsaved changes.
 
 Reference: https://docs.expo.dev/versions/latest/sdk/updates/
+
+## Secondary screens and shared Health
+
+The follow-up applies individual Essential layouts to every secondary mobile route:
+review queue, post and public review, publish/reschedule, client workspace, Brand
+Brain, reviewers, campaigns and campaign details, generation/paused recovery,
+analytics, notifications, profile, access management, settings and System Health.
+Invitation, sign-in and not-found surfaces use compact entry/recovery styling.
+
+- Brand Brain groups fields into Voice & audience, Visual direction, and Content &
+  publishing rules. Disclosure sections keep children mounted so closing them
+  preserves unsaved edits, validation and existing navigation guards.
+- Review and campaign lists use smaller content-driven cards. Progress and paused
+  recovery use separated rows in one list surface. Publishing shortcuts are compact.
+  Review previews contain the full image instead of cropping its edges.
+- Analytics focuses on measurements, trends, platform comparisons and top content.
+  Its searchable client picker replaces the long client-chip strip. Metric semantics
+  remain available under About these measurements, including the difference between
+  missing measurements and a measured zero.
+- More → System health is available to every signed-in role. Analytics links there
+  with its selected client. Connections, analytics job history and provider sync
+  errors live together. Active/problem jobs appear first; completed jobs are behind
+  Show sync history, with incremental display of the latest 100 jobs. Provider run
+  details are expandable and limited to the latest 50 authorized records.
+- Owner readiness, publishing controls, certification, incidents, reconciliation,
+  queue recovery and webhooks remain on that same screen. They are rendered only
+  for workspace owners and retain their existing server-side authorization.
+- `GET /v1/analytics/health` exposes only authorized, non-removed clients' sync runs.
+  It supports an explicitly authorized client filter and requires no migration.
+  Existing analytics-overview response fields are retained for compatibility.
+
+The added acceptance cases cover secondary phone/tablet widths, collapsed-form
+state preservation, analytics-to-health navigation and viewer/owner separation.
+Browser tests use the isolated fixture API, never client production destinations.

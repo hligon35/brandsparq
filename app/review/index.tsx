@@ -94,9 +94,8 @@ export default function ReviewScreen() {
   return (
     <PageScroll>
       <PageHeader
-        eyebrow="Approval inbox"
         title="Review"
-        subtitle="Search, select, approve, or request changes before anything enters the marketing calendar."
+        subtitle="Ready for your approval."
         action={<IconButton label="Refresh review" onPress={load} />}
       />
 
@@ -162,7 +161,9 @@ export default function ReviewScreen() {
                   </View>
                   <Text style={styles.client}>{post.clientName || "Client"}</Text>
                   <Text style={styles.platform}>{post.platform.toUpperCase()}</Text>
-                  <Text style={styles.cardTitle}>{post.title}</Text>
+                  <Text style={styles.cardTitle} numberOfLines={2}>
+                    {post.title}
+                  </Text>
                   {!!post.suggestedPublishAt && (
                     <Text style={styles.time}>
                       Suggested · {new Date(post.suggestedPublishAt).toLocaleString()}
@@ -223,7 +224,7 @@ const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, alignItems: "stretch" },
   gridItem: { flexGrow: 1, flexBasis: 310, maxWidth: "100%" },
   gridItemCompact: { flexBasis: "100%" },
-  card: { height: "100%", minHeight: 245 },
+  card: { height: "100%", minHeight: 0, gap: 8 },
   cardSelected: { borderColor: colors.primary, borderWidth: 2 },
   cardTop: {
     flexDirection: "row",
@@ -245,9 +246,9 @@ const styles = StyleSheet.create({
   selectorText: { color: colors.textSoft, fontWeight: "800", fontSize: 11 },
   selectorTextActive: { color: colors.white },
   score: { color: colors.orange, fontSize: 22, fontWeight: "900" },
-  client: { color: colors.text, fontSize: 18, fontWeight: "900" },
+  client: { color: colors.text, fontSize: 14, fontWeight: "700" },
   platform: { color: colors.primary, fontSize: 11, fontWeight: "900", letterSpacing: 1.1 },
-  cardTitle: { color: colors.textSoft, fontSize: 16, lineHeight: 23, fontWeight: "700" },
+  cardTitle: { color: colors.textSoft, fontSize: 15, lineHeight: 21, fontWeight: "700" },
   time: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: "auto" },
   openButton: { marginTop: spacing.sm, minHeight: 44, justifyContent: "center" },
   openText: { color: colors.primary, fontWeight: "800" },
