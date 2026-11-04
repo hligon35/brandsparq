@@ -20,7 +20,10 @@ test("paused recovery reaches the oldest item after two more pages and returns i
   await page.getByRole("button", { name: "Load more paused posts", exact: true }).click();
   await expect(oldest).toBeVisible();
   const save = page.waitForResponse((r) => r.url().includes("/recovery-000/restore-review"));
-  await oldest.locator("..").getByRole("button", { name: "Return to review", exact: true }).click();
+  await page
+    .getByRole("group", { name: "Oldest paused recovery", exact: true })
+    .getByRole("button", { name: "Return to review", exact: true })
+    .click();
   expect((await save).status()).toBe(200);
   await expect(oldest).toHaveCount(0);
   await page.getByLabel("Search paused content", { exact: true }).fill("Paused recovery 104");
@@ -49,7 +52,7 @@ test("analytics queued progress survives reload and advances after durable queue
   await signIn(page);
   await page.goto("/analytics");
   await page.getByRole("button", { name: "Sync analytics", exact: true }).click();
-  await page.getByRole("button", { name: "Connection & sync health", exact: true }).click();
+  await page.getByRole("link", { name: "Connection & sync health", exact: true }).click();
   await expect(page.getByText(/90 days.*queued|30 days.*queued/)).toBeVisible();
   await page.reload();
   await expect(page.getByText(/30 days.*queued/)).toBeVisible();

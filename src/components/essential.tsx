@@ -58,7 +58,7 @@ export function EssentialRow({
   children,
 }: PropsWithChildren<{ title: string; detail?: string; trailing?: ReactNode }>) {
   return (
-    <View style={essentialStyles.row}>
+    <View role="group" accessibilityLabel={title} style={essentialStyles.row}>
       <View style={essentialStyles.rowTop}>
         <View style={essentialStyles.copy}>
           <Text style={essentialStyles.title}>{title}</Text>
