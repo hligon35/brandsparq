@@ -267,14 +267,19 @@ test("archived clients can be found and restored explicitly", async ({ page }) =
   await signIn(page);
   await page.goto("/clients");
   const clientLink = page.getByRole("link", { name: "Open Client A workspace", exact: true });
-  const card = clientLink.locator("..");
+  const card = page.getByRole("group", { name: "Client A client card", exact: true });
   await card.getByText("Archive", { exact: true }).click();
   await page.getByRole("button", { name: "Archive client", exact: true }).click();
   await expect(clientLink).toHaveCount(0);
   await page.getByRole("button", { name: "Show archived clients", exact: true }).click();
-  await page.getByRole("button", { name: "Restore client", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Restore client", exact: true })).toHaveCount(0);
+  await card.getByRole("button", { name: "Restore client", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Restore client", exact: true })).toHaveCount(0);
   await expect(clientLink).toBeVisible();
+  await page.reload();
+  await expect(clientLink).toBeVisible();
+  await expect(
+    page.getByRole("group", { name: "Client B client card", exact: true }),
+  ).toBeVisible();
 });
 
 test("paused approved posts resume through the scheduler", async ({ page, request }) => {
