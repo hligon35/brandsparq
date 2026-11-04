@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import {
   parseWranglerD1Output,
+  readProductionChecks,
   verifyProductionState,
 } from "../scripts/lib/production-preflight.mjs";
 const result = () => [
@@ -78,7 +79,12 @@ test("preflight invokes the local Wrangler bin with intact JSON and SQL argument
   );
   writeFileSync(
     join(dir, "cloudflare/node_modules/wrangler/bin/cli.cjs"),
-    `const a=process.argv.slice(2);if(!a.includes('--json')||!a[a.indexOf('--command')+1].includes('SELECT name FROM d1_migrations;'))process.exit(2);console.log(' ⛅️ wrangler 4.151.3');console.log(${JSON.stringify(JSON.stringify(result()))});`,
+    `const a=process.argv.slice(2),sql=a[a.indexOf('--command')+1];
+     if(!a.includes('--json')||!sql||sql.includes(String.fromCharCode(10))||sql.includes(String.fromCharCode(13)))process.exit(2);
+     require('node:fs').appendFileSync(${JSON.stringify(join(dir, "calls.jsonl"))},JSON.stringify(a)+String.fromCharCode(10));
+     const rows=${JSON.stringify(result())};
+     const index=sql.includes('d1_migrations')?0:sql.includes('pilot_settings')?1:2;
+     console.log(' ⛅️ wrangler 4.151.3');console.log(JSON.stringify([rows[index]]));`,
   );
   const run = spawnSync(process.execPath, [join(dir, "scripts/preflight-production.mjs")], {
     cwd: tmpdir(),
@@ -87,4 +93,89 @@ test("preflight invokes the local Wrangler bin with intact JSON and SQL argument
   });
   assert.equal(run.status, 0, run.stderr);
   assert.equal(JSON.parse(run.stdout).pilotMode, "hold");
+  const calls = readFileSync(join(dir, "calls.jsonl"), "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(calls.length, 3);
+  assert.ok(calls.every((args) => args.includes("--command") && !args.includes("--file")));
+});
+
+test("preflight combines three single-query responses and retains all publishing guards", () => {
+  const data = result();
+  const calls = [];
+  const run = (executable, args, options) => {
+    calls.push({ executable, args, options });
+    return {
+      status: 0,
+      stdout: "[WARNING] config\r\n" + JSON.stringify([data[calls.length - 1]]),
+      stderr: "",
+    };
+  };
+  const checks = readProductionChecks({
+    cli: "C:/Project with spaces/cli.cjs",
+    cwd: "C:/Project with spaces",
+    run,
+  });
+  assert.deepEqual(checks, data);
+  assert.equal(verifyProductionState(checks, ["0031_test.sql"]).inFlight, 0);
+  assert.equal(calls.length, 3);
+  for (const call of calls) {
+    assert.equal(call.executable, process.execPath);
+    assert.equal(call.args[0], "C:/Project with spaces/cli.cjs");
+    assert.equal(call.options.cwd, "C:/Project with spaces");
+    assert.equal(call.options.timeout, 90000);
+    const sql = call.args[call.args.indexOf("--command") + 1];
+    assert.doesNotMatch(sql, /[\r\n]/);
+    assert.match(sql, /^SELECT /);
+  }
+  const unheld = structuredClone(data);
+  unheld[1].results[0].mode = "normal";
+  assert.throws(() => verifyProductionState(unheld, ["0031_test.sql"]), /Current mode: normal/);
+});
+
+test("preflight preserves the failing check and actual Wrangler error without running later checks", () => {
+  let calls = 0;
+  const run = () => {
+    calls++;
+    return calls === 1
+      ? { status: 0, stdout: JSON.stringify([result()[0]]) }
+      : { status: 1, stderr: "D1_ERROR: no such table: pilot_settings", stdout: "" };
+  };
+  assert.throws(
+    () => readProductionChecks({ cli: "cli", cwd: "root", run }),
+    /publishing holds[\s\S]*no such table: pilot_settings/,
+  );
+  assert.equal(calls, 2);
+});
+
+test("preflight reports execution failures, timeouts, malformed JSON and D1 errors", () => {
+  for (const [response, message] of [
+    [{ error: new Error("spawn ENOENT"), status: null }, /migration list.*spawn ENOENT/],
+    [{ error: new Error("spawn ETIMEDOUT"), status: null }, /migration list.*ETIMEDOUT/],
+    [{ status: null, signal: "SIGTERM", stderr: "worker terminated" }, /migration list.*SIGTERM/],
+    [{ status: 0, stdout: "not JSON" }, /could not parse migration list/],
+    [
+      {
+        status: 0,
+        stdout: JSON.stringify([{ success: false, results: [], error: "D1 read failed" }]),
+      },
+      /SELECT rows.*migration list[\s\S]*D1 read failed/,
+    ],
+    [
+      {
+        status: 0,
+        stdout: JSON.stringify([
+          { success: true, results: [{ "Total queries executed": 3, "Rows written": 0 }] },
+        ]),
+      },
+      /SELECT rows.*migration list/,
+    ],
+    [{ status: 0, stdout: JSON.stringify(result()) }, /SELECT rows.*migration list/],
+  ]) {
+    assert.throws(
+      () => readProductionChecks({ cli: "cli", cwd: "root", run: () => response }),
+      message,
+    );
+  }
 });

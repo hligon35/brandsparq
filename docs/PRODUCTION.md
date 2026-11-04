@@ -378,3 +378,19 @@ provider acceptance, restoration and native evidence, and supervised pilot gates
 AI revisions now return a durable queued job rather than waiting for AI inside the
 request; review screens poll while the post is regenerating. A stale in-flight
 publisher is held for provider reconciliation rather than automatically reposted.
+
+
+### Preflight diagnostics on Windows
+
+`npm run preflight:production` invokes the installed Wrangler JavaScript entry
+through Node, with the repository root as its working directory. Migration names,
+publishing holds and unfinished publishing are read using three separate
+single-line `--command` queries. This avoids multiline shell/shim argument issues.
+Each query must return its own successful D1 SELECT rows; SQL-file import
+statistics are not accepted as deployment evidence.
+
+If Wrangler fails, the error names the check and includes the original CLI output
+or process/timeout error. Do not infer missing migrations or bad authentication
+from a generic failure. When holds are absent, preflight shows the actual pilot
+mode and workspace no-response policy. All existing migration, hold and
+unfinished-publishing requirements remain enforced; these reads change no data.
