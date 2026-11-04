@@ -6,6 +6,8 @@ import * as WebBrowser from "expo-web-browser";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Image, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { ClientPicker } from "@/components/client-picker";
 import { IconButton } from "@/components/icon-button";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
@@ -19,6 +21,14 @@ const icons: Record<string, number> = {
   x: require("../../assets/X.png"),
 };
 const platforms = ["instagram", "facebook", "linkedin", "tiktok", "x"];
+
+function isConnected(account: any) {
+  return (
+    account.status === "connected" &&
+    !["reauth_required", "degraded", "disconnected"].includes(account.health_status) &&
+    (!account.token_expires_at || Number(account.token_expires_at) > Date.now())
+  );
+}
 
 function expiryLabel(value?: number | null) {
   if (!value) return "No expiry reported";
@@ -194,36 +204,34 @@ export default function SocialConnectionsScreen() {
     }
   }
 
+  const connectedPlatforms = platforms.filter((platform) =>
+    accounts.some((account) => account.platform === platform && isConnected(account)),
+  ).length;
+
+  function selectClient(id: string) {
+    if (id === clientId) return;
+    loadVersion.current++;
+    setAccounts([]);
+    setExpanded(null);
+    setLoading(true);
+    setClientId(id);
+  }
+
   return (
     <PageScroll>
       <PageHeader
-        eyebrow="Publishing destinations"
         title="Social connections"
-        subtitle="Connect, verify, and monitor each client's publishing destinations."
-        action={<IconButton label="Refresh social connections" onPress={() => load()} />}
+        subtitle="Connect and manage your clients’ publishing destinations."
+        action={
+          <IconButton
+            label="Refresh social connections"
+            onPress={workingId ? undefined : () => load()}
+            busy={loading}
+          />
+        }
       />
 
-      <Card>
-        {user?.role === "owner" && (
-          <>
-            <Pressable
-              accessibilityRole="checkbox"
-              accessibilityLabel="Create clients from detected Pages"
-              accessibilityState={{ checked: importClients }}
-              onPress={() => setImportClients((value) => !value)}
-              style={styles.chip}
-            >
-              <Text style={styles.chipText}>
-                {importClients ? "✓ " : ""}Create clients from detected Pages
-              </Text>
-            </Pressable>
-            <Text style={styles.meta}>
-              For Facebook and Instagram: each Page and its linked Instagram account share a client.
-              Reconnecting reuses existing profiles. Turn this off to connect everything to the
-              selected client.
-            </Text>
-          </>
-        )}
+      <View style={styles.clientSection}>
         {callbackConnected && !callbackError && (
           <Text
             accessibilityRole="status"
@@ -247,110 +255,148 @@ export default function SocialConnectionsScreen() {
             Loading social connections…
           </Text>
         )}
-        <Text style={styles.label}>Client</Text>
-        {!loading && !clients.length && (
-          <Text style={styles.meta}>
-            Connect Facebook or Instagram to create your first client, or add a client from Clients.
-          </Text>
+        {!!clients.length && (
+          <ClientPicker
+            clients={clients}
+            value={clientId}
+            onChange={selectClient}
+            disabled={loading || !!workingId}
+          />
         )}
-        <View style={styles.chips}>
-          {clients.map((client) => (
-            <Pressable
-              key={client.id}
-              accessibilityRole="button"
-              accessibilityState={{ selected: client.id === clientId }}
-              aria-pressed={client.id === clientId}
-              accessibilityLabel={`Select client ${client.name}`}
-              onPress={() => setClientId(client.id)}
-              style={[styles.chip, client.id === clientId && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, client.id === clientId && styles.chipTextActive]}>
-                {client.name}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </Card>
+        {!loading && !clients.length && (
+          <Card subtle>
+            <Text style={styles.meta}>
+              Connect Facebook or Instagram to create your first client, or add a client from
+              Clients.
+            </Text>
+          </Card>
+        )}
+      </View>
 
-      <View style={styles.grid}>
+      <View style={styles.listSummary}>
+        <Text style={styles.meta}>Your platforms</Text>
+        <Text accessibilityLiveRegion="polite" style={loading ? styles.meta : styles.summaryCount}>
+          {loading ? "Loading…" : `${connectedPlatforms} of ${platforms.length} connected`}
+        </Text>
+      </View>
+      <View style={styles.list}>
         {platforms.map((platformName) => {
           const existing = accounts.filter((a) => a.platform === platformName);
-          const connected = existing.some(
-            (account) =>
-              account.status === "connected" &&
-              !["reauth_required", "degraded", "disconnected"].includes(account.health_status) &&
-              (!account.token_expires_at || Number(account.token_expires_at) > Date.now()),
-          );
+          const connected = existing.some(isConnected);
+          const preferred =
+            existing.find((a) => a.is_default && isConnected(a)) ||
+            existing.find(isConnected) ||
+            existing[0];
+          const accountSummary = loading
+            ? "Loading connections…"
+            : preferred
+              ? `${connected ? "" : "Needs attention · "}${existing.length > 1 ? `${existing.length} accounts · ` : ""}${preferred.account_name}`
+              : "No account linked";
+          const platformLabel =
+            platformName === "x"
+              ? "X"
+              : platformName === "linkedin"
+                ? "LinkedIn"
+                : platformName === "tiktok"
+                  ? "TikTok"
+                  : platformName[0].toUpperCase() + platformName.slice(1);
           return (
-            <Card
+            <View
               key={platformName}
-              style={styles.card}
+              style={styles.platform}
               role="group"
               accessibilityLabel={`${platformName} connections`}
             >
-              <Image
-                source={icons[platformName]}
-                resizeMode="contain"
-                accessibilityLabel={platformName}
-                style={[
-                  styles.platformIcon,
-                  Platform.OS === "web"
-                    ? {
-                        filter: `drop-shadow(0px 0px 10px ${connected ? "rgba(13,175,122,0.8)" : "rgba(228,82,97,0.8)"})`,
-                      }
-                    : {
-                        shadowColor: connected ? colors.success : colors.danger,
-                        shadowOpacity: 0.85,
-                        shadowRadius: 16,
-                        shadowOffset: { width: 0, height: 0 },
-                      },
-                ]}
-              />
-              <Text style={styles.title}>
-                {platformName === "x" ? "X" : platformName[0].toUpperCase() + platformName.slice(1)}
-              </Text>
-              {connected ? (
-                <Text style={styles.connected}>Connected</Text>
-              ) : (
-                <Button
-                  label={workingId === platformName ? "Connecting…" : "Connect"}
-                  onPress={
-                    workingId ||
-                    loading ||
-                    (!(
-                      user?.role === "owner" &&
-                      importClients &&
-                      ["facebook", "instagram"].includes(platformName)
-                    ) &&
-                      (!clientId || !can("social_manage", clientId)))
-                      ? undefined
-                      : () => connect(platformName)
-                  }
+              <View style={styles.platformRow}>
+                <Image
+                  source={icons[platformName]}
+                  resizeMode="contain"
+                  accessibilityLabel={platformName}
+                  style={[
+                    styles.platformIcon,
+                    Platform.OS === "web"
+                      ? {
+                          filter: `drop-shadow(0px 0px 9px ${connected ? "rgba(13,175,122,0.8)" : "rgba(228,82,97,0.8)"})`,
+                        }
+                      : {
+                          shadowColor: connected ? colors.success : colors.danger,
+                          shadowOpacity: 0.85,
+                          shadowRadius: 12,
+                          shadowOffset: { width: 0, height: 0 },
+                        },
+                  ]}
                 />
-              )}
-              {!!existing.length && (
                 <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Manage ${platformName} accounts`}
-                  accessibilityState={{ expanded: expanded === platformName }}
+                  accessibilityRole={existing.length ? "button" : undefined}
+                  accessibilityLabel={
+                    existing.length ? `Manage ${platformName} accounts` : undefined
+                  }
+                  accessibilityState={
+                    existing.length
+                      ? { expanded: expanded === platformName, disabled: loading || !!workingId }
+                      : undefined
+                  }
+                  disabled={!existing.length || loading || !!workingId}
                   onPress={() => setExpanded(expanded === platformName ? null : platformName)}
-                  style={styles.manage}
+                  style={styles.platformIdentity}
                 >
-                  <Text style={styles.meta}>Manage accounts</Text>
+                  <View style={styles.identityTitle}>
+                    <Text style={styles.title}>{platformLabel}</Text>
+                    {!!existing.length && (
+                      <Ionicons
+                        name={expanded === platformName ? "chevron-up" : "chevron-down"}
+                        size={14}
+                        color={colors.muted}
+                      />
+                    )}
+                  </View>
+                  <Text style={styles.accountSummary} numberOfLines={2}>
+                    {accountSummary}
+                  </Text>
                 </Pressable>
-              )}
+                <View style={styles.connectionAction}>
+                  {connected ? (
+                    <View style={styles.connectedStatus}>
+                      <Ionicons name="checkmark" size={15} color={colors.success} />
+                      <Text style={styles.connected}>Connected</Text>
+                    </View>
+                  ) : (
+                    <Button
+                      label={workingId === platformName ? "Connecting…" : "Connect"}
+                      small
+                      style={styles.connectButton}
+                      onPress={
+                        workingId ||
+                        loading ||
+                        (!(
+                          user?.role === "owner" &&
+                          importClients &&
+                          ["facebook", "instagram"].includes(platformName)
+                        ) &&
+                          (!clientId || !can("social_manage", clientId)))
+                          ? undefined
+                          : () => connect(platformName)
+                      }
+                    />
+                  )}
+                </View>
+              </View>
               {expanded === platformName && (
-                <View style={{ width: "100%" }}>
+                <View style={styles.accountDetails}>
                   {existing.map((account) => {
                     const unhealthy =
                       account.status === "reauth_required" ||
                       account.health_status === "reauth_required";
                     const degraded = account.health_status === "degraded";
-                    const status = unhealthy
-                      ? "reauth required"
-                      : degraded
-                        ? "degraded"
-                        : account.health_status || account.status;
+                    const expired =
+                      !!account.token_expires_at && Number(account.token_expires_at) <= Date.now();
+                    const status = expired
+                      ? "expired"
+                      : unhealthy
+                        ? "reauth required"
+                        : degraded
+                          ? "degraded"
+                          : account.health_status || account.status;
                     return (
                       <View key={account.id} style={styles.account}>
                         <View style={styles.row}>
@@ -374,27 +420,21 @@ export default function SocialConnectionsScreen() {
                         )}
                         {can("social_manage", clientId) && (
                           <View style={styles.actions}>
-                            {!account.is_default &&
-                              account.status === "connected" &&
-                              !unhealthy &&
-                              !degraded && (
-                                <Button
-                                  label="Make default"
-                                  small
-                                  secondary
-                                  onPress={workingId ? undefined : () => makeDefault(account.id)}
-                                />
-                              )}
+                            {!account.is_default && isConnected(account) && (
+                              <Button
+                                label="Make default"
+                                small
+                                secondary
+                                onPress={workingId ? undefined : () => makeDefault(account.id)}
+                              />
+                            )}
                             <Button
                               label={workingId === account.id ? "Checking…" : "Verify"}
                               secondary
                               small
                               onPress={workingId ? undefined : () => verify(account.id)}
                             />
-                            {(unhealthy ||
-                              account.status !== "connected" ||
-                              (account.token_expires_at &&
-                                Number(account.token_expires_at) <= Date.now())) && (
+                            {!isConnected(account) && (
                               <Button
                                 label="Reconnect"
                                 small
@@ -422,48 +462,75 @@ export default function SocialConnectionsScreen() {
                   )}
                 </View>
               )}
-            </Card>
+            </View>
           );
         })}
       </View>
+      {user?.role === "owner" && (
+        <View style={styles.importSection}>
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityLabel="Create clients from detected Pages"
+            accessibilityState={{ checked: importClients, disabled: !!workingId }}
+            disabled={!!workingId}
+            onPress={() => setImportClients((value) => !value)}
+            style={styles.importOption}
+          >
+            <Ionicons
+              name={importClients ? "checkbox" : "square-outline"}
+              size={23}
+              color={colors.primary}
+            />
+            <Text style={styles.importLabel}>
+              Create client profiles for accounts found through Meta.
+            </Text>
+          </Pressable>
+          <Text style={styles.meta}>
+            Each Facebook Page and its linked Instagram account share one client. Existing profiles
+            are reused. Turn this off to connect accounts to the selected client.
+          </Text>
+        </View>
+      )}
     </PageScroll>
   );
 }
 
 const styles = StyleSheet.create({
-  iconGlow: {
-    width: 76,
-    height: 76,
-    borderRadius: 0,
+  clientSection: { gap: 10 },
+  listSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  summaryCount: { color: colors.success, fontSize: 13, fontWeight: "700" },
+  list: { gap: 0 },
+  platform: { borderBottomWidth: 1, borderBottomColor: colors.border },
+  platformRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 94,
+    paddingVertical: 16,
+  },
+  platformIcon: { width: 44, height: 44, overflow: "visible", flexShrink: 0 },
+  platformIdentity: { flex: 1, minWidth: 0, minHeight: 48, justifyContent: "center", gap: 3 },
+  identityTitle: { flexDirection: "row", alignItems: "center", gap: 5 },
+  accountSummary: { color: colors.muted, fontSize: 12, lineHeight: 17 },
+  connectionAction: { width: 106, flexShrink: 0 },
+  connectButton: { width: "100%", minHeight: 44, paddingHorizontal: 8 },
+  connectedStatus: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 10,
-  },
-  platformIcon: { width: 64, height: 64, overflow: "visible" },
-  connected: {
-    color: colors.success,
-    fontWeight: "800",
-    minHeight: 48,
-    textAlignVertical: "center",
-  },
-  manage: { minHeight: 44, justifyContent: "center" },
-  refreshButton: { minHeight: 44, paddingHorizontal: 8, justifyContent: "center" },
-  refresh: { color: colors.primary, fontWeight: "800" },
-  label: { color: colors.muted, fontSize: 12, fontWeight: "800", textTransform: "uppercase" },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: {
-    paddingHorizontal: 14,
+    gap: 3,
     minHeight: 44,
-    paddingVertical: 11,
-    justifyContent: "center",
-    borderRadius: 999,
-    backgroundColor: colors.surface2,
   },
-  chipActive: { backgroundColor: colors.primary },
-  chipText: { color: colors.textSoft, fontWeight: "700" },
-  chipTextActive: { color: colors.white },
-  grid: { flexDirection: "row", flexWrap: "wrap", columnGap: "4%", rowGap: 12 },
-  card: { width: "48%", padding: 12, minWidth: 0, alignItems: "center", gap: 14 },
+  connected: { color: colors.success, fontSize: 14, fontWeight: "800" },
+  accountDetails: { gap: 10, paddingBottom: 16 },
+  importSection: { gap: 6, paddingTop: 4 },
+  importOption: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 48 },
+  importLabel: { flex: 1, minWidth: 0, color: colors.textSoft, fontSize: 13, lineHeight: 19 },
   row: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -471,7 +538,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: spacing.sm,
   },
-  title: { color: colors.text, fontSize: 19, fontWeight: "900" },
+  title: { color: colors.text, fontSize: 15, fontWeight: "800", flexShrink: 1 },
   account: { gap: 6, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   accountName: { color: colors.text, fontWeight: "800", flex: 1 },
   meta: { color: colors.muted, fontSize: 13, lineHeight: 19 },
