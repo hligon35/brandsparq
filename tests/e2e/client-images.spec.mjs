@@ -63,6 +63,7 @@ test("client cards align identity, preview voice and center desktop create contr
   expect((await preview.boundingBox()).height).toBeGreaterThanOrEqual(66);
   await expect(card.getByText("America/Indiana/Indianapolis", { exact: true })).toHaveCount(0);
   if (page.viewportSize().width >= 1024) {
+    await page.getByRole("button", { name: "Add client", exact: true }).click();
     const bounds = await Promise.all(
       [
         page.getByLabel("Client name", { exact: true }),

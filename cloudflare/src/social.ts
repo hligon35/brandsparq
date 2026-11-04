@@ -755,6 +755,10 @@ export async function socialOAuthCallback(
       const target = await env.DB.prepare("SELECT status FROM clients WHERE id=?")
         .bind(destination)
         .first<{ status: string }>();
+      if (target?.status === "removed")
+        throw new Error(
+          "A detected account belongs to a removed client. Create a new client and connect from that workspace with automatic client import turned off.",
+        );
       if (target && target.status !== "active")
         throw new Error(
           "A detected account belongs to an archived client. Restore that client before reconnecting. No accounts were imported.",

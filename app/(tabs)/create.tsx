@@ -370,9 +370,8 @@ export default function CreateScreen() {
   return (
     <PageScroll>
       <PageHeader
-        eyebrow="Create"
         title="What are we making?"
-        subtitle="Turn your ideas into content."
+        subtitle="Create content that sounds like your client."
       />
       {!!draftNotice && (
         <Card subtle>
@@ -392,7 +391,7 @@ export default function CreateScreen() {
           }}
           style={[styles.modeCard, creationMode === "social" && styles.modeCardSelected]}
         >
-          <Ionicons name="image-outline" size={30} color={colors.primary} />
+          <Ionicons name="image-outline" size={22} color={colors.primary} />
           <Text style={styles.modeTitle}>Social post</Text>
           <Text style={styles.modeDescription}>Image + caption</Text>
         </Pressable>
@@ -404,7 +403,7 @@ export default function CreateScreen() {
           onPress={() => setCreationMode("campaign")}
           style={[styles.modeCard, creationMode === "campaign" && styles.modeCardSelected]}
         >
-          <Ionicons name="sparkles-outline" size={30} color={colors.primary} />
+          <Ionicons name="sparkles-outline" size={22} color={colors.primary} />
           <Text style={styles.modeTitle}>Campaign</Text>
           <Text style={styles.modeDescription}>Plan a series</Text>
         </Pressable>
@@ -633,7 +632,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: 135,
     minWidth: 0,
-    minHeight: 152,
+    minHeight: 94,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
@@ -643,11 +642,11 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   modeCardSelected: { borderColor: colors.primary, backgroundColor: colors.surface2 },
-  modeTitle: { fontSize: 18, fontWeight: "800", color: colors.text },
+  modeTitle: { fontSize: 15, fontWeight: "800", color: colors.text },
   modeDescription: { color: colors.muted, fontSize: 13 },
   uploadTarget: {
-    padding: 24,
-    minHeight: 170,
+    padding: 18,
+    minHeight: 124,
     borderRadius: radius.md,
     borderWidth: 1,
     borderStyle: "dashed",
@@ -657,7 +656,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 12,
   },
-  uploadTitle: { color: colors.text, fontSize: 20, fontWeight: "800" },
+  uploadTitle: { color: colors.text, fontSize: 16, fontWeight: "800" },
   columns: { gap: spacing.md },
   columnsWide: { flexDirection: "row", alignItems: "flex-start" },
   column: { gap: spacing.md, minWidth: 0 },

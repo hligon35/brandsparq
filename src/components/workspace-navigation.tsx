@@ -48,11 +48,26 @@ export function WorkspaceNavigation() {
                 accessibilityState={{ selected: active }}
                 style={styles.item}
               >
-                <Ionicons
-                  name={item.icon}
-                  size={23}
-                  color={active ? colors.primary : colors.muted}
-                />
+                {item.href === "/create" ? (
+                  <View
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 10,
+                      backgroundColor: colors.primary,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Ionicons name="add" size={22} color={colors.white} />
+                  </View>
+                ) : (
+                  <Ionicons
+                    name={item.icon}
+                    size={23}
+                    color={active ? colors.primary : colors.muted}
+                  />
+                )}
                 <Text style={[styles.label, { color: active ? colors.primary : colors.muted }]}>
                   {item.label}
                 </Text>

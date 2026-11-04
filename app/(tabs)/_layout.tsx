@@ -140,11 +140,9 @@ export default function TabsLayout() {
           title: "Create",
           href: can("generate") ? "/create" : null,
           tabBarIcon: ({ color, size }) => (
-            <Ionicons
-              name="add-circle-outline"
-              color={typeof color === "string" ? color : colors.muted}
-              size={size}
-            />
+            <View style={styles.createTabIcon}>
+              <Ionicons name="add" color={colors.white} size={22} />
+            </View>
           ),
         }}
       />
@@ -179,6 +177,14 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
+  createTabIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   mobileHeader: {
     backgroundColor: colors.surface,
     paddingHorizontal: 20,

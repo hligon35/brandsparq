@@ -16,5 +16,5 @@ export function BrandLogo({ compact = false }: { compact?: boolean }) {
 const styles = StyleSheet.create({
   wrap: { flexShrink: 1, maxWidth: "100%" },
   logo: { width: 290, maxWidth: "100%", height: 100 },
-  compact: { width: 174, height: 60 },
+  compact: { width: 130, height: 44 },
 });

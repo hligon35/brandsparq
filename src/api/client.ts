@@ -248,6 +248,8 @@ export const api = {
   getDashboard: () =>
     jsonRequest<{
       data: {
+        activeClients?: number;
+        recentActivity?: Array<{ id: string; title: string; body: string; created_at: string }>;
         needsReview: number;
         scheduled: number;
         publishingToday: number;
@@ -270,6 +272,12 @@ export const api = {
     jsonRequest<{ ok: true }>(`/v1/clients/${clientId}`, {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+
+  removeClient: (clientId: string, confirmName: string) =>
+    jsonRequest<{ ok: true }>(`/v1/clients/${clientId}`, {
+      method: "DELETE",
+      body: JSON.stringify({ confirmName }),
     }),
 
   archiveClient: (clientId: string) =>

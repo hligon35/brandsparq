@@ -6,7 +6,17 @@ import { StatusBadge } from "@/components/ui";
 import { Alert, confirmAction } from "@/components/feedback";
 import { Link, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";
@@ -15,6 +25,7 @@ import type { Client } from "@/types/domain";
 export default function ClientsScreen() {
   const can = useCapabilities();
   const { user } = useAuth();
+  const [adding, setAdding] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [name, setName] = useState("");
@@ -50,6 +61,7 @@ export default function ClientsScreen() {
     try {
       await api.createClient(name.trim(), timezone.trim());
       setName("");
+      setAdding(false);
       await load();
     } catch (err) {
       Alert.alert("Unable to create client", err instanceof Error ? err.message : "Try again.");
@@ -78,12 +90,40 @@ export default function ClientsScreen() {
     }
   }
 
+  async function remove(client: Client) {
+    if (
+      !(await confirmAction(
+        "Remove client?",
+        `Remove ${client.name} from BrandSparQ? Pending work will be canceled and saved social credentials disconnected. This cannot be restored from Archived clients. Audit history is retained; posts already published on social networks are not deleted.`,
+        "Remove client",
+      ))
+    )
+      return;
+    setWorking(true);
+    try {
+      await api.removeClient(client.id, client.name);
+      await load();
+    } catch (err) {
+      Alert.alert("Unable to remove client", err instanceof Error ? err.message : "Try again.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
   return (
     <PageScroll>
       <PageHeader
-        eyebrow="Brand intelligence"
         title="Your clients"
-        subtitle="Create clients and manage the rules BrandSparQ uses to create, caption, and schedule their content."
+        subtitle="Every brand, with its own voice."
+        action={
+          ["owner", "admin"].includes(user?.role || "") ? (
+            <Button
+              label="Add client"
+              small
+              onPress={working ? undefined : () => setAdding(true)}
+            />
+          ) : undefined
+        }
       />
 
       <Button
@@ -92,31 +132,65 @@ export default function ClientsScreen() {
         onPress={() => setShowArchived((v) => !v)}
       />
       {["owner", "admin"].includes(user?.role || "") && (
-        <Card>
-          <SectionTitle
-            title="Add client"
-            subtitle="Start with the client name and timezone. Brand Brain can be completed next."
-          />
-          <View style={styles.formRow}>
-            <TextInput
-              accessibilityLabel="Client name"
-              value={name}
-              onChangeText={setName}
-              placeholder="Client name"
-              placeholderTextColor={colors.muted}
-              style={styles.input}
+        <Modal
+          visible={adding}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {
+            if (!working) setAdding(false);
+          }}
+        >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.modalOverlay}
+          >
+            <Pressable
+              accessibilityLabel="Close add client"
+              style={StyleSheet.absoluteFill}
+              disabled={working}
+              onPress={() => setAdding(false)}
             />
-            <View style={{ flexGrow: 1, flexBasis: 240 }}>
-              <TimezonePicker value={timezone} onChange={setTimezone} showLabel={false} />
+            <View
+              role="dialog"
+              accessibilityLabel="Add client"
+              accessibilityViewIsModal
+              style={styles.modalDialog}
+            >
+              <ScrollView keyboardShouldPersistTaps="handled">
+                <Card>
+                  <SectionTitle
+                    title="Add client"
+                    subtitle="Start with the client name and timezone. Brand Brain can be completed next."
+                  />
+                  <View style={styles.formRow}>
+                    <TextInput
+                      accessibilityLabel="Client name"
+                      value={name}
+                      onChangeText={setName}
+                      placeholder="Client name"
+                      placeholderTextColor={colors.muted}
+                      style={styles.input}
+                    />
+                    <View style={{ flexGrow: 1, flexBasis: 240 }}>
+                      <TimezonePicker value={timezone} onChange={setTimezone} showLabel={false} />
+                    </View>
+                    <View style={styles.createButton}>
+                      <Button
+                        label={working ? "Working…" : "Create client"}
+                        onPress={working || !name.trim() ? undefined : create}
+                      />
+                    </View>
+                  </View>
+                  <Button
+                    label="Cancel"
+                    secondary
+                    onPress={working ? undefined : () => setAdding(false)}
+                  />
+                </Card>
+              </ScrollView>
             </View>
-            <View style={styles.createButton}>
-              <Button
-                label={working ? "Working…" : "Create client"}
-                onPress={working || !name.trim() ? undefined : create}
-              />
-            </View>
-          </View>
-        </Card>
+          </KeyboardAvoidingView>
+        </Modal>
       )}
 
       {error ? (
@@ -155,7 +229,7 @@ export default function ClientsScreen() {
             accessibilityLabel={`${client.name} client card`}
           >
             <View style={styles.identity}>
-              <ClientAvatar client={client} />
+              <ClientAvatar client={client} size={44} />
               <Link
                 href={{
                   pathname: "/clients/[clientId]",
@@ -171,11 +245,11 @@ export default function ClientsScreen() {
                   <Text style={styles.cardTitle}>{client.name} →</Text>
                 </Pressable>
               </Link>
+              <StatusBadge label={client.status || "active"} />
             </View>
-            <StatusBadge label={client.status || "active"} />
             <Text
               accessibilityLabel={`${client.name} brand voice`}
-              numberOfLines={4}
+              numberOfLines={3}
               style={styles.voice}
             >
               {client.brandVoice?.trim() ||
@@ -216,6 +290,17 @@ export default function ClientsScreen() {
                     <Text style={styles.archive}>Archive</Text>
                   </Pressable>
                 ))}
+              {can("client_manage", client.id) && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${client.name}`}
+                  disabled={working}
+                  onPress={() => remove(client)}
+                  style={styles.removeAction}
+                >
+                  <Text style={styles.removeText}>Remove</Text>
+                </Pressable>
+              )}
             </View>
           </Card>
         ))}
@@ -239,6 +324,21 @@ export default function ClientsScreen() {
 }
 
 const styles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(7,26,93,0.45)",
+    padding: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalDialog: { width: "100%", maxWidth: 720, maxHeight: "90%" },
+  removeAction: {
+    minHeight: 44,
+    alignSelf: "flex-end",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  removeText: { color: colors.danger, fontSize: 13, fontWeight: "700" },
   formRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, alignItems: "center" },
   input: {
     flexGrow: 1,
@@ -254,11 +354,11 @@ const styles = StyleSheet.create({
   },
   createButton: { minWidth: 150 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
-  gridItem: { flexGrow: 1, flexBasis: 300, maxWidth: "100%", minHeight: 220 },
+  gridItem: { flexGrow: 1, flexBasis: 300, maxWidth: "100%", minHeight: 210 },
   identity: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   nameLink: { flex: 1, minWidth: 0, minHeight: 48, justifyContent: "center" },
-  voice: { color: colors.muted, fontSize: 15, lineHeight: 22, minHeight: 88 },
-  cardTitle: { color: colors.text, fontSize: 20, fontWeight: "900" },
+  voice: { color: colors.muted, fontSize: 15, lineHeight: 22, minHeight: 66 },
+  cardTitle: { color: colors.text, fontSize: 16, fontWeight: "800" },
   sub: { color: colors.muted, fontSize: 15, lineHeight: 22 },
   actions: {
     marginTop: "auto",

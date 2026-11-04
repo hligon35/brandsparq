@@ -1,16 +1,15 @@
-import { useCapabilities } from "@/auth/capabilities";
 import { useAuth } from "@/auth/context";
+import { Ionicons } from "@expo/vector-icons";
 import { Link } from "expo-router";
 import { useCallback, useState } from "react";
 import { useFocusEffect } from "expo-router";
-import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, RefreshControl, StyleSheet, Text, View, Pressable } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
 import { colors, radius, spacing } from "@/theme/tokens";
 
 type Dashboard = Awaited<ReturnType<typeof api.getDashboard>>["data"];
 export default function HomeScreen() {
-  const can = useCapabilities();
   const { user } = useAuth();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,9 +35,8 @@ export default function HomeScreen() {
   return (
     <PageScroll refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
       <PageHeader
-        eyebrow={user?.name ? `Welcome, ${user.name.split(" ")[0]}` : "Welcome back"}
         title="Your workspace"
-        subtitle="Your brands, content, and next steps in one place."
+        subtitle={`${user?.name ? `Welcome back, ${user.name.split(" ")[0]}.` : "Welcome back."} Here’s your workspace.`}
       />
       {loading ? (
         <ActivityIndicator accessibilityLabel="Loading workspace" color={colors.primary} />
@@ -55,9 +53,9 @@ export default function HomeScreen() {
           </Text>
           <View style={styles.metrics}>
             {[
-              [dashboard.scheduled, "Scheduled"],
-              [dashboard.publishingToday, "Publishing today"],
-              [dashboard.failed, "Needs attention"],
+              [dashboard.needsReview, "Awaiting\nreview"],
+              [dashboard.scheduled, "Scheduled\nposts"],
+              [dashboard.activeClients ?? "—", "Active\nclients"],
             ].map(([value, label]) => (
               <Card key={label} style={styles.metric}>
                 <Text style={styles.number}>{value}</Text>
@@ -65,9 +63,44 @@ export default function HomeScreen() {
               </Card>
             ))}
           </View>
+        </>
+      ) : null}
+      <View style={styles.section}>
+        <Text accessibilityRole="header" style={styles.title}>
+          Quick access
+        </Text>
+      </View>
+      <View style={styles.actions}>
+        {(
+          [
+            { href: "/review", label: "Review content", title: "Review", icon: "list-outline" },
+            {
+              href: "/clients",
+              label: "Client workspaces",
+              title: "Clients",
+              icon: "people-outline",
+            },
+            {
+              href: "/analytics",
+              label: "Analytics",
+              title: "Analytics",
+              icon: "analytics-outline",
+            },
+          ] as const
+        ).map((item) => (
+          <Link key={item.href} href={item.href} asChild>
+            <Pressable accessibilityLabel={item.label} style={styles.action}>
+              <Ionicons name={item.icon} size={24} color={colors.primary} />
+              <Text style={styles.actionText}>{item.title}</Text>
+            </Pressable>
+          </Link>
+        ))}
+      </View>
+      {dashboard && (
+        <>
           <View style={styles.section}>
             <Text accessibilityRole="header" style={styles.title}>
-              Coming up
+              Upcoming content
             </Text>
             <Link href="/calendar" style={styles.link}>
               View calendar →
@@ -99,31 +132,54 @@ export default function HomeScreen() {
               </>
             )}
           </Card>
+
+          {!!dashboard.failed && (
+            <Card subtle>
+              <Text style={styles.title}>{dashboard.failed} posts need attention</Text>
+              <Link href={user?.role === "owner" ? "/system" : "/calendar"} style={styles.link}>
+                Open recovery tools →
+              </Link>
+            </Card>
+          )}
+          <View style={styles.section}>
+            <Text accessibilityRole="header" style={styles.title}>
+              Recent activity
+            </Text>
+          </View>
+          <Card>
+            {dashboard.recentActivity?.length ? (
+              dashboard.recentActivity.map((activity) => (
+                <View key={activity.id} style={styles.activityRow}>
+                  <View style={styles.activityDot} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.activityTitle}>{activity.title}</Text>
+                    <Text numberOfLines={2} style={styles.body}>
+                      {activity.body}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.body}>Updates from your workspace will appear here.</Text>
+            )}
+          </Card>
         </>
-      ) : null}
-      <View style={styles.section}>
-        <Text accessibilityRole="header" style={styles.title}>
-          Quick access
-        </Text>
-      </View>
-      <View style={styles.actions}>
-        <Link href="/clients" style={styles.action}>
-          Client workspaces
-        </Link>
-        <Link href="/review" style={styles.action}>
-          Review content
-        </Link>
-        {can("generate") && (
-          <Link href="/create" style={styles.action}>
-            Create campaign
-          </Link>
-        )}
-      </View>
+      )}
     </PageScroll>
   );
 }
 const styles = StyleSheet.create({
-  title: { color: colors.text, fontSize: 20, fontWeight: "800" },
+  activityRow: { flexDirection: "row", gap: 12, paddingVertical: 8 },
+  activityDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+    marginTop: 7,
+  },
+  activityTitle: { color: colors.text, fontSize: 14, fontWeight: "700" },
+  actionText: { color: colors.text, fontSize: 13, fontWeight: "700", textAlign: "center" },
+  title: { color: colors.text, fontSize: 17, fontWeight: "800" },
   body: { color: colors.muted, fontSize: 15, lineHeight: 22 },
   hero: { backgroundColor: colors.primary, padding: spacing.lg, borderRadius: radius.lg, gap: 14 },
   heroEyebrow: { color: colors.white, fontSize: 12, fontWeight: "700", letterSpacing: 1.5 },
@@ -159,11 +215,12 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     flex: 1,
     minWidth: 0,
-    textAlign: "center",
-    fontSize: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
     padding: 12,
     color: colors.primary,
     fontWeight: "800",
-    minHeight: 52,
+    minHeight: 86,
   },
 });

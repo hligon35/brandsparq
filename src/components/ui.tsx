@@ -94,11 +94,12 @@ export function Card({
   accessibilityLabel?: string;
   role?: "group";
 }>) {
+  const { compact } = useResponsive();
   return (
     <View
       role={role}
       accessibilityLabel={accessibilityLabel}
-      style={[styles.card, subtle && styles.cardSubtle, style]}
+      style={[styles.card, { padding: compact ? 16 : 20 }, subtle && styles.cardSubtle, style]}
     >
       {children}
     </View>
@@ -244,12 +245,12 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   button: {
-    minHeight: 48,
+    minHeight: 46,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
+    borderRadius: 12,
+    paddingHorizontal: spacing.md,
     paddingVertical: 12,
     borderWidth: 1,
     borderColor: colors.primary,
@@ -278,15 +279,15 @@ const styles = StyleSheet.create({
   buttonText: {
     color: colors.white,
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   secondaryText: {
     color: colors.text,
   },
   badge: {
     alignSelf: "flex-start",
-    borderRadius: radius.pill,
-    paddingHorizontal: 11,
+    borderRadius: 8,
+    paddingHorizontal: 9,
     paddingVertical: 6,
   },
   badgeText: {
@@ -313,25 +314,25 @@ const styles = StyleSheet.create({
   eyebrow: {
     color: colors.primary,
     fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 1.8,
+    fontWeight: "700",
+    letterSpacing: 0.8,
     textTransform: "uppercase",
   },
   pageTitle: {
     color: colors.text,
-    fontSize: 34,
-    lineHeight: 40,
-    fontWeight: "900",
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: "800",
     letterSpacing: -0.8,
   },
   pageTitleCompact: {
-    fontSize: 29,
-    lineHeight: 34,
+    fontSize: 27,
+    lineHeight: 32,
   },
   pageSubtitle: {
     color: colors.muted,
-    fontSize: 15,
-    lineHeight: 23,
+    fontSize: 13,
+    lineHeight: 20,
     maxWidth: 760,
   },
   sectionTitleWrap: {
@@ -339,7 +340,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: "800",
   },
   sectionSubtitle: {

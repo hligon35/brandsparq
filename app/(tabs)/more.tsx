@@ -12,8 +12,14 @@ const items: {
   href: Href;
 }[] = [
   {
+    label: "Review queue",
+    description: "Approve pending content.",
+    icon: "list-outline",
+    href: "/review" as Href,
+  },
+  {
     label: "Generation progress",
-    description: "Planning, graphics, errors and recovery.",
+    description: "Track content creation and recovery.",
     icon: "sparkles-outline",
     href: "/generation" as Href,
   },
@@ -57,7 +63,7 @@ export default function MoreScreen() {
           },
           {
             label: "System health",
-            description: "Production readiness, incidents, queues, and recovery.",
+            description: "Readiness, incidents, and recovery.",
             icon: "pulse-outline" as keyof typeof Ionicons.glyphMap,
             href: "/system" as Href,
           },
@@ -66,7 +72,7 @@ export default function MoreScreen() {
 
   return (
     <PageScroll>
-      <PageHeader eyebrow="Workspace" title="More" subtitle={user?.email || "Manage BrandSparQ"} />
+      <PageHeader title="More" subtitle="Your publishing and workspace tools." />
 
       <View style={styles.grid}>
         {visibleItems.map((item) => {
@@ -75,8 +81,12 @@ export default function MoreScreen() {
               <View style={styles.iconWrap}>
                 <Ionicons name={item.icon} size={23} color={colors.primary} />
               </View>
-              <Text style={styles.item}>{item.label}</Text>
-              <Text style={styles.description}>{item.description}</Text>
+              <Text style={styles.item} numberOfLines={2}>
+                {item.label}
+              </Text>
+              <Text style={styles.description} numberOfLines={2}>
+                {item.description}
+              </Text>
             </Card>
           );
 
@@ -107,26 +117,28 @@ const styles = StyleSheet.create({
     flexGrow: 0,
   },
   itemCard: {
-    minHeight: 238,
+    minHeight: 174,
+    height: 174,
     flex: 1,
     padding: 14,
   },
   iconWrap: {
-    width: 44,
-    height: 44,
+    width: 32,
+    height: 32,
     borderRadius: radius.md,
-    backgroundColor: "#EAF3FF",
+    backgroundColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
   },
   item: {
     color: colors.text,
-    fontSize: 18,
-    fontWeight: "900",
+    fontSize: 15,
+    fontWeight: "800",
   },
   description: {
     color: colors.muted,
-    lineHeight: 21,
+    fontSize: 12,
+    lineHeight: 18,
   },
   coming: {
     marginTop: "auto",

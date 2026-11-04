@@ -1,3 +1,4 @@
+import { removeClient } from "./client-removal";
 import { processMetaWebhook, recoverMetaWebhooks } from "./meta-webhooks";
 import { validatedRequest } from "./request-validation";
 import { socialProfileImage } from "./social-profile";
@@ -1273,8 +1274,20 @@ const worker = {
         ? await nextStatement.bind(now.toISOString(), ...bindings).first<any>()
         : await nextStatement.bind(now.toISOString()).first<any>();
 
+      const clientCount = await env.DB.prepare(
+        `SELECT COUNT(*) AS count FROM clients WHERE status='active'${allowedClients === null ? "" : allowedClients.length ? ` AND id IN (${allowedClients.map(() => "?").join(",")})` : " AND 0"}`,
+      )
+        .bind(...bindings)
+        .first<{ count: number }>();
+      const recent = await env.DB.prepare(
+        "SELECT id,title,body,created_at FROM notifications WHERE user_id=? AND status!='canceled' ORDER BY created_at DESC,id DESC LIMIT 3",
+      )
+        .bind(sessionUser!.id)
+        .all<any>();
       return response(request, env, {
         data: {
+          activeClients: Number(clientCount?.count || 0),
+          recentActivity: recent.results,
           needsReview: Number(stats?.needs_review || 0),
           scheduled: Number(stats?.scheduled || 0),
           publishingToday: Number(stats?.publishing_today || 0),
@@ -1297,7 +1310,7 @@ const worker = {
                 substr(bp.voice, 1, 1000) AS brandVoice
          FROM clients c
          LEFT JOIN brand_profiles bp ON bp.client_id = c.id
-         WHERE (? = 1 OR c.status = 'active')
+         WHERE c.status IN ('active','archived') AND (? = 1 OR c.status = 'active')
          ORDER BY c.name`,
       )
         .bind(includeArchived ? 1 : 0)
@@ -1368,6 +1381,11 @@ const worker = {
     }
 
     const clientMatch = url.pathname.match(/^\/v1\/clients\/([^/]+)$/);
+    if (clientMatch && request.method === "DELETE") {
+      const payload = await request.json<any>().catch(() => ({}));
+      const result = await removeClient(env.DB, sessionUser!, clientMatch[1], payload.confirmName);
+      return response(request, env, result.body, { status: result.status || 200 });
+    }
     if (clientMatch && request.method === "POST") {
       const denied = await authorize(env, sessionUser!, "client_manage", clientMatch[1]);
       if (denied) return response(request, env, { error: denied }, { status: 403 });

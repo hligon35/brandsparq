@@ -23,9 +23,9 @@ export const colors = {
 
 export const radius = {
   sm: 10,
-  md: 16,
-  lg: 24,
-  xl: 30,
+  md: 12,
+  lg: 18,
+  xl: 24,
   pill: 999,
 } as const;
 
@@ -41,9 +41,9 @@ export const spacing = {
 export const shadows = {
   card: {
     shadowColor: "#0A2A66",
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
+    shadowOpacity: 0.025,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
   },
 } as const;

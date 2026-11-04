@@ -1,5 +1,6 @@
 import { InboxProvider } from "@/notifications/inbox";
 import { UnsavedChangesProvider } from "@/hooks/useUnsavedChanges";
+import { BrandLogo } from "@/components/brand";
 import { HeaderActions } from "@/components/header-actions";
 import { NotificationRouter } from "@/notifications/router";
 import { Stack, useSegments } from "expo-router";
@@ -41,6 +42,7 @@ function RootNavigator() {
             headerStyle: { backgroundColor: colors.surface },
             headerTintColor: colors.text,
             headerTitleStyle: { fontWeight: "800" },
+            headerTitle: () => <BrandLogo compact />,
             headerShadowVisible: false,
             headerRight: () => <HeaderActions />,
             headerBackButtonDisplayMode: "minimal",
@@ -61,10 +63,7 @@ function RootNavigator() {
               name="clients/[clientId]/reviewers"
               options={{ title: "Client reviewers" }}
             />
-            <Stack.Screen
-              name="clients/[clientId]/index"
-              options={{ title: "Client workspace", headerTitle: () => null }}
-            />
+            <Stack.Screen name="clients/[clientId]/index" options={{ title: "Client workspace" }} />
             <Stack.Screen name="clients/[clientId]/brand" options={{ title: "Brand Brain" }} />
             <Stack.Screen name="campaigns/index" options={{ title: "Campaigns" }} />
             <Stack.Screen name="campaigns/[campaignId]" options={{ title: "Campaign" }} />

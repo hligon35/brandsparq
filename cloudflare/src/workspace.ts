@@ -50,7 +50,7 @@ export async function handleWorkspaceRoute(
     (SELECT COUNT(*) FROM graphic_jobs WHERE generation_job_id=g.id AND status='completed') AS graphics_completed,
     (SELECT COUNT(*) FROM graphic_jobs WHERE generation_job_id=g.id AND status='failed') AS graphics_failed
     FROM generation_jobs g JOIN clients c ON c.id=g.client_id
-    WHERE (? IS NULL OR g.id=?) AND (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=g.client_id))
+    WHERE c.status!='removed' AND (? IS NULL OR g.id=?) AND (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=g.client_id))
     AND (?='' OR instr(lower(c.name || ' ' || COALESCE(g.error_message,'')),lower(?))>0)
     AND (?='' OR g.status=?)
     AND (? IS NULL OR g.created_at<? OR (g.created_at=? AND g.id<?))
@@ -163,7 +163,7 @@ export async function handleWorkspaceRoute(
     }
     const rows =
       await env.DB.prepare(`SELECT p.id,p.created_at,p.client_id,c.name AS client_name,c.status AS client_status,p.title,p.platform,p.approved_at,p.scheduled_publish_at,p.paused_from_status
-      FROM posts p JOIN clients c ON c.id=p.client_id WHERE p.status='paused'
+      FROM posts p JOIN clients c ON c.id=p.client_id WHERE p.status='paused' AND c.status!='removed'
       AND (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=p.client_id))
       AND (?='' OR instr(lower(c.name || ' ' || p.title),lower(?))>0)
       AND (? IS NULL OR p.created_at<? OR (p.created_at=? AND p.id<?))
