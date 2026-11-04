@@ -60,7 +60,7 @@ test("analytics keeps completed job history in Health and preserves the selected
   await page.goto("/analytics?clientId=client-a");
   await page.getByRole("button", { name: "Sync analytics", exact: true }).click();
   await expect(page.getByText(/processed.*failed/)).toHaveCount(0);
-  await page.getByRole("button", { name: "Connection & sync health", exact: true }).click();
+  await page.getByRole("link", { name: "Connection & sync health", exact: true }).click();
   await expect(page).toHaveURL(/system\?clientId=client-a/);
   await expect(page.getByText(/30 days.*queued/)).toBeVisible();
   await request.post("/__test/drain-analytics");

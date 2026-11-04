@@ -11,7 +11,7 @@ test("Settings shows web refresh first and protects unsaved changes before reloa
   const refresh = page.getByRole("button", { name: "Refresh web app", exact: true });
   await expect(refresh).toBeVisible();
   const devices = await page
-    .getByRole("heading", { name: "Notification devices", exact: true })
+    .getByRole("button", { name: "Notification devices", exact: true })
     .boundingBox();
   expect((await refresh.boundingBox()).y).toBeLessThan(devices.y);
   await expect(page.getByRole("button", { name: "Check for app update", exact: true })).toHaveCount(

@@ -549,15 +549,9 @@ test("client workspace links retain the selected client", async ({ page }) => {
     await page.goto(`/clients/${clientId}`);
     await page.getByRole("link", { name: label, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`${route}.*clientId=${clientId}`));
-    if (route === "calendar")
-      await expect(
-        page.getByRole("button", { name: "Select client: Client B", exact: true }),
-      ).toBeVisible();
-    else
-      await expect(page.getByRole("button", { name: "Client B", exact: true })).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      );
+    await expect(
+      page.getByRole("button", { name: "Select client: Client B", exact: true }),
+    ).toBeVisible();
   }
 });
 
