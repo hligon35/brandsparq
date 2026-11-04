@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.lg,
     paddingHorizontal: 24,
-    paddingVertical: 26,
+    paddingVertical: 20,
     gap: 16,
     shadowColor: "#0A2A66",
     shadowOpacity: 0.08,
@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
   cardCompact: { paddingHorizontal: 18, paddingVertical: 22 },
   title: {
     color: colors.text,
-    fontSize: 25,
+    fontSize: 23,
     lineHeight: 30,
     fontWeight: "900",
     textAlign: "center",

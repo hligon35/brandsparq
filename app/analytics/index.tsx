@@ -1,4 +1,6 @@
-import { useLocalSearchParams } from "expo-router";
+import { ClientPicker } from "@/components/client-picker";
+import { EssentialSection } from "@/components/essential";
+import { Link, useLocalSearchParams } from "expo-router";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -115,9 +117,8 @@ export default function AnalyticsScreen() {
   return (
     <PageScroll>
       <PageHeader
-        eyebrow="Performance"
         title="Analytics"
-        subtitle="Track performance over time, compare platforms, find top posts, and verify provider sync health."
+        subtitle="Your content, measured."
         action={
           <IconButton
             label="Sync analytics"
@@ -132,36 +133,11 @@ export default function AnalyticsScreen() {
       />
 
       <Card subtle>
-        <Text style={styles.filterLabel}>Client</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View style={styles.chips}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: clientId === "all" }}
-              aria-pressed={clientId === "all"}
-              onPress={() => setClientId("all")}
-              style={[styles.chip, clientId === "all" && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, clientId === "all" && styles.chipTextActive]}>
-                All clients
-              </Text>
-            </Pressable>
-            {clients.map((client) => (
-              <Pressable
-                key={client.id}
-                accessibilityRole="button"
-                accessibilityState={{ selected: clientId === client.id }}
-                aria-pressed={clientId === client.id}
-                onPress={() => setClientId(client.id)}
-                style={[styles.chip, clientId === client.id && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, clientId === client.id && styles.chipTextActive]}>
-                  {client.name}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </ScrollView>
+        <ClientPicker
+          clients={[{ id: "all", name: "All clients", color: colors.primary }, ...clients]}
+          value={clientId}
+          onChange={setClientId}
+        />
         <View style={styles.rangeRow}>
           {[7, 30, 90].map((value) => (
             <Pressable
@@ -180,18 +156,9 @@ export default function AnalyticsScreen() {
         </View>
       </Card>
 
-      {jobs
-        .filter((job) => clientId === "all" || job.client_id === clientId)
-        .slice(0, 10)
-        .map((job) => (
-          <Card key={job.id}>
-            <Text>
-              {job.account_name} · {job.range_days} days · {job.status} · {job.processed} processed
-              · {job.failed} failed
-            </Text>
-            {!!job.error_message && <Text>{job.error_message}</Text>}
-          </Card>
-        ))}
+      <Link href={{ pathname: "/system", params: clientId === "all" ? {} : { clientId } }} asChild>
+        <Button label="Connection & sync health" secondary small />
+      </Link>
       {!!error && (
         <Card subtle>
           <Text accessibilityRole="alert" style={styles.error}>
@@ -204,7 +171,7 @@ export default function AnalyticsScreen() {
       {loading && <Text accessibilityLiveRegion="polite">Loading analytics…</Text>}
       {!loading && !error && (
         <>
-          <Card subtle>
+          <EssentialSection title="About these measurements" defaultOpen={false}>
             <StatusBadge label={overview.measurement_status || "unavailable"} />
             <Text style={styles.muted}>
               Posts published in the selected {days} UTC days. Values are lifetime provider
@@ -217,7 +184,7 @@ export default function AnalyticsScreen() {
                 : "Metrics unavailable until a successful provider sync."}{" "}
               Missing metrics display —; a measured zero displays 0.
             </Text>
-          </Card>
+          </EssentialSection>
           <View style={styles.grid}>
             {metrics.map(([label, key]) => (
               <Card key={key} style={styles.metricCard}>
@@ -275,11 +242,7 @@ export default function AnalyticsScreen() {
             )}
           </Card>
 
-          <Card>
-            <SectionTitle
-              title="Platform performance"
-              subtitle="Latest lifetime measurements for posts published in the selected range."
-            />
+          <EssentialSection title="Platform performance">
             {(data?.byPlatform || []).map((row: any) => (
               <View key={row.platform} style={styles.platformRow}>
                 <View>
@@ -302,13 +265,9 @@ export default function AnalyticsScreen() {
             {!data?.byPlatform?.length && (
               <Text style={styles.muted}>No published platform data yet.</Text>
             )}
-          </Card>
+          </EssentialSection>
 
-          <Card>
-            <SectionTitle
-              title="Top content"
-              subtitle="Ranked by meaningful engagement, then impressions."
-            />
+          <EssentialSection title="Top content">
             {(data?.topPosts || []).map((post: any, index: number) => (
               <View key={post.id} style={styles.topRow}>
                 <Text style={styles.rank}>#{index + 1}</Text>
@@ -333,31 +292,7 @@ export default function AnalyticsScreen() {
                 Top content will appear after posts are published and measured.
               </Text>
             )}
-          </Card>
-
-          <Card>
-            <SectionTitle
-              title="Sync health"
-              subtitle="Recent provider analytics refreshes and errors."
-            />
-            {(data?.syncHealth || []).slice(0, 8).map((run: any) => (
-              <View key={run.id} style={styles.healthRow}>
-                <View style={styles.healthCopy}>
-                  <Text style={styles.topTitle}>
-                    {run.account_name || run.platform || "Social account"}
-                  </Text>
-                  <Text style={styles.muted}>
-                    {run.client_name || "Client"} · {new Date(run.started_at).toLocaleString()}
-                  </Text>
-                  {!!run.error_message && <Text style={styles.error}>{run.error_message}</Text>}
-                </View>
-                <StatusBadge label={run.status} />
-              </View>
-            ))}
-            {!data?.syncHealth?.length && (
-              <Text style={styles.muted}>No analytics sync runs yet.</Text>
-            )}
-          </Card>
+          </EssentialSection>
         </>
       )}
     </PageScroll>
@@ -387,11 +322,13 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { color: colors.textSoft, fontWeight: "800" },
   chipTextActive: { color: colors.white },
-  rangeRow: { flexDirection: "row", gap: 8, marginTop: spacing.sm },
+  rangeRow: { flexDirection: "row", gap: 8 },
   range: {
+    flex: 1,
+    alignItems: "center",
     minHeight: 44,
     justifyContent: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 7,
     borderRadius: radius.pill,
     backgroundColor: colors.surface2,
@@ -401,7 +338,7 @@ const styles = StyleSheet.create({
   rangeTextActive: { color: colors.white },
   grid: { flexDirection: "row", flexWrap: "wrap", columnGap: "4%", rowGap: 12 },
   metricCard: { width: "48%", minWidth: 0, padding: 14 },
-  value: { color: colors.text, fontSize: 30, fontWeight: "900" },
+  value: { color: colors.text, fontSize: 25, fontWeight: "800" },
   label: { color: colors.muted, fontWeight: "700" },
   chart: {
     height: 220,

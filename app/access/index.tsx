@@ -1,3 +1,4 @@
+import { EssentialSection } from "@/components/essential";
 import { useAuth } from "@/auth/context";
 import { Alert, confirmAction } from "@/components/feedback";
 import { useEffect, useMemo, useState } from "react";
@@ -119,16 +120,11 @@ export default function AccessScreen() {
   return (
     <PageScroll>
       <PageHeader
-        eyebrow="Owner controls"
         title="Access Management"
-        subtitle="Assign workspace roles and exactly which clients each non-owner can access."
+        subtitle="People, invitations, and client permissions."
       />
 
-      <Card>
-        <SectionTitle
-          title="Invite teammate"
-          subtitle="Invitations last seven days and must be accepted with the invited Google account."
-        />
+      <EssentialSection title="Invite teammate" defaultOpen={false}>
         <Field label="Teammate email" value={email} onChange={setEmail} />
         <Text style={styles.muted}>Workspace role</Text>
         <Choices
@@ -190,9 +186,8 @@ export default function AccessScreen() {
                   })
           }
         />
-      </Card>
-      <Card>
-        <SectionTitle title="Invitations" />
+      </EssentialSection>
+      <EssentialSection title="Invitations">
         {!invitations.length && <Text style={styles.muted}>No invitations yet.</Text>}
         {invitations.map((invite) => (
           <View key={invite.id} style={{ gap: 8 }}>
@@ -231,12 +226,8 @@ export default function AccessScreen() {
             )}
           </View>
         ))}
-      </Card>
-      <Card>
-        <SectionTitle
-          title="People"
-          subtitle="Google-authenticated users authorized for this BrandSparQ workspace."
-        />
+      </EssentialSection>
+      <EssentialSection title="People" collapsible={false}>
         <View style={styles.people}>
           {data.users.map((row) => (
             <Pressable
@@ -253,7 +244,7 @@ export default function AccessScreen() {
             </Pressable>
           ))}
         </View>
-      </Card>
+      </EssentialSection>
 
       {user && (
         <Card>
@@ -266,7 +257,7 @@ export default function AccessScreen() {
             }}
           >
             <View style={{ flex: 1, gap: 12 }}>
-              <Text style={{ fontSize: 20, fontWeight: "800", color: colors.text }}>
+              <Text style={{ fontSize: 16, fontWeight: "700", color: colors.text }}>
                 {user.name || user.email}
               </Text>
               <Text style={{ color: colors.muted }}>Workspace role</Text>
@@ -494,7 +485,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
-    minWidth: 190,
+    minWidth: 0,
+    flexBasis: "100%",
     padding: 12,
     borderRadius: radius.md,
     borderWidth: 1,

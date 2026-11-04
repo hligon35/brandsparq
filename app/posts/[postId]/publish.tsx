@@ -1,3 +1,4 @@
+import { EssentialSection } from "@/components/essential";
 import { publishActions } from "@/shared/publish-actions";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
@@ -90,7 +91,6 @@ export default function PublishDecisionScreen() {
   return (
     <PageScroll>
       <PageHeader
-        eyebrow="Final control"
         title="Ready to publish?"
         subtitle={`${post.clientName || "Client"} · ${post.platform.toUpperCase()}`}
         action={<StatusBadge label={post.status} />}
@@ -162,13 +162,12 @@ export default function PublishDecisionScreen() {
         )}
       </View>
 
-      <Card subtle>
-        <Text style={styles.controlTitle}>You still have control.</Text>
+      <EssentialSection title="Publishing options explained" defaultOpen={false}>
         <Text style={styles.sub}>
           Keeping the schedule leaves the approved calendar intact. Rescheduling moves the post.
           Publish Now sends it to the publishing queue immediately.
         </Text>
-      </Card>
+      </EssentialSection>
     </PageScroll>
   );
 }
@@ -177,10 +176,10 @@ const styles = StyleSheet.create({
   title: {
     color: colors.text,
     fontSize: 28,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   scheduleCard: {
-    minHeight: 190,
+    minHeight: 110,
     justifyContent: "center",
     backgroundColor: "#F7FBFF",
   },
@@ -188,13 +187,13 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 12,
     textTransform: "uppercase",
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 0.8,
   },
   time: {
     color: colors.text,
-    fontSize: 24,
-    fontWeight: "900",
+    fontSize: 21,
+    fontWeight: "700",
   },
   sub: {
     color: colors.muted,
@@ -213,7 +212,7 @@ const styles = StyleSheet.create({
   controlTitle: {
     color: colors.text,
     fontSize: 17,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   retry: {
     color: colors.primary,

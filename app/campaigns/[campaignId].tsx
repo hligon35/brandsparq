@@ -1,3 +1,4 @@
+import { EssentialSection } from "@/components/essential";
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
 import { GuardedLink as Link, useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { useLocalSearchParams } from "expo-router";
@@ -120,7 +121,7 @@ export default function CampaignDetailScreen() {
       <PageHeader
         title={data?.campaign.name || "Campaign"}
         eyebrow={data?.campaign.client_name || "Campaigns"}
-        subtitle="Manage campaign details and open its posts."
+        subtitle="Campaign plan and delivery."
       />
       {error ? (
         <Card>
@@ -131,7 +132,7 @@ export default function CampaignDetailScreen() {
         <Text style={styles.text}>Loading campaign…</Text>
       ) : (
         <>
-          <Card>
+          <EssentialSection title="Campaign details">
             <StatusBadge label={form.status || "draft"} />
             {[
               ["name", "Campaign name"],
@@ -171,9 +172,8 @@ export default function CampaignDetailScreen() {
                 />
               </>
             )}
-          </Card>
-          <Card>
-            <Text style={styles.text}>Campaign delivery actions</Text>
+          </EssentialSection>
+          <EssentialSection title="Delivery actions">
             {can("review", data.campaign.client_id) && (
               <Button
                 label="Approve ready posts"
@@ -214,7 +214,7 @@ export default function CampaignDetailScreen() {
                   : {result.error}
                 </Text>
               ))}
-          </Card>
+          </EssentialSection>
           {data.posts.map((post: any) => (
             <Card key={post.id}>
               <View style={styles.row}>
@@ -222,7 +222,9 @@ export default function CampaignDetailScreen() {
                 <Text style={styles.text}>{post.platform}</Text>
               </View>
               <Text style={styles.text}>{post.title}</Text>
-              <Text style={styles.text}>{post.caption}</Text>
+              <Text style={styles.text} numberOfLines={2}>
+                {post.caption}
+              </Text>
               <Link href={`/posts/${post.id}`} asChild>
                 <Button label="Open post" secondary />
               </Link>

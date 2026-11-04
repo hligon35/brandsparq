@@ -1,8 +1,9 @@
+import { EssentialRow, essentialStyles } from "@/components/essential";
 import { refreshPages } from "@/shared/refresh-pages";
 import { IconButton } from "@/components/icon-button";
 import { Link, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useRef, useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import { ScrollView, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
@@ -93,9 +94,8 @@ export default function GenerationScreen() {
   return (
     <PageScroll>
       <PageHeader
-        eyebrow="Creative production"
         title="Generation progress"
-        subtitle="Follow campaign planning, graphics and review readiness. Updates every five seconds."
+        subtitle="Creation progress and recovery."
         action={<IconButton label="Refresh generation" onPress={() => void load()} />}
       />
       <TextInput
@@ -103,9 +103,13 @@ export default function GenerationScreen() {
         placeholder="Search client or error"
         value={query}
         onChangeText={setQuery}
-        style={{ minHeight: 48, padding: 12 }}
+        style={essentialStyles.input}
       />
-      <View style={styles.row}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ gap: 8 }}
+      >
         {["", "queued", "rendering", "completed", "failed", "canceled"].map((value) => (
           <Button
             key={value}
@@ -115,7 +119,7 @@ export default function GenerationScreen() {
             onPress={() => setStatus(value)}
           />
         ))}
-      </View>
+      </ScrollView>
       {!!error && (
         <Card>
           <Text style={styles.error}>{error}</Text>
@@ -129,60 +133,62 @@ export default function GenerationScreen() {
           <Text style={styles.text}>No generation jobs yet.</Text>
         </Card>
       ) : (
-        rows.map((job) => (
-          <Card key={job.id}>
-            <View style={styles.row}>
-              <StatusBadge label={job.status} />
-              <Text style={styles.text}>{job.client_name}</Text>
-            </View>
-            <Text style={styles.text}>
-              {job.creation_options
-                ? JSON.parse(job.creation_options).mode === "social"
-                  ? "Single social post"
-                  : `${JSON.parse(job.creation_options).outputCount}-post campaign`
-                : "Campaign"}
-            </Text>
-            <Text style={styles.text}>Stage: {job.stage || "queued"}</Text>
-            <Text style={styles.text}>
-              Graphics: {job.graphics_completed} of {job.graphics_total} complete ·{" "}
-              {job.graphics_failed} failed
-            </Text>
-            {!!job.error_message && <Text style={styles.error}>{job.error_message}</Text>}
-            <View style={styles.row}>
-              {!job.campaign_id &&
-                job.post_ids &&
-                JSON.parse(job.post_ids).map((id: string) => (
-                  <Link key={id} href={`/posts/${id}`} asChild>
-                    <Button label="Open social post" secondary small />
+        <Card>
+          {rows.map((job) => (
+            <EssentialRow key={job.id} title={job.client_name || "Client"}>
+              <View style={styles.row}>
+                <StatusBadge label={job.status} />
+                <Text style={styles.text}>{job.client_name}</Text>
+              </View>
+              <Text style={styles.text}>
+                {job.creation_options
+                  ? JSON.parse(job.creation_options).mode === "social"
+                    ? "Single social post"
+                    : `${JSON.parse(job.creation_options).outputCount}-post campaign`
+                  : "Campaign"}
+              </Text>
+              <Text style={styles.text}>Stage: {job.stage || "queued"}</Text>
+              <Text style={styles.text}>
+                Graphics: {job.graphics_completed} of {job.graphics_total} complete ·{" "}
+                {job.graphics_failed} failed
+              </Text>
+              {!!job.error_message && <Text style={styles.error}>{job.error_message}</Text>}
+              <View style={styles.row}>
+                {!job.campaign_id &&
+                  job.post_ids &&
+                  JSON.parse(job.post_ids).map((id: string) => (
+                    <Link key={id} href={`/posts/${id}`} asChild>
+                      <Button label="Open social post" secondary small />
+                    </Link>
+                  ))}
+                {job.campaign_id && (
+                  <Link href={`/campaigns/${job.campaign_id}`} asChild>
+                    <Button label="Open campaign" secondary small />
                   </Link>
-                ))}
-              {job.campaign_id && (
-                <Link href={`/campaigns/${job.campaign_id}`} asChild>
-                  <Button label="Open campaign" secondary small />
-                </Link>
-              )}
-              {can("generate", job.client_id) && job.client_status === "active" && (
-                <>
-                  {["failed", "canceled"].includes(job.status) && (
-                    <Button
-                      small
-                      label="Retry generation"
-                      onPress={working ? undefined : () => action(job.id, "retry")}
-                    />
-                  )}
-                  {["queued", "retrying", "rendering"].includes(job.status) && (
-                    <Button
-                      small
-                      secondary
-                      label="Cancel generation"
-                      onPress={working ? undefined : () => action(job.id, "cancel")}
-                    />
-                  )}
-                </>
-              )}
-            </View>
-          </Card>
-        ))
+                )}
+                {can("generate", job.client_id) && job.client_status === "active" && (
+                  <>
+                    {["failed", "canceled"].includes(job.status) && (
+                      <Button
+                        small
+                        label="Retry generation"
+                        onPress={working ? undefined : () => action(job.id, "retry")}
+                      />
+                    )}
+                    {["queued", "retrying", "rendering"].includes(job.status) && (
+                      <Button
+                        small
+                        secondary
+                        label="Cancel generation"
+                        onPress={working ? undefined : () => action(job.id, "cancel")}
+                      />
+                    )}
+                  </>
+                )}
+              </View>
+            </EssentialRow>
+          ))}
+        </Card>
       )}
       {!!nextCursor && (
         <Button

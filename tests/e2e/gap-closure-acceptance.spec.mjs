@@ -49,11 +49,12 @@ test("analytics queued progress survives reload and advances after durable queue
   await signIn(page);
   await page.goto("/analytics");
   await page.getByRole("button", { name: "Sync analytics", exact: true }).click();
-  await expect(page.getByText(/Test Facebook Page.*queued/)).toBeVisible();
+  await page.getByRole("button", { name: "Connection & sync health", exact: true }).click();
+  await expect(page.getByText(/90 days.*queued|30 days.*queued/)).toBeVisible();
   await page.reload();
-  await expect(page.getByText(/Test Facebook Page.*queued/)).toBeVisible();
+  await expect(page.getByText(/30 days.*queued/)).toBeVisible();
   await request.post("/__test/drain-analytics");
-  await expect(page.getByText(/Test Facebook Page.*completed.*1 processed/)).toBeVisible({
-    timeout: 10000,
-  });
+  await page.reload();
+  await page.getByRole("button", { name: "Show sync history", exact: true }).click();
+  await expect(page.getByText(/30 days.*completed.*1 processed/)).toBeVisible();
 });

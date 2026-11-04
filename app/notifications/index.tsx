@@ -177,7 +177,7 @@ export default function NotificationsScreen() {
         )}
       </View>
       {visible.map((item) => (
-        <Card key={item.id} style={!item.read_at ? styles.newCard : undefined}>
+        <Card key={item.id} style={[{ padding: 12, gap: 8 }, !item.read_at && styles.newCard]}>
           <View style={styles.row}>
             <Pressable
               accessibilityRole="checkbox"
@@ -210,7 +210,11 @@ export default function NotificationsScreen() {
             style={styles.notice}
           >
             <Text style={styles.title}>{item.title || item.type}</Text>
-            {!!item.body && <Text style={styles.body}>{item.body}</Text>}
+            {!!item.body && (
+              <Text style={styles.body} numberOfLines={3}>
+                {item.body}
+              </Text>
+            )}
             <Text style={styles.time}>{new Date(item.created_at).toLocaleString()}</Text>
             {!!item.error_message && <Text style={styles.error}>{item.error_message}</Text>}
             {!!notificationRoute(item) && <Text style={styles.newText}>View details →</Text>}
@@ -249,13 +253,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   active: { backgroundColor: colors.primary },
-  newCard: { borderColor: colors.primary, borderWidth: 2 },
+  newCard: { borderLeftColor: colors.primary, borderLeftWidth: 3 },
   row: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
   checkbox: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   check: { fontSize: 26, color: colors.primary },
   newText: { color: colors.primary, fontWeight: "800", fontSize: 12 },
-  notice: { gap: 10, minHeight: 48 },
-  title: { color: colors.text, fontWeight: "800", fontSize: 17 },
+  notice: { gap: 6, minHeight: 48 },
+  title: { color: colors.text, fontWeight: "800", fontSize: 15 },
   body: { color: colors.muted, lineHeight: 22 },
   time: { color: colors.muted, fontSize: 12, lineHeight: 20 },
   error: { color: colors.danger },

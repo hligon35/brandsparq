@@ -472,6 +472,11 @@ export const api = {
     return jsonRequest<{ data: any }>(`/v1/analytics/overview?${params.toString()}`);
   },
 
+  getAnalyticsHealth: (clientId?: string) =>
+    jsonRequest<{ data: any[] }>(
+      `/v1/analytics/health${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+    ),
+
   getAnalyticsJobs: () => jsonRequest<{ data: any[] }>("/v1/analytics/jobs"),
   syncAnalytics: (accountId?: string, days = 90) =>
     jsonRequest<{

@@ -318,6 +318,7 @@ test("paused approved posts resume through the scheduler", async ({ page, reques
 test("owners can send and revoke team invitations from Access Management", async ({ page }) => {
   await signIn(page);
   await page.goto("/access");
+  await page.getByRole("button", { name: "Invite teammate", exact: true }).click();
   await page.getByLabel("Teammate email", { exact: true }).fill("new-member@example.test");
   await page.getByRole("button", { name: "Add Client A", exact: true }).click();
   await page.getByRole("button", { name: "Send invitation", exact: true }).click();
@@ -344,6 +345,7 @@ test("reviewer controls send email and revoke replaced review links", async ({ p
   await expect(
     page.getByText("client-reviewer@example.test · sent", { exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Review links", exact: true }).click();
   await page.getByRole("button", { name: "Revoke link", exact: true }).first().click();
   await expect(page.getByText("Revoked", { exact: true })).toBeVisible();
 });
@@ -367,10 +369,12 @@ test("owner can persist a publishing hold and pilot controls fit narrow screens"
 }) => {
   await signIn(page);
   await page.goto("/system");
+  await page.getByRole("button", { name: "Publishing controls", exact: true }).click();
   await expect(page.getByText("Pilot not enabled", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Hold publishing", exact: true }).click();
   await expect(page.getByText("Publishing held", { exact: true })).toBeVisible();
   await page.reload();
+  await page.getByRole("button", { name: "Publishing controls", exact: true }).click();
   await expect(page.getByText("Publishing held", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Configure supervised pilot", exact: true }).click();
   await expect(page.getByLabel("Accepted release commit", { exact: true })).toBeVisible();
@@ -791,6 +795,7 @@ for (const outcome of ["Published", "Verified absent"])
     await page.getByLabel("Provider verification evidence", { exact: true }).fill(evidence);
     await page.getByRole("button", { name: "Record verified outcome", exact: true }).click();
     await page.getByRole("button", { name: "Record outcome", exact: true }).click();
+    await page.getByRole("button", { name: "Verified publishing outcomes", exact: true }).click();
     await expect(page.getByText(evidence, { exact: true })).toBeVisible();
     const state = await (await request.post("/__test/state")).json();
     expect(state.post.status).toBe(outcome === "Published" ? "published" : "failed");

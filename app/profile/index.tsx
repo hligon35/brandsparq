@@ -1,3 +1,4 @@
+import { EssentialSection } from "@/components/essential";
 import { readDraft, saveDraft } from "@/shared/draft-storage";
 import { useUnsavedChanges, useGuardedNavigation } from "@/hooks/useUnsavedChanges";
 import { useEffect, useRef, useState } from "react";
@@ -110,7 +111,7 @@ export default function ProfileScreen() {
   }
   return (
     <PageScroll>
-      <PageHeader title="Profile" subtitle="Manage your account and verified email address." />
+      <PageHeader title="Profile" subtitle="Your identity and account access." />
       {!!draftNotice && (
         <Card subtle>
           <Text>{draftNotice}</Text>
@@ -129,14 +130,14 @@ export default function ProfileScreen() {
             <Image
               source={{ uri: avatar }}
               accessibilityLabel="Profile avatar"
-              style={{ width: 96, height: 96, borderRadius: 48 }}
+              style={{ width: 64, height: 64, borderRadius: 32 }}
             />
           ) : (
             <View
               style={{
-                width: 96,
-                height: 96,
-                borderRadius: 48,
+                width: 64,
+                height: 64,
+                borderRadius: 32,
                 backgroundColor: colors.bgStrong,
                 alignItems: "center",
                 justifyContent: "center",
@@ -199,7 +200,7 @@ export default function ProfileScreen() {
           }
         />
       </Card>
-      <Card>
+      <EssentialSection title="Email address">
         <Text style={styles.label}>Email</Text>
         <TextInput
           accessibilityLabel="Profile email"
@@ -270,14 +271,13 @@ export default function ProfileScreen() {
             />
           </>
         )}
-      </Card>
+      </EssentialSection>
       <Button
         label="Sign out"
         secondary
         onPress={busy ? undefined : () => void navigate(() => void act(signOut))}
       />
-      <Card>
-        <Text style={styles.label}>Delete account</Text>
+      <EssentialSection title="Account removal" defaultOpen={false}>
         <Text style={styles.body}>
           This removes your profile details and workspace access and signs out all devices. Shared
           client work and operational history are retained. Another active owner is required before
@@ -303,7 +303,7 @@ export default function ProfileScreen() {
                   })
           }
         />
-      </Card>
+      </EssentialSection>
     </PageScroll>
   );
 }

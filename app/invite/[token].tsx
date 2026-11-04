@@ -45,11 +45,7 @@ export default function InvitationScreen() {
   }
   return (
     <PageScroll>
-      <PageHeader
-        title="Join BrandSparQ"
-        eyebrow="Team invitation"
-        subtitle="Your owner has invited you to the workspace."
-      />
+      <PageHeader title="Join BrandSparQ" subtitle="Accept your workspace invitation." />
       <Card>
         {error ? (
           <>

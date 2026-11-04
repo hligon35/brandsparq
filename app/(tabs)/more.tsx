@@ -42,6 +42,12 @@ const items: {
     href: "/social" as Href,
   },
   {
+    label: "System health",
+    description: "Connections, syncs, and recovery.",
+    icon: "pulse-outline",
+    href: "/system" as Href,
+  },
+  {
     label: "Analytics",
     description: "Measure published content and campaign results.",
     icon: "analytics-outline",
@@ -60,12 +66,6 @@ export default function MoreScreen() {
             description: "Roles and client-level permissions.",
             icon: "people-outline" as keyof typeof Ionicons.glyphMap,
             href: "/access" as Href,
-          },
-          {
-            label: "System health",
-            description: "Readiness, incidents, and recovery.",
-            icon: "pulse-outline" as keyof typeof Ionicons.glyphMap,
-            href: "/system" as Href,
           },
         ]
       : items.filter((item) => item.href !== "/settings");
