@@ -988,7 +988,7 @@ export async function handleManagementRoute(
   if (request.method === "GET" && url.pathname === "/v1/analytics/jobs") {
     const rows =
       await env.DB.prepare(`SELECT j.*,sa.client_id,sa.account_name FROM analytics_jobs j JOIN social_accounts sa ON sa.id=j.social_account_id
-    WHERE (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=sa.client_id)) ORDER BY CASE WHEN j.status IN ('queued','running') THEN 0 ELSE 1 END,j.created_at DESC,j.id DESC LIMIT 100`)
+    WHERE EXISTS(SELECT 1 FROM clients c WHERE c.id=sa.client_id AND c.status!='removed') AND (?='owner' OR EXISTS(SELECT 1 FROM user_client_access a WHERE a.user_id=? AND a.client_id=sa.client_id)) ORDER BY CASE WHEN j.status IN ('queued','running') THEN 0 ELSE 1 END,j.created_at DESC,j.id DESC LIMIT 100`)
         .bind(user.role, user.id)
         .all();
     return { body: { data: rows.results } };

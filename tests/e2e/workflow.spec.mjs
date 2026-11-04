@@ -176,6 +176,7 @@ test("browser API errors show a visible, dismissible message", async ({ page }) 
     if (route.request().method() !== "POST") return route.continue();
     await route.fulfill({ status: 403, json: { error: "Client creation denied by fixture" } });
   });
+  await page.getByRole("button", { name: "Add client", exact: true }).click();
   await page.getByPlaceholder("Client name", { exact: true }).fill("Test client");
   await page.getByRole("button", { name: "Create client", exact: true }).click();
   await expect(page.getByRole("alert", { name: "Unable to create client" })).toBeVisible();
@@ -254,6 +255,9 @@ test("campaign metadata saves and persists after reload", async ({ page }) => {
   });
   await test.step("reload and verify both persisted fields", async () => {
     await page.reload();
+    await expect(page.getByLabel("Campaign name", { exact: true })).toBeEditable({
+      timeout: 15000,
+    });
     await expect(page.getByLabel("Campaign name", { exact: true })).toHaveValue(
       "Updated community campaign",
     );
@@ -541,10 +545,15 @@ test("client workspace links retain the selected client", async ({ page }) => {
     await page.goto(`/clients/${clientId}`);
     await page.getByRole("link", { name: label, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`${route}.*clientId=${clientId}`));
-    await expect(page.getByRole("button", { name: "Client B", exact: true })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    if (route === "calendar")
+      await expect(
+        page.getByRole("button", { name: "Select client: Client B", exact: true }),
+      ).toBeVisible();
+    else
+      await expect(page.getByRole("button", { name: "Client B", exact: true })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
   }
 });
 

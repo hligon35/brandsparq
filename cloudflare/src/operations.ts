@@ -654,7 +654,7 @@ export async function handleOperationsRoute(
         "SELECT id,email,name,role,status,created_at,updated_at FROM users ORDER BY CASE role WHEN 'owner' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END,email",
       ).all<any>(),
       env.DB.prepare(
-        "SELECT id,name,status FROM clients WHERE COALESCE(status,'active')!='archived' ORDER BY name",
+        "SELECT id,name,status FROM clients WHERE COALESCE(status,'active')='active' ORDER BY name",
       ).all<any>(),
       env.DB.prepare(
         "SELECT a.user_id,a.client_id,COALESCE(a.permission_role,u.role) AS access_role,a.created_at FROM user_client_access a JOIN users u ON u.id=a.user_id ORDER BY a.created_at",

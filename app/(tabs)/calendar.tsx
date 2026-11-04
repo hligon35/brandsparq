@@ -4,6 +4,7 @@ import { Alert } from "@/components/feedback";
 import { Link, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ClientPicker } from "@/components/client-picker";
 import { IconButton } from "@/components/icon-button";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
@@ -260,12 +261,14 @@ export default function CalendarScreen() {
 
   return (
     <PageScroll>
-      <PageHeader
-        eyebrow="Approved strategy"
-        title="Calendar"
-        subtitle="Navigate true day, week, and month views. Search, filter, select, shift, pause, or open approved posts."
-      />
+      <PageHeader title="Calendar" subtitle="Plan the right message at the right time." />
 
+      <ClientPicker
+        clients={[{ id: "all", name: "All clients", color: colors.primary }, ...clients]}
+        value={clientFilter}
+        onChange={setClientFilter}
+        disabled={loading || working}
+      />
       <Text accessibilityLabel="Calendar time zone" style={styles.sub}>
         {clientFilter === "all" ? "All clients shown in" : "Client time zone:"} {timezone}
       </Text>
@@ -305,39 +308,6 @@ export default function CalendarScreen() {
           placeholderTextColor={colors.muted}
           style={styles.search}
         />
-
-        <Text style={styles.filterLabel}>Client</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View style={styles.chips}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: clientFilter === "all" }}
-              aria-pressed={clientFilter === "all"}
-              onPress={() => setClientFilter("all")}
-              style={[styles.chip, clientFilter === "all" && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, clientFilter === "all" && styles.chipTextActive]}>
-                All clients
-              </Text>
-            </Pressable>
-            {clients.map((client) => (
-              <Pressable
-                key={client.id}
-                accessibilityRole="button"
-                accessibilityState={{ selected: clientFilter === client.id }}
-                aria-pressed={clientFilter === client.id}
-                onPress={() => setClientFilter(client.id)}
-                style={[styles.chip, clientFilter === client.id && styles.chipActive]}
-              >
-                <Text
-                  style={[styles.chipText, clientFilter === client.id && styles.chipTextActive]}
-                >
-                  {client.name}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </ScrollView>
 
         <Text style={styles.filterLabel}>Platform</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -589,7 +559,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
   },
-  modeRow: { flexDirection: "row", gap: 8 },
+  modeRow: {
+    flexDirection: "row",
+    gap: 5,
+    padding: 4,
+    borderRadius: 13,
+    backgroundColor: colors.surface3,
+  },
   navRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   modeButton: {
     flex: 1,
@@ -598,14 +574,13 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingVertical: 11,
     justifyContent: "center",
-    borderRadius: radius.pill,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: 9,
+    backgroundColor: "transparent",
+    borderWidth: 0,
   },
-  modeButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  modeButtonActive: { backgroundColor: colors.surface },
   modeText: { color: colors.textSoft, fontWeight: "800", textTransform: "capitalize" },
-  modeTextActive: { color: colors.white },
+  modeTextActive: { color: colors.primary },
   rangeTitle: {
     flex: 1,
     minWidth: 0,

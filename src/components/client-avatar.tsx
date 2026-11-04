@@ -3,7 +3,7 @@ import { Image, StyleSheet, Text, View } from "react-native";
 import { colors } from "@/theme/tokens";
 import type { Client } from "@/types/domain";
 
-export function ClientAvatar({ client }: { client: Client }) {
+export function ClientAvatar({ client, size = 64 }: { client: Client; size?: number }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [client.profileImageUrl]);
   const initials =
@@ -15,7 +15,17 @@ export function ClientAvatar({ client }: { client: Client }) {
       .join("")
       .toUpperCase() || "?";
   return (
-    <View style={[styles.avatar, { backgroundColor: client.color || colors.primary }]}>
+    <View
+      style={[
+        styles.avatar,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: client.color || colors.primary,
+        },
+      ]}
+    >
       {client.profileImageUrl && !failed ? (
         <Image
           accessibilityLabel={`${client.name} account profile image`}
@@ -25,7 +35,10 @@ export function ClientAvatar({ client }: { client: Client }) {
           onError={() => setFailed(true)}
         />
       ) : (
-        <Text accessibilityLabel={`${client.name} initials`} style={styles.initials}>
+        <Text
+          accessibilityLabel={`${client.name} initials`}
+          style={[styles.initials, { fontSize: Math.min(22, size * 0.35) }]}
+        >
           {initials}
         </Text>
       )}

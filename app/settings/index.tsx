@@ -1,3 +1,4 @@
+import { AppUpdateControl } from "@/components/AppUpdateControl";
 import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { TimezonePicker, TimeWindows } from "@/components/pickers";
 import { useCapabilities } from "@/auth/capabilities";
@@ -35,10 +36,14 @@ export default function SettingsScreen() {
     }
   }
   const [saving, setSaving] = useState(false);
-  const { markSaved } = useUnsavedChanges({ workspace, notifications }, true, (saved) => {
-    setWorkspace(saved.workspace);
-    setNotifications(saved.notifications);
-  });
+  const { markSaved, discardChanges } = useUnsavedChanges(
+    { workspace, notifications },
+    true,
+    (saved) => {
+      setWorkspace(saved.workspace);
+      setNotifications(saved.notifications);
+    },
+  );
   const [loadError, setLoadError] = useState("");
   const [loaded, setLoaded] = useState(false);
   const personalEditable = loaded && !saving;
@@ -132,6 +137,8 @@ export default function SettingsScreen() {
 
   return (
     <PageScroll>
+      <PageHeader title="Settings" subtitle="Manage app updates, scheduling, and notifications." />
+      <AppUpdateControl beforeRestart={discardChanges} disabled={saving || notificationBusy} />
       {!!loadError && (
         <Card>
           <Text accessibilityRole="alert">{loadError}</Text>
@@ -139,11 +146,7 @@ export default function SettingsScreen() {
         </Card>
       )}
       {!can("settings_manage") && <Text>Workspace settings are read-only for your role.</Text>}
-      <PageHeader
-        eyebrow="Workspace behavior"
-        title="Settings"
-        subtitle="Control scheduling rules, alert timing, analytics refresh, and what BrandSparQ should do if you do not respond before publication."
-      />
+
       <Card>
         <SectionTitle
           title="Notification devices"

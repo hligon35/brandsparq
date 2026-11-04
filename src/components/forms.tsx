@@ -23,7 +23,7 @@ export function Field({
         onChangeText={onChange}
         multiline={multiline}
         editable={editable}
-        style={[styles.input, multiline && { minHeight: 100 }]}
+        style={[styles.input, multiline && { minHeight: 90 }]}
       />
     </View>
   );
@@ -96,7 +96,7 @@ export const formStyles = StyleSheet.create({
 });
 const styles = StyleSheet.create({
   field: { gap: 6 },
-  label: { color: colors.text, fontWeight: "800" },
+  label: { color: colors.muted, fontSize: 12, fontWeight: "700" },
   input: {
     minHeight: 48,
     borderWidth: 1,
@@ -104,7 +104,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.md,
     color: colors.text,
-    backgroundColor: colors.surface2,
+    backgroundColor: colors.surface,
+    fontSize: 16,
   },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
 });
