@@ -1,4 +1,5 @@
 import { TimezonePicker } from "@/components/pickers";
+import { IconButton } from "@/components/icon-button";
 import { ClientAvatar } from "@/components/client-avatar";
 import { useAuth } from "@/auth/context";
 import { useCapabilities } from "@/auth/capabilities";
@@ -117,9 +118,9 @@ export default function ClientsScreen() {
         subtitle="Every brand, with its own voice."
         action={
           ["owner", "admin"].includes(user?.role || "") ? (
-            <Button
+            <IconButton
               label="Add client"
-              small
+              icon="person-add-outline"
               onPress={working ? undefined : () => setAdding(true)}
             />
           ) : undefined
@@ -257,7 +258,7 @@ export default function ClientsScreen() {
             </Text>
             <View style={styles.actions}>
               <Link href={`/clients/${client.id}/brand`} asChild>
-                <Pressable>
+                <Pressable style={styles.clientAction}>
                   <Text style={styles.edit}>Edit Brand Brain →</Text>
                 </Pressable>
               </Link>
@@ -286,7 +287,11 @@ export default function ClientsScreen() {
                     }
                   />
                 ) : (
-                  <Pressable disabled={working} onPress={() => archive(client)}>
+                  <Pressable
+                    style={styles.clientAction}
+                    disabled={working}
+                    onPress={() => archive(client)}
+                  >
                     <Text style={styles.archive}>Archive</Text>
                   </Pressable>
                 ))}
@@ -296,7 +301,7 @@ export default function ClientsScreen() {
                   accessibilityLabel={`Remove ${client.name}`}
                   disabled={working}
                   onPress={() => remove(client)}
-                  style={styles.removeAction}
+                  style={styles.clientAction}
                 >
                   <Text style={styles.removeText}>Remove</Text>
                 </Pressable>
@@ -332,10 +337,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   modalDialog: { width: "100%", maxWidth: 720, maxHeight: "90%" },
-  removeAction: {
+  clientAction: {
     minHeight: 44,
-    alignSelf: "flex-end",
     justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: 4,
   },
   removeText: { color: colors.danger, fontSize: 13, fontWeight: "700" },
@@ -368,7 +373,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
   },
-  edit: { minHeight: 44, textAlignVertical: "center", color: colors.primary, fontWeight: "800" },
-  archive: { minHeight: 44, textAlignVertical: "center", color: colors.warning, fontWeight: "800" },
+  edit: { fontSize: 13, color: colors.primary, fontWeight: "800" },
+  archive: { fontSize: 13, color: colors.warning, fontWeight: "800" },
   errorTitle: { color: colors.text, fontSize: 20, fontWeight: "900" },
 });

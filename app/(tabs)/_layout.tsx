@@ -101,10 +101,16 @@ export default function TabsLayout() {
           ? { display: "none" }
           : [
               styles.tabBar,
-              { height: 64 + insets.bottom, paddingBottom: Math.max(8, insets.bottom) },
+              {
+                height: 72 + Math.max(8, insets.bottom),
+                paddingBottom: Math.max(8, insets.bottom),
+              },
             ],
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
+        tabBarLabelPosition: "below-icon",
+        tabBarIconStyle: styles.tabIcon,
+        tabBarItemStyle: styles.tabItem,
         tabBarLabelStyle: styles.tabLabel,
       }}
     >
@@ -112,11 +118,11 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Ionicons
               name="home-outline"
               color={typeof color === "string" ? color : colors.muted}
-              size={size}
+              size={24}
             />
           ),
         }}
@@ -125,11 +131,11 @@ export default function TabsLayout() {
         name="clients"
         options={{
           title: "Clients",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Ionicons
               name="people-outline"
               color={typeof color === "string" ? color : colors.muted}
-              size={size}
+              size={24}
             />
           ),
         }}
@@ -139,9 +145,9 @@ export default function TabsLayout() {
         options={{
           title: "Create",
           href: can("generate") ? "/create" : null,
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: () => (
             <View style={styles.createTabIcon}>
-              <Ionicons name="add" color={colors.white} size={22} />
+              <Ionicons name="sparkles" color={colors.white} size={22} />
             </View>
           ),
         }}
@@ -150,11 +156,11 @@ export default function TabsLayout() {
         name="calendar"
         options={{
           title: "Calendar",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Ionicons
               name="calendar-outline"
               color={typeof color === "string" ? color : colors.muted}
-              size={size}
+              size={24}
             />
           ),
         }}
@@ -163,11 +169,11 @@ export default function TabsLayout() {
         name="more"
         options={{
           title: "More",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Ionicons
               name="grid-outline"
               color={typeof color === "string" ? color : colors.muted}
-              size={size}
+              size={24}
             />
           ),
         }}
@@ -206,13 +212,18 @@ const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: colors.surface,
     borderTopColor: colors.border,
-    minHeight: 66,
+    minHeight: 72,
     paddingTop: 7,
     paddingBottom: 7,
   },
+  tabItem: { paddingVertical: 0 },
+  tabIcon: { width: 34, height: 34, flexGrow: 0 },
   tabLabel: {
     fontSize: 11,
+    lineHeight: 16,
     fontWeight: "700",
+    textAlign: "center",
+    marginTop: 3,
   },
   desktopHeader: {
     backgroundColor: colors.surface,
