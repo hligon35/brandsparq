@@ -9,7 +9,7 @@ import { colors } from "@/theme/tokens";
 const destinations = [
   { label: "Home", href: "/", icon: "home-outline" },
   { label: "Clients", href: "/clients", icon: "people-outline" },
-  { label: "Create", href: "/create", icon: "add-circle-outline" },
+  { label: "Create", href: "/create", icon: "sparkles" },
   { label: "Calendar", href: "/calendar", icon: "calendar-outline" },
   { label: "More", href: "/more", icon: "grid-outline" },
 ] as const;
@@ -48,26 +48,19 @@ export function WorkspaceNavigation() {
                 accessibilityState={{ selected: active }}
                 style={styles.item}
               >
-                {item.href === "/create" ? (
-                  <View
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 10,
-                      backgroundColor: colors.primary,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Ionicons name="add" size={22} color={colors.white} />
-                  </View>
-                ) : (
+                <View style={[styles.icon, item.href === "/create" && styles.createIcon]}>
                   <Ionicons
                     name={item.icon}
-                    size={23}
-                    color={active ? colors.primary : colors.muted}
+                    size={item.href === "/create" ? 22 : 24}
+                    color={
+                      item.href === "/create"
+                        ? colors.white
+                        : active
+                          ? colors.primary
+                          : colors.muted
+                    }
                   />
-                )}
+                </View>
                 <Text style={[styles.label, { color: active ? colors.primary : colors.muted }]}>
                   {item.label}
                 </Text>
@@ -86,6 +79,8 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     paddingTop: 7,
   },
-  item: { flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", gap: 3 },
-  label: { fontSize: 11, fontWeight: "700" },
+  item: { flex: 1, minHeight: 64, alignItems: "center", justifyContent: "center", gap: 3 },
+  icon: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  createIcon: { borderRadius: 10, backgroundColor: colors.primary },
+  label: { fontSize: 11, lineHeight: 16, fontWeight: "700", textAlign: "center" },
 });
