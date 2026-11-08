@@ -21,6 +21,10 @@ test("review shows the source image and saves caption edits when graphic generat
   await page.goto("/posts/fixture-post");
   const photo = page.getByRole("img", { name: "Source photo preview", exact: true });
   await expect(photo).toBeVisible();
+  await expect(page.getByRole("button", { name: "Approve post", exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Final artwork is missing" }),
+  ).toBeVisible();
   await expect
     .poll(() => photo.evaluate((image) => image.complete && image.naturalWidth > 0))
     .toBe(true);

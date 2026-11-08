@@ -2,6 +2,36 @@
 
 Production host: `https://brandsparq.getsparqd.com`
 
+## Mobile stability pass 1
+
+Apply `0033_push_cleanup.sql` to the target database, then deploy the Worker/web bundle
+before publishing the mobile OTA to that environment. This pass uses existing native
+modules and does not require a new native build.
+
+Push registration now prepares a disabled registration and saves a device-scoped cleanup
+capability securely before enabling delivery. Sign-out and expired-session cleanup retain
+failed revocations and retry on launch, foregrounding, and every minute while active,
+including while signed out. Cleanup cannot read account data or disable a newer registration.
+Offline cleanup takes effect when the device reconnects and the retry succeeds; local sign-out
+does not wait for it. Older registrations are upgraded on an authenticated launch/foreground.
+Legacy registrations without a cleanup capability retain account-scoped cleanup for retry
+when the original account is available; use Enable push after updating if needed.
+
+Approval, campaign approval, bulk approval, resuming, and creating a publish job require a
+final graphic key and an existing R2 object. Source-photo previews are not final artwork.
+Missing artwork preserves the copy and selected schedule and produces an actionable error.
+
+New image uploads use a working copy capped at a 2000-pixel longest edge and 8 MB, with one
+1200-pixel fallback if needed. PNG uploads retain transparency; HEIC and other formats become
+JPEG. The device's selected file is unchanged, but the newly stored upload is the normalized
+copy, not a separate full-resolution original. Native creation uploads process one source at
+a time. Existing stored assets are unchanged.
+
+Native acceptance still needs an installed iOS and Android app: switch Social Post/Campaign,
+open Settings/Notifications/Paused Content, upload a large camera photo and a transparent
+logo, attempt approval with missing artwork, and sign out offline then reconnect. Verify that
+old push notifications stop and a subsequent account's registration remains enabled.
+
 The individual post screen displays publication copy on mobile and web. Reviewers can edit
 awaiting-approval copy; editing scheduled copy also requires calendar management permission.
 Saving scheduled copy preserves its date and time, invalidates stale publish jobs, and resets
@@ -411,4 +441,4 @@ unfinished-publishing requirements remain enforced; these reads change no data.
 Apply `0032_brand_tertiary_color.sql` before deploying this Worker and publishing the mobile OTA.
 Brand Brain now uses **Brand asset actions** to upload a logo, alternate logo or reference image, or choose the preferred logo. Logo colors are extracted during server-side image validation and saved with the attachment; a separate Brand Brain save is not required for the automatic palette. Up to three distinct opaque colors are retained. Monochrome logos do not receive invented secondary or tertiary colors. Manual color changes still use **Save Brand Brain**.
 
-Re-upload an existing logo once to extract its palette; duplicate uploads reuse the same original asset. Original files and transparency are retained. Native logo previews use authenticated image requests instead of creating full-size base64 copies in JavaScript. Verify the AAMWA logo upload on the installed iOS app after the OTA; browser tests cannot certify a native crash fix.
+Re-upload an existing logo once to extract its palette; duplicate uploads reuse the same original asset. PNG transparency is retained. New uploads use normalized working copies as described in Mobile stability pass 1. Native logo previews use authenticated image requests instead of creating full-size base64 copies in JavaScript. Verify the AAMWA logo upload on the installed iOS app after the OTA; browser tests cannot certify a native crash fix.

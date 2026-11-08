@@ -117,7 +117,7 @@ export default function PausedScreen() {
                           label="Return to review"
                           onPress={working ? undefined : () => act(post.id, "restore-review")}
                         />
-                      )}{" "}
+                      )}
                   {can("calendar_manage", post.client_id) && (
                     <Button
                       label="Cancel post"

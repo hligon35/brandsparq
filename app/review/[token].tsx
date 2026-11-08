@@ -213,6 +213,12 @@ export default function PublicReviewScreen() {
             </Card>
 
             <View style={styles.copyColumn}>
+              {post.artwork_ready === false && (
+                <Text accessibilityRole="alert">
+                  Final artwork is missing. Ask the workspace to complete the graphic before
+                  approval. Caption edits can still be saved.
+                </Text>
+              )}
               <EssentialSection
                 title="Final publication copy"
                 summary="Check the graphic and branding. AI can alter logos."
@@ -304,7 +310,11 @@ export default function PublicReviewScreen() {
 
               <Button
                 label={working === "approve" ? "Approving…" : "Approve and add to calendar"}
-                onPress={working || post.status === "regenerating" ? undefined : approve}
+                onPress={
+                  working || post.status === "regenerating" || post.artwork_ready === false
+                    ? undefined
+                    : approve
+                }
               />
             </View>
           </View>

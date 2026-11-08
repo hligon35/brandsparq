@@ -134,6 +134,11 @@ export function workspace(t) {
       status,
       new Date(Date.now() + 86400000).toISOString(),
     );
+    // Review/scheduling fixtures include finished artwork; missing-artwork tests remove it explicitly.
+    if (!["review_ready", "regenerating", "draft"].includes(status)) {
+      exec("UPDATE posts SET graphic_key=? WHERE id=?", `fixture/${id}.jpg`, id);
+      objects.set(`fixture/${id}.jpg`, "fixture image bytes");
+    }
     if (status === "published")
       exec("UPDATE posts SET published_at=CURRENT_TIMESTAMP WHERE id=?", id);
     if (

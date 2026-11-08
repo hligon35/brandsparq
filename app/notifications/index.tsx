@@ -171,7 +171,7 @@ export default function NotificationsScreen() {
             danger
             onPress={busy ? undefined : remove}
           />
-        )}{" "}
+        )}
         {!!unread && (
           <Button label="Mark all read" small secondary onPress={busy ? undefined : markAll} />
         )}

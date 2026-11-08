@@ -342,6 +342,14 @@ export default function PostReviewScreen() {
         </Card>
 
         <View style={[styles.copyColumn, wide ? { flex: 0.95 } : { width: "100%" }]}>
+          {post.artworkReady === false && (
+            <Card subtle>
+              <Text accessibilityRole="alert">
+                Final artwork is missing. Complete the graphic before approval or publishing. Your
+                caption and chosen time are preserved.
+              </Text>
+            </Card>
+          )}
           <EssentialSection
             title="Final publication copy"
             summary={
@@ -465,7 +473,11 @@ export default function PostReviewScreen() {
               <View style={styles.reviewAction}>
                 <Button
                   label={saving ? "Approving…" : "Approve post"}
-                  onPress={saving || aiAction || !post.socialAccountId ? undefined : approve}
+                  onPress={
+                    saving || aiAction || !post.socialAccountId || post.artworkReady === false
+                      ? undefined
+                      : approve
+                  }
                 />
               </View>
             </View>

@@ -1,4 +1,5 @@
 import { dispatchMetaWebhook } from "./meta-webhooks";
+import { hashSecret } from "./security";
 import { enqueueAnalytics } from "./analytics-jobs";
 import { validRevision, revisionRequired, revisionConflict } from "./revisions";
 import { pageOptions, pageResult } from "./pagination";
@@ -596,12 +597,26 @@ export async function handleManagementRoute(
     return { body: { ok: true } };
   }
 
+  if (request.method === "POST" && url.pathname === "/v1/push-token/prepare") {
+    const payload = await request.json<any>().catch(() => ({}));
+    if (typeof payload.token !== "string" || !payload.token || payload.token.length > 512)
+      return { body: { error: "A valid device token is required." }, status: 400 };
+    const cleanupToken = (crypto.randomUUID() + crypto.randomUUID()).replaceAll("-", "");
+    const hash = await hashSecret(cleanupToken, env.AUTH_PEPPER || "");
+    await env.DB.prepare(`INSERT INTO device_push_tokens(id,user_id,expo_push_token,enabled,cleanup_token_hash)
+      VALUES (?,?,?,0,?) ON CONFLICT(expo_push_token) DO UPDATE SET
+      user_id=excluded.user_id,enabled=0,cleanup_token_hash=excluded.cleanup_token_hash,updated_at=CURRENT_TIMESTAMP`)
+      .bind(crypto.randomUUID(), user.id, payload.token, hash)
+      .run();
+    return { body: { ok: true, cleanupToken } };
+  }
+
   if (request.method === "POST" && url.pathname === "/v1/push-token/unregister") {
     const payload = await request.json<any>().catch(() => ({}));
     if (typeof payload.token !== "string")
       return { body: { error: "Device token is required." }, status: 400 };
     await env.DB.prepare(
-      "UPDATE device_push_tokens SET enabled=0,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND expo_push_token=?",
+      "UPDATE device_push_tokens SET enabled=0,cleanup_token_hash=NULL,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND expo_push_token=? AND cleanup_token_hash IS NULL",
     )
       .bind(user.id, payload.token)
       .run();
@@ -611,12 +626,25 @@ export async function handleManagementRoute(
   if (request.method === "POST" && url.pathname === "/v1/push-token") {
     const payload = await request.json<any>().catch(() => ({}) as any);
     if (!payload.token) return { body: { error: "token is required." }, status: 400 };
+    if (payload.cleanupToken !== undefined) {
+      if (!/^[a-f0-9]{64}$/.test(String(payload.cleanupToken)))
+        return { body: { error: "Invalid device registration." }, status: 400 };
+      const hash = await hashSecret(payload.cleanupToken, env.AUTH_PEPPER || "");
+      const result =
+        await env.DB.prepare(`UPDATE device_push_tokens SET enabled=1,platform=?,device_name=?,updated_at=CURRENT_TIMESTAMP
+        WHERE user_id=? AND expo_push_token=? AND cleanup_token_hash=?`)
+          .bind(payload.platform || null, payload.deviceName || null, user.id, payload.token, hash)
+          .run();
+      return result.meta.changes
+        ? { body: { ok: true } }
+        : { body: { error: "Device registration changed. Enable push again." }, status: 409 };
+    }
     await env.DB.prepare(
       `INSERT INTO device_push_tokens
        (id, user_id, expo_push_token, platform, device_name)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(expo_push_token) DO UPDATE SET
-         user_id = excluded.user_id, enabled = 1, platform = excluded.platform,
+         user_id = excluded.user_id, enabled = 1, cleanup_token_hash=NULL, platform = excluded.platform,
          device_name = excluded.device_name, updated_at = CURRENT_TIMESTAMP`,
     )
       .bind(

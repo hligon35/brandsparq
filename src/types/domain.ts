@@ -65,6 +65,7 @@ export interface MarketingPost {
   caption: string;
   imageUrl?: string;
   sourceImageUrl?: string;
+  artworkReady?: boolean;
   suggestedPublishAt?: string;
   scheduledPublishAt?: string;
   approvedAt?: string;

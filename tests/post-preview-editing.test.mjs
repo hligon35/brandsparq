@@ -116,6 +116,7 @@ test("a publisher claiming the job before the edit transaction fences the edit",
 test("an uploaded source photo gets an authorized preview without becoming publishable artwork", async (t) => {
   const w = workspace(t);
   w.post("post");
+  w.exec("UPDATE posts SET graphic_key=NULL WHERE id='post'");
   w.exec(
     "INSERT INTO assets(id,client_id,r2_key,filename,content_type) VALUES ('photo','client-a','source.jpg','photo.jpg','image/jpeg')",
   );
@@ -137,6 +138,7 @@ test("an uploaded source photo gets an authorized preview without becoming publi
 test("source preview cannot cross client boundaries or grant access to unauthorized readers", async (t) => {
   const w = workspace(t);
   w.post("post", "client-b");
+  w.exec("UPDATE posts SET graphic_key=NULL WHERE id='post'");
   w.exec(
     "INSERT INTO assets(id,client_id,r2_key,filename,content_type) VALUES ('photo','client-a','private.jpg','photo.jpg','image/jpeg')",
   );

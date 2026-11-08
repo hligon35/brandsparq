@@ -1213,6 +1213,12 @@ export const REQUIRED_SCHEMA = {
       notnull: 1,
       pk: 0,
     },
+    {
+      name: "cleanup_token_hash",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
   ],
   generation_jobs: [
     {

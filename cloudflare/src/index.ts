@@ -1,4 +1,6 @@
 import { reviewCopyEditable, scheduledCopyEditable } from "../../src/shared/post-copy";
+import { revokePushDevice } from "./push-cleanup";
+import { ArtworkNotReady, requireArtwork } from "./artwork";
 import { removeClient } from "./client-removal";
 import { processMetaWebhook, recoverMetaWebhooks } from "./meta-webhooks";
 import { validatedRequest } from "./request-validation";
@@ -212,6 +214,10 @@ function postSelect(where = "") {
 
 async function getPost(env: Env, postId: string) {
   const row = await env.DB.prepare(postSelect("WHERE p.id = ?")).bind(postId).first<any>();
+  if (row) {
+    row.artwork_ready = !!row.graphic_key && !!(await env.MEDIA.head(row.graphic_key));
+    if (!row.artwork_ready) row.publish_block_reason = new ArtworkNotReady().message;
+  }
   if (row && !campaignOpen(await postCampaign(env, postId)))
     row.publish_block_reason =
       "This campaign is inactive or outside its delivery dates. Check its status and dates before publishing now.";
@@ -369,6 +375,8 @@ const worker = {
           { status: 429 },
         );
       const invalid = error instanceof SyntaxError || error instanceof TypeError;
+      if (error instanceof ArtworkNotReady)
+        return response(request, env, { error: error.message }, { status: 409 });
       if (error instanceof UploadError)
         return response(request, env, { error: error.message }, { status: error.status });
       return response(
@@ -414,6 +422,14 @@ const worker = {
 
     if (url.pathname === "/v1/social/webhooks/meta") {
       return handleMetaWebhook(env, request, url);
+    }
+
+    if (url.pathname === "/v1/public/push-token/unregister" && request.method === "POST") {
+      const payload = await request.json<any>().catch(() => ({}));
+      const valid = await revokePushDevice(env, payload);
+      return response(request, env, valid ? { ok: true } : { error: "Invalid cleanup request." }, {
+        status: valid ? 200 : 400,
+      });
     }
 
     const inviteMatch = url.pathname.match(/^\/v1\/public\/invitations\/([^/]+)$/);
@@ -498,6 +514,7 @@ const worker = {
           { status: 404 },
         );
       }
+      row.artwork_ready = !!row.graphic_key && !!(await env.MEDIA.head(row.graphic_key));
       row.image_url = row.graphic_key
         ? "/v1/public/review/" + encodeURIComponent(publicReviewMatch[1]) + "/media"
         : null;
@@ -1861,15 +1878,22 @@ const worker = {
           continue;
         }
 
-        const scheduledAt = await reserveSchedule(env, postId, {
-          clientId: post.client_id,
-          status: post.status,
-          publishVersion: post.publish_version,
-          contentRevision: destination.contentRevision ?? post.content_revision,
-          socialAccountId: destination.id,
-          desiredAt: post.suggested_publish_at,
-          decision: "approved_bulk",
-        });
+        let scheduledAt: string | null;
+        try {
+          scheduledAt = await reserveSchedule(env, postId, {
+            clientId: post.client_id,
+            status: post.status,
+            publishVersion: post.publish_version,
+            contentRevision: destination.contentRevision ?? post.content_revision,
+            socialAccountId: destination.id,
+            desiredAt: post.suggested_publish_at,
+            decision: "approved_bulk",
+          });
+        } catch (error) {
+          if (!(error instanceof ArtworkNotReady)) throw error;
+          results.push({ postId, ok: false, error: error.message });
+          continue;
+        }
         if (!scheduledAt) {
           results.push({ postId, ok: false, error: "Post changed during approval." });
           continue;
@@ -2487,14 +2511,17 @@ const worker = {
       const pilotDenied = await pilotPublishError(env, sessionUser!, postId);
       if (pilotDenied) return response(request, env, { error: pilotDenied }, { status: 409 });
 
+      const artwork = await requireArtwork(env, postId);
+
       const changed = await env.DB.prepare(
         `UPDATE posts SET prepublish_response='publish_now',status='publish_queued',updated_at=?
          WHERE id=? AND status=? AND publish_version=? AND platform_post_id IS NULL
+           AND graphic_key=?
            AND approved_at IS NOT NULL
            AND EXISTS(SELECT 1 FROM clients c WHERE c.id=posts.client_id AND c.status='active')
            AND NOT EXISTS(SELECT 1 FROM publish_jobs j WHERE j.post_id=posts.id AND j.status='publishing')`,
       )
-        .bind(new Date().toISOString(), postId, post.status, post.publish_version)
+        .bind(new Date().toISOString(), postId, post.status, post.publish_version, artwork)
         .run();
       if (!changed.meta.changes)
         return response(

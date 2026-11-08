@@ -1,7 +1,7 @@
 import { collectPostPages } from "../shared/post-pages";
 import { resolveApiOrigin } from "../shared/api-origin";
 import { createApiTransport, readResponse } from "./transport";
-import * as ImageManipulator from "expo-image-manipulator";
+import { prepareUpload } from "@/media/prepareImageUpload";
 import { imageUploadType } from "@/shared/image-upload";
 import type { PilotConfiguration, PilotOverview } from "@/shared/pilot";
 import Constants from "expo-constants";
@@ -43,6 +43,7 @@ type ApiPost = {
   caption: string;
   image_url?: string | null;
   source_image_url?: string | null;
+  artwork_ready?: boolean;
   suggested_publish_at?: string | null;
   scheduled_publish_at?: string | null;
   approved_at?: string | null;
@@ -80,6 +81,7 @@ function mapPost(row: ApiPost): MarketingPost {
     })(),
     imageUrl: resolveApiUrl(row.image_url),
     sourceImageUrl: resolveApiUrl(row.source_image_url),
+    artworkReady: row.artwork_ready,
     suggestedPublishAt: row.suggested_publish_at ?? undefined,
     scheduledPublishAt: row.scheduled_publish_at ?? undefined,
     approvedAt: row.approved_at ?? undefined,
@@ -111,13 +113,19 @@ export function capturePushRegistration() {
   const session = transport.captureSession();
   return {
     isCurrent: session.isCurrent,
-    register: (token: string, platform: string) => {
+    prepare: (token: string) =>
+      jsonRequest<{ cleanupToken: string }>("/v1/push-token/prepare", {
+        method: "POST",
+        headers: session.headers,
+        body: JSON.stringify({ token }),
+      }),
+    register: (token: string, platform: string, cleanupToken?: string) => {
       if (!session.isCurrent())
         throw new Error("Your sign-in changed. Enable push notifications again.");
       return jsonRequest("/v1/push-token", {
         method: "POST",
         headers: session.headers,
-        body: JSON.stringify({ token, platform }),
+        body: JSON.stringify({ token, platform, cleanupToken }),
       });
     },
   };
@@ -129,6 +137,12 @@ const sourceBlob = (uri: string) =>
   });
 
 export const api = {
+  cleanupPushToken: (token: string, cleanupToken: string) =>
+    jsonRequest<{ ok: true }>("/v1/public/push-token/unregister", {
+      method: "POST",
+      headers: { authorization: "" },
+      body: JSON.stringify({ token, cleanupToken }),
+    }),
   assetImageSource: (assetId: string) => ({
     uri: resolveApiUrl(`/v1/assets/${encodeURIComponent(assetId)}`)!,
     headers: Object.fromEntries(authHeaders().entries()),
@@ -787,16 +801,12 @@ export const api = {
     width?: number,
     height?: number,
   ): Promise<Asset> {
-    if (!/^image\/(jpeg|png)$/i.test(contentType)) {
-      const converted = await ImageManipulator.manipulateAsync(uri, [], {
-        format: ImageManipulator.SaveFormat.JPEG,
-        compress: 0.92,
-      });
-      uri = converted.uri;
-      contentType = "image/jpeg";
-      filename = filename.replace(/\.[^.]+$/, "") + ".jpg";
-    }
-    const blob = await sourceBlob(uri);
+    const prepared = await prepareUpload({ uri, filename, contentType, width, height });
+    const { blob } = prepared;
+    contentType = prepared.contentType;
+    filename = prepared.filename;
+    width = prepared.width;
+    height = prepared.height;
     const headers = authHeaders({
       "content-type": imageUploadType(blob.type, contentType),
       "x-client-id": clientId,

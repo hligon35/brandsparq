@@ -1,7 +1,9 @@
 import { publishingReleaseAccepted, type ReleaseEnvironment } from "./release-policy";
 import { postCampaign, campaignOpen } from "./campaign-workflow";
+import { requireArtwork } from "./artwork";
 export interface PublishingEnv extends ReleaseEnvironment {
   DB: D1Database;
+  MEDIA?: { head(key: string): Promise<unknown> };
 }
 
 export type PublishQueueMessage = {
@@ -23,6 +25,7 @@ export async function ensurePublishJob(
     .bind(postId)
     .first<{ publish_version: number }>();
   if (!post) throw new Error("Post not found while creating publish job.");
+  const artwork = await requireArtwork(env, postId);
 
   const executionKey = `post:${postId}:publish:v${expectedVersion ?? post.publish_version}`;
   if (expectedVersion !== undefined && post.publish_version !== expectedVersion)
@@ -32,7 +35,7 @@ export async function ensurePublishJob(
   await env.DB.prepare(
     `INSERT OR IGNORE INTO publish_jobs
      (id, post_id, execution_key, status, scheduled_for)
-     SELECT ?,?,?,'queued',? FROM posts WHERE id=? AND publish_version=?`,
+     SELECT ?,?,?,'queued',? FROM posts WHERE id=? AND publish_version=? AND graphic_key=?`,
   )
     .bind(
       candidateId,
@@ -41,6 +44,7 @@ export async function ensurePublishJob(
       scheduledFor || null,
       postId,
       expectedVersion ?? post.publish_version,
+      artwork,
     )
     .run();
 

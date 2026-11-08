@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui";
-import { unregisterThisDevice } from "@/notifications/device";
+import { unregisterThisDevice, retryPushCleanup, upgradePushCleanup } from "@/notifications/device";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import {
@@ -54,10 +54,38 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [clearFailed, setClearFailed] = useState(false);
   const [restoreAttempt, setRestoreAttempt] = useState(0);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const currentUser = useRef(user);
+  currentUser.current = user;
+
+  useEffect(() => {
+    // A failed/offline restore is not a confirmed sign-out.
+    if (!ready || restoreError) return;
+    const retry = () => void retryPushCleanup(currentUser.current?.id).catch(() => undefined);
+    retry();
+    if (user) void upgradePushCleanup(user.id).catch(() => undefined);
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        retry();
+        if (currentUser.current)
+          void upgradePushCleanup(currentUser.current.id).catch(() => undefined);
+      }
+    });
+    const timer = setInterval(() => {
+      if (AppState.currentState === "active") retry();
+    }, 60000);
+    return () => {
+      subscription.remove();
+      clearInterval(timer);
+    };
+  }, [ready, restoreError, user?.id]);
 
   useEffect(() => {
     setUnauthorizedHandler(async () => {
       const epoch = ++sessionEpoch.current;
+      const cleanup = captureSessionCleanup();
+      void unregisterThisDevice(cleanup.unregisterPushToken, currentUser.current?.id).catch(
+        () => undefined,
+      );
       setApiSessionToken(null);
       setUser(null);
       setNotice("The saved sign-in is no longer valid. Please sign in again.");
@@ -123,8 +151,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   // Refresh capabilities when the app returns to the foreground and while it stays open.
   // A late refresh from an old session must never restore a signed-out user.
-  const currentUser = useRef(user);
-  currentUser.current = user;
   useEffect(() => {
     if (!user) return;
     let active = true;
@@ -249,7 +275,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         // newly connected account. Local sign-out does not wait for the network.
         void (async () => {
           try {
-            await unregisterThisDevice(cleanup.unregisterPushToken);
+            await unregisterThisDevice(cleanup.unregisterPushToken, user?.id);
           } catch {
             /* Retry requires connectivity; local sign-out still completes. */
           } finally {

@@ -3,6 +3,7 @@ import { AppUpdateControl } from "@/components/AppUpdateControl";
 import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { TimezonePicker, TimeWindows } from "@/components/pickers";
 import { useCapabilities } from "@/auth/capabilities";
+import { useAuth } from "@/auth/context";
 import { Alert } from "@/components/feedback";
 import { useEffect, useState } from "react";
 import { StyleSheet, Switch, Text, TextInput, View } from "react-native";
@@ -13,13 +14,14 @@ import { colors, radius, spacing } from "@/theme/tokens";
 
 export default function SettingsScreen() {
   const can = useCapabilities();
+  const { user } = useAuth();
   const [workspace, setWorkspace] = useState<any>({});
   const [notifications, setNotifications] = useState<any>({});
   const [notificationBusy, setNotificationBusy] = useState(false);
   async function notificationAction(push: boolean) {
     setNotificationBusy(true);
     try {
-      if (push) await registerThisDeviceForPush();
+      if (push) await registerThisDeviceForPush(user!.id);
       else await api.testNotifications();
       Alert.alert(
         push ? "Push enabled" : "Test sent",
@@ -150,7 +152,6 @@ export default function SettingsScreen() {
       <EssentialSection title="Notification devices">
         <View style={{ flexDirection: "row", gap: 8 }}>
           <View style={{ flex: 1 }}>
-            {" "}
             <Button
               label="Enable push"
               secondary

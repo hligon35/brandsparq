@@ -264,6 +264,7 @@ function campaign(w, status = "active") {
   w.exec("UPDATE clients SET timezone='UTC' WHERE id='client-a'");
 }
 function campaignPost(w, id = "p", status = "awaiting_approval") {
+  w.objects.set("graphic.jpg", "finished campaign graphic");
   w.post(id, "client-a", status);
   w.exec(
     "UPDATE posts SET campaign_id='campaign',graphic_key='graphic.jpg',social_account_id='chosen',suggested_publish_at='2030-01-01T09:00:00Z' WHERE id=?",

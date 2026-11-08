@@ -11,6 +11,7 @@ export async function uploadBatch<T>(
   items: UploadItem<T>[],
   upload: (item: UploadItem<T>, index: number) => Promise<void>,
   changed: () => void,
+  concurrency = 3,
 ) {
   let cursor = 0;
   async function worker() {
@@ -31,7 +32,9 @@ export async function uploadBatch<T>(
       changed();
     }
   }
-  await Promise.allSettled(Array.from({ length: Math.min(3, items.length) }, worker));
+  await Promise.allSettled(
+    Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, worker),
+  );
   if (items.some((item) => item.status !== "ready"))
     throw new Error(
       "Some images could not be uploaded. Retry failed images or remove them; completed uploads are saved.",

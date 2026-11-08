@@ -20,6 +20,26 @@ name: BrandSparQ isolated fixture workspace acceptance
     element: "Client B"
     direction: DOWN
 - assertVisible: "Client B"
+- openLink: "brandsparq-e2e://create"
+- tapOn: "Create a social post"
+- scrollUntilVisible:
+    element: "2. Social post goal"
+    direction: DOWN
+- assertVisible: "2. Social post goal"
+- scrollUntilVisible:
+    element: "Create a campaign"
+    direction: UP
+- tapOn: "Create a campaign"
+- scrollUntilVisible:
+    element: "2. Campaign objective"
+    direction: DOWN
+- assertVisible: "2. Campaign objective"
+- openLink: "brandsparq-e2e://settings"
+- assertVisible: "Settings"
+- openLink: "brandsparq-e2e://notifications"
+- assertVisible: "Notifications"
+- openLink: "brandsparq-e2e://paused"
+- assertVisible: "Paused content"
 - openLink: "brandsparq-e2e://profile"
 - assertVisible: "Save profile"
 - scrollUntilVisible:
