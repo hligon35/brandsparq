@@ -10,6 +10,8 @@ import {
 } from "react";
 import { Link as ExpoLink, useFocusEffect, usePreventRemove, useRouter } from "expo-router";
 import { confirmAction } from "@/components/feedback";
+import { Platform } from "react-native";
+import { protectBrowserUnload } from "@/shared/browser-unload";
 
 type Guard = { dirty(): boolean; leave(): Promise<boolean> };
 const NavigationGuard = createContext<{ current: Guard | null; navigating?: boolean }>({
@@ -73,14 +75,12 @@ export function useUnsavedChanges<T>(value: T, enabled = true, restore?: (value:
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   useEffect(() => {
-    if (!dirty || typeof window === "undefined") return;
-    const prevent = (event: BeforeUnloadEvent) => {
-      if (!dirtyRef.current) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", prevent);
-    return () => window.removeEventListener("beforeunload", prevent);
+    if (!dirty) return;
+    return protectBrowserUnload(
+      Platform.OS,
+      typeof window === "undefined" ? undefined : window,
+      () => dirtyRef.current,
+    );
   }, [dirty]);
   const pending = useRef<Promise<boolean> | null>(null);
   const release = useRef<() => void>(() => {});
