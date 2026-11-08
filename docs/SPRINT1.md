@@ -6,7 +6,7 @@ Status: implemented on `main`.
 
 ### Scheduling
 - Empty blackout windows mean no blackout.
-- Preferred windows, blackout windows, weekdays, daily limits, minimum spacing, and client timezones use one scheduling service.
+- Blackout windows, weekdays, daily limits, minimum spacing, and client timezones use one scheduling service.
 - Approval and manual rescheduling both use the same scheduler.
 - A post being rescheduled is excluded from its own collision check.
 

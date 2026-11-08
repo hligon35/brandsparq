@@ -45,7 +45,7 @@ export function validateSettings(payload: unknown): string | null {
     )
       return `${key} must be auto_publish, hold, or skip.`;
   const windowPattern = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
-  for (const key of ["preferredWindows", "blackoutWindows"]) {
+  for (const key of ["blackoutWindows"]) {
     const windows = w[key];
     if (
       windows !== undefined &&

@@ -8,7 +8,6 @@ type Rules = {
   timezone: string;
   minSpacing: number;
   maxPerDay: number;
-  preferredWindows: string[];
   blackoutWindows: string[];
   allowedWeekdays: number[];
 };
@@ -68,11 +67,6 @@ function matchesWindow(minuteOfDay: number, window: string) {
   return minuteOfDay >= startMinute && minuteOfDay <= endMinute;
 }
 
-export function inPreferredWindow(minuteOfDay: number, windows: string[]) {
-  // No preferred windows means unrestricted.
-  return windows.length === 0 || windows.some((window) => matchesWindow(minuteOfDay, window));
-}
-
 export function inBlackoutWindow(minuteOfDay: number, windows: string[]) {
   // No blackout windows means no blackout.
   return windows.length > 0 && windows.some((window) => matchesWindow(minuteOfDay, window));
@@ -83,7 +77,6 @@ async function loadRules(env: SchedulingEnv, clientId: string): Promise<Rules> {
     `SELECT c.timezone,
             COALESCE(cs.min_post_spacing_minutes, ws.min_post_spacing_minutes) AS min_spacing,
             COALESCE(cs.max_posts_per_day, ws.max_posts_per_day) AS max_posts_per_day,
-            COALESCE(cs.preferred_windows, ws.preferred_windows) AS preferred_windows,
             COALESCE(cs.blackout_windows, ws.blackout_windows) AS blackout_windows,
             COALESCE(cs.allowed_weekdays, '[0,1,2,3,4,5,6]') AS allowed_weekdays
      FROM clients c
@@ -100,7 +93,6 @@ async function loadRules(env: SchedulingEnv, clientId: string): Promise<Rules> {
     timezone: row.timezone || "America/Indiana/Indianapolis",
     minSpacing: Number(row.min_spacing || 180),
     maxPerDay: Number(row.max_posts_per_day || 3),
-    preferredWindows: parseJson(row.preferred_windows, ["09:00-11:00", "17:00-20:00"]),
     blackoutWindows: parseJson(row.blackout_windows, []),
     allowedWeekdays: parseJson(row.allowed_weekdays, [0, 1, 2, 3, 4, 5, 6]),
   };
@@ -135,7 +127,6 @@ export async function findNextAvailableSlot(
 
     if (
       rules.allowedWeekdays.includes(local.weekday) &&
-      inPreferredWindow(local.minuteOfDay, rules.preferredWindows) &&
       !inBlackoutWindow(local.minuteOfDay, rules.blackoutWindows)
     ) {
       const nearby = await env.DB.prepare(

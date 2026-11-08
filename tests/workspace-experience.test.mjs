@@ -3,11 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../cloudflare/src/index.ts";
 import { notifyPostOwners } from "../cloudflare/src/notifications.ts";
-import {
-  inBlackoutWindow,
-  inPreferredWindow,
-  validateSchedule,
-} from "../cloudflare/src/scheduling.ts";
+import { inBlackoutWindow, validateSchedule } from "../cloudflare/src/scheduling.ts";
 import { workspace, digest, withCurrentRevision } from "./workspace.mjs";
 import { runGenerationJob, runGraphicJob, sendReviewLinks } from "../cloudflare/src/generation.ts";
 
@@ -464,12 +460,11 @@ test("reconciled uploads inspect image bytes and deduplicate only inside the cli
 test("reconciled schedule windows cross midnight and exclude the edited post", async (t) => {
   assert.equal(inBlackoutWindow(60, ["22:00-02:00"]), true);
   assert.equal(inBlackoutWindow(12 * 60, ["22:00-02:00"]), false);
-  assert.equal(inPreferredWindow(23 * 60, ["22:00-02:00"]), true);
   const w = workspace(t);
   w.post("self-slot", "client-a", "calendar_scheduled");
   const slot = new Date(Math.floor((Date.now() + 86400000) / 60000) * 60000).toISOString();
   w.exec(
-    "UPDATE workspace_settings SET preferred_windows='[]',blackout_windows='[]',min_post_spacing_minutes=60,max_posts_per_day=1",
+    "UPDATE workspace_settings SET blackout_windows='[]',min_post_spacing_minutes=60,max_posts_per_day=1",
   );
   w.exec("UPDATE posts SET scheduled_publish_at=? WHERE id='self-slot'", slot);
   const result = await validateSchedule(w.env, "client-a", slot, "self-slot");

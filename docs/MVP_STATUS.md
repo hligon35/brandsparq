@@ -23,7 +23,7 @@
 - Day, week, and month calendar ranges.
 - Client and platform filters.
 - Conflict-aware scheduling.
-- Preferred windows, blackout windows, spacing, and daily limits.
+- Exact user-selected times, blackout windows, spacing, and daily limits.
 
 ### Campaigns
 - Campaign list and progress counts.

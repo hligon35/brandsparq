@@ -262,7 +262,6 @@ function campaign(w, status = "active") {
     status,
   );
   w.exec("UPDATE clients SET timezone='UTC' WHERE id='client-a'");
-  w.exec("UPDATE workspace_settings SET preferred_windows='[]'");
 }
 function campaignPost(w, id = "p", status = "awaiting_approval") {
   w.post(id, "client-a", status);

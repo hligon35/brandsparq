@@ -637,6 +637,9 @@ export async function handleManagementRoute(
     const workspace = await env.DB.prepare(
       "SELECT * FROM workspace_settings WHERE id = 'default'",
     ).first<any>();
+    // Keep retired columns in storage for deployment compatibility, but never expose or use them.
+    const workspaceSettings = { ...workspace };
+    delete workspaceSettings.preferred_windows;
     const preferences = await env.DB.prepare(
       "SELECT * FROM notification_preferences WHERE user_id = ?",
     )
@@ -652,8 +655,7 @@ export async function handleManagementRoute(
       body: {
         data: {
           workspace: {
-            ...workspace,
-            preferred_windows: json(workspace?.preferred_windows, []),
+            ...workspaceSettings,
             blackout_windows: json(workspace?.blackout_windows, []),
           },
           notifications: preferences || {
@@ -710,7 +712,6 @@ export async function handleManagementRoute(
          default_no_response_policy = COALESCE(?, default_no_response_policy),
          min_post_spacing_minutes = COALESCE(?, min_post_spacing_minutes),
          max_posts_per_day = COALESCE(?, max_posts_per_day),
-         preferred_windows = COALESCE(?, preferred_windows),
          blackout_windows = COALESCE(?, blackout_windows),
          analytics_refresh_hours = COALESCE(?, analytics_refresh_hours),
          updated_at = CURRENT_TIMESTAMP
@@ -721,7 +722,6 @@ export async function handleManagementRoute(
               w.defaultNoResponsePolicy || null,
               w.minPostSpacingMinutes ?? null,
               w.maxPostsPerDay ?? null,
-              w.preferredWindows ? JSON.stringify(w.preferredWindows) : null,
               w.blackoutWindows ? JSON.stringify(w.blackoutWindows) : null,
               w.analyticsRefreshHours ?? null,
             ),

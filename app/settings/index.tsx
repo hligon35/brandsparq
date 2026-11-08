@@ -61,7 +61,6 @@ export default function SettingsScreen() {
           defaultNoResponsePolicy: data.workspace?.default_no_response_policy || "auto_publish",
           minPostSpacingMinutes: data.workspace?.min_post_spacing_minutes ?? 180,
           maxPostsPerDay: data.workspace?.max_posts_per_day ?? 3,
-          preferredWindows: data.workspace?.preferred_windows || ["09:00-11:00", "17:00-20:00"],
           blackoutWindows: data.workspace?.blackout_windows || [],
           analyticsRefreshHours: data.workspace?.analytics_refresh_hours ?? 6,
         };
@@ -196,12 +195,6 @@ export default function SettingsScreen() {
             (v) => setWorkspace({ ...workspace, analyticsRefreshHours: v }),
           )}
         </View>
-        <TimeWindows
-          disabled={!editable}
-          label="Preferred windows"
-          values={workspace.preferredWindows || []}
-          onChange={(preferredWindows) => setWorkspace({ ...workspace, preferredWindows })}
-        />
         <TimeWindows
           disabled={!editable}
           label="Blackout windows"

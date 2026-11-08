@@ -104,10 +104,7 @@ for (const cap of [1, 3])
     const w = workspace(t);
     scheduled(w, "a", "paused");
     scheduled(w, "b", "paused");
-    w.exec(
-      "UPDATE workspace_settings SET preferred_windows='[]',max_posts_per_day=?,min_post_spacing_minutes=180",
-      cap,
-    );
+    w.exec("UPDATE workspace_settings SET max_posts_per_day=?,min_post_spacing_minutes=180", cap);
     let release;
     const both = new Promise((resolve) => {
       release = resolve;
@@ -183,10 +180,10 @@ const badSettings = [
   { defaultPrepublishMinutes: -1 },
   { analyticsRefreshHours: 0 },
   { defaultNoResponsePolicy: "publish_whatever" },
-  { preferredWindows: ["bad-window"] },
+  { blackoutWindows: ["bad-window"] },
   { blackoutWindows: ["24:00-25:00"] },
-  { preferredWindows: ["12:00-12:00"] },
-  { preferredWindows: "09:00-10:00" },
+  { blackoutWindows: ["12:00-12:00"] },
+  { blackoutWindows: "09:00-10:00" },
 ];
 test("invalid workspace settings are rejected atomically, including the reproduced mixed payload", async (t) => {
   const w = workspace(t),
@@ -197,7 +194,7 @@ test("invalid workspace settings are rejected atomically, including the reproduc
       timezone: "Not/A_Zone",
       minPostSpacingMinutes: -10,
       maxPostsPerDay: 0,
-      preferredWindows: ["bad-window"],
+      blackoutWindows: ["bad-window"],
     },
   ]) {
     assert.equal(
@@ -225,7 +222,6 @@ test("invalid workspace settings are rejected atomically, including the reproduc
           timezone: "UTC",
           minPostSpacingMinutes: 60,
           maxPostsPerDay: 4,
-          preferredWindows: ["22:00-02:00"],
           blackoutWindows: [],
         },
         notifications: { noResponsePolicy: "hold" },
@@ -537,9 +533,7 @@ test("a rule change between slot selection and reservation forces a fresh daily-
   const w = workspace(t);
   scheduled(w, "a", "paused");
   scheduled(w, "existing");
-  w.exec(
-    "UPDATE workspace_settings SET preferred_windows='[]',max_posts_per_day=3,min_post_spacing_minutes=60",
-  );
+  w.exec("UPDATE workspace_settings SET max_posts_per_day=3,min_post_spacing_minutes=60");
   w.exec(
     "UPDATE posts SET scheduled_publish_at=? WHERE id='existing'",
     new Date(Date.now() + 3600000).toISOString(),
