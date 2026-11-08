@@ -1,3 +1,4 @@
+import { reviewCopyEditable, scheduledCopyEditable } from "../../src/shared/post-copy";
 import { removeClient } from "./client-removal";
 import { processMetaWebhook, recoverMetaWebhooks } from "./meta-webhooks";
 import { validatedRequest } from "./request-validation";
@@ -2054,6 +2055,24 @@ const worker = {
       const denied = await authorize(env, sessionUser!, "read", post.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
+      // Source previews are distinct from publishable artwork; never silently publish a fallback.
+      post.source_image_url = null;
+      if (!post.graphic_key) {
+        const source = await env.DB.prepare(`SELECT a.r2_key FROM post_assets pa
+          JOIN assets a ON a.id=pa.asset_id AND a.client_id=?
+          WHERE pa.post_id=? AND pa.role='source' AND a.content_type LIKE 'image/%'
+          ORDER BY a.created_at ASC,a.id ASC LIMIT 1`)
+          .bind(post.client_id, post.id)
+          .first<{ r2_key: string }>();
+        if (source)
+          post.source_image_url = await issuePostMediaUrl(
+            env,
+            request.url,
+            sessionUser!.id,
+            post.id,
+            source.r2_key,
+          );
+      }
       return response(request, env, {
         data: await signPostMedia(env, request.url, sessionUser!.id, post),
       });
@@ -2061,18 +2080,34 @@ const worker = {
 
     const editPostMatch = url.pathname.match(/^\/v1\/posts\/([^/]+)\/edit$/);
     if (editPostMatch && request.method === "POST") {
-      const post = await env.DB.prepare("SELECT client_id,status FROM posts WHERE id=?")
+      const post = await env.DB.prepare(
+        "SELECT client_id,status,publish_version FROM posts WHERE id=?",
+      )
         .bind(editPostMatch[1])
         .first<any>();
       if (!post) return response(request, env, { error: "Post not found" }, { status: 404 });
 
       const denied = await authorize(env, sessionUser!, "review", post.client_id);
       if (denied) return response(request, env, { error: denied }, { status: 403 });
-      if (!["awaiting_approval", "edit_requested"].includes(post.status)) {
+      const scheduled = scheduledCopyEditable(post.status);
+      if (scheduled) {
+        const calendarDenied = await authorize(
+          env,
+          sessionUser!,
+          "calendar_manage",
+          post.client_id,
+        );
+        if (calendarDenied)
+          return response(request, env, { error: calendarDenied }, { status: 403 });
+      }
+      if (!reviewCopyEditable(post.status) && !scheduled) {
         return response(
           request,
           env,
-          { error: "This post is not editable from review." },
+          {
+            error:
+              "Copy cannot be edited while generation or publishing is active, or after the post is finished.",
+          },
           { status: 409 },
         );
       }
@@ -2113,10 +2148,18 @@ const worker = {
            title=COALESCE(NULLIF(?,''),title),
            caption=CASE WHEN ? THEN ? ELSE caption END,
            reviewer_comment=COALESCE(NULLIF(?,''),reviewer_comment),
-           status='awaiting_approval',
+           status=CASE WHEN status='pre_publish' THEN 'calendar_scheduled'
+                       WHEN status IN ('calendar_scheduled','rescheduled') THEN status ELSE 'awaiting_approval' END,
+           publish_version=publish_version+?,
+           prepublish_alert_at=CASE WHEN ? THEN NULL ELSE prepublish_alert_at END,
+           prepublish_response=CASE WHEN ? THEN NULL ELSE prepublish_response END,
            revision_job_id=NULL,
            updated_at=CURRENT_TIMESTAMP
-           WHERE id=? AND content_revision=? AND status IN ('awaiting_approval','edit_requested')`,
+           WHERE id=? AND content_revision=? AND status=? AND publish_version=?
+             AND platform_post_id IS NULL AND COALESCE(failure_code,'')!='PUBLISH_OUTCOME_UNKNOWN'
+             AND EXISTS (SELECT 1 FROM clients c WHERE c.id=posts.client_id AND c.status='active')
+             AND NOT EXISTS (SELECT 1 FROM publish_jobs j WHERE j.post_id=posts.id AND j.status='publishing')
+             AND NOT EXISTS (SELECT 1 FROM social_publish_receipts r WHERE r.post_id=posts.id AND r.status IN ('published','provider_processing'))`,
         ).bind(
           editToken,
           payload.hashtags === undefined ? null : JSON.stringify(payload.hashtags),
@@ -2125,13 +2168,28 @@ const worker = {
           payload.caption !== undefined ? 1 : 0,
           caption ?? null,
           comment || null,
+          scheduled ? 1 : 0,
+          scheduled ? 1 : 0,
+          scheduled ? 1 : 0,
           editPostMatch[1],
           payload.expectedRevision,
+          post.status,
+          post.publish_version,
         ),
+        ...(scheduled
+          ? [
+              env.DB.prepare(`UPDATE publish_jobs SET status='canceled',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+          WHERE post_id=? AND status IN ('queued','retrying') AND EXISTS
+          (SELECT 1 FROM posts p WHERE p.id=publish_jobs.post_id AND p.review_edit_token=?)`).bind(
+                editPostMatch[1],
+                editToken,
+              ),
+            ]
+          : []),
         ...(comment
           ? [
               env.DB.prepare(
-                "INSERT INTO review_comments (id,post_id,user_id,comment) SELECT ?,?,?,? FROM posts WHERE id=? AND review_edit_token=? AND status='awaiting_approval'",
+                "INSERT INTO review_comments (id,post_id,user_id,comment) SELECT ?,?,?,? FROM posts WHERE id=? AND review_edit_token=?",
               ).bind(
                 crypto.randomUUID(),
                 editPostMatch[1],
@@ -2151,7 +2209,13 @@ const worker = {
           { status: 409 },
         );
 
-      await audit(env, editPostMatch[1], "post.edited_in_review");
+      await audit(
+        env,
+        editPostMatch[1],
+        "post.edited_in_review",
+        { schedulePreserved: scheduled },
+        sessionUser!.id,
+      );
       return response(request, env, { ok: true, revision: payload.expectedRevision + 1 });
     }
 

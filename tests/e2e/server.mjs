@@ -122,7 +122,15 @@ const server = http.createServer(async (incoming, outgoing) => {
             return;
           }
           if (url.pathname === "/__test/reset") await reset();
-          else if (url.pathname === "/__test/client-photo") {
+          else if (url.pathname === "/__test/source-preview") {
+            w.exec("UPDATE posts SET graphic_key=NULL WHERE id='fixture-post'");
+            w.exec(
+              "INSERT INTO assets(id,client_id,r2_key,filename,content_type) VALUES ('fixture-source','client-a','fixture.jpg','source.jpg','image/jpeg')",
+            );
+            w.exec(
+              "INSERT INTO post_assets(post_id,asset_id) VALUES ('fixture-post','fixture-source')",
+            );
+          } else if (url.pathname === "/__test/client-photo") {
             w.exec(
               "UPDATE social_accounts SET metadata=? WHERE id='fixture-social'",
               JSON.stringify({ profileImageUrl: "https://images.example.test/client-a.png" }),

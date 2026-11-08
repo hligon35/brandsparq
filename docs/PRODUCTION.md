@@ -2,6 +2,16 @@
 
 Production host: `https://brandsparq.getsparqd.com`
 
+The individual post screen displays publication copy on mobile and web. Reviewers can edit
+awaiting-approval copy; editing scheduled copy also requires calendar management permission.
+Saving scheduled copy preserves its date and time, invalidates stale publish jobs, and resets
+the prepublish response so the updated copy gets a fresh prepublish decision. Active publishing
+and completed posts cannot be edited.
+
+When a generated graphic is missing, the screen displays an authorized, temporary source-photo
+preview labeled as such. That preview does not become publishable artwork. This update needs
+both a Worker/web deployment and a mobile OTA; it adds no database migration.
+
 ## Cloudflare resources
 
 Create or verify:
