@@ -18,6 +18,7 @@
     "deploy:production:accepted": "node scripts/deploy-production.mjs --accepted",
     "audit:launch": "node scripts/launch-audit.mjs",
     "smoke:production": "node scripts/smoke-production.mjs",
+    "tail:production": "npm --prefix cloudflare run tail:production --",
     "test": "node --import ./tests/register.mjs --test tests/*.test.mjs",
     "test:unit": "node --import ./tests/register.mjs --test tests/unit.test.mjs",
     "test:integration": "node --import ./tests/register.mjs --test tests/launch.test.mjs tests/providers.test.mjs tests/workflow-safety.test.mjs tests/workspace-experience.test.mjs",
