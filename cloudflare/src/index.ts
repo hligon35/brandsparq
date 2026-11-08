@@ -994,7 +994,13 @@ const worker = {
       if (denied) return response(request, env, { error: denied }, { status: 403 });
 
       const payload = await request
-        .json<{ assetId?: string; role?: string; label?: string; expectedRevision?: number }>()
+        .json<{
+          assetId?: string;
+          role?: string;
+          label?: string;
+          expectedRevision?: number;
+          palette?: string[];
+        }>()
         .catch(() => ({}) as any);
       if (!payload.assetId) {
         return response(request, env, { error: "assetId is required." }, { status: 400 });
@@ -1013,6 +1019,24 @@ const worker = {
 
       if (!validRevision(payload.expectedRevision))
         return response(request, env, revisionRequired.body, { status: 428 });
+      if (
+        payload.palette !== undefined &&
+        (!Array.isArray(payload.palette) ||
+          payload.palette.length > 3 ||
+          payload.palette.some(
+            (color: unknown) => typeof color !== "string" || !/^#[0-9a-f]{6}$/i.test(color),
+          ))
+      )
+        return response(
+          request,
+          env,
+          { error: "Supply up to three valid logo colors." },
+          { status: 400 },
+        );
+      const palette =
+        payload.palette?.length && ["logo", "alternate_logo"].includes(role)
+          ? payload.palette.map((color: string) => color.toUpperCase())
+          : undefined;
       const editToken = crypto.randomUUID();
       const id = crypto.randomUUID();
       const column = role === "logo" ? "logo_asset_id" : "alternate_logo_asset_id";
@@ -1034,12 +1058,14 @@ const worker = {
         ...(role === "logo" || role === "alternate_logo"
           ? [
               env.DB.prepare(
-                `INSERT INTO brand_profiles(id,client_id,${column}) SELECT ?,?,? FROM clients WHERE id=? AND edit_token=?
-           ON CONFLICT(client_id) DO UPDATE SET ${column}=excluded.${column},updated_at=CURRENT_TIMESTAMP`,
+                `INSERT INTO brand_profiles(id,client_id,${column}${palette ? ",primary_color,secondary_color,tertiary_color" : ""})
+                 SELECT ?,?,?${palette ? ",?,?,?" : ""} FROM clients WHERE id=? AND edit_token=?
+           ON CONFLICT(client_id) DO UPDATE SET ${column}=excluded.${column},${palette ? "primary_color=excluded.primary_color,secondary_color=excluded.secondary_color,tertiary_color=excluded.tertiary_color," : ""}updated_at=CURRENT_TIMESTAMP`,
               ).bind(
                 crypto.randomUUID(),
                 brandAssetsMatch[1],
                 payload.assetId,
+                ...(palette ? [palette[0], palette[1] || null, palette[2] || null] : []),
                 brandAssetsMatch[1],
                 editToken,
               ),
@@ -1051,6 +1077,7 @@ const worker = {
       return response(request, env, {
         ok: true,
         id,
+        palette,
         revision:
           payload.expectedRevision + 1 + (["logo", "alternate_logo"].includes(role) ? 1 : 0),
       });
@@ -1063,7 +1090,7 @@ const worker = {
 
       const row = await env.DB.prepare(
         `SELECT c.id AS client_id, c.name, c.timezone,c.status AS client_status,c.edit_revision AS revision,
-                bp.id, bp.voice, bp.audience, bp.primary_color, bp.secondary_color,
+                bp.id, bp.voice, bp.audience, bp.primary_color, bp.secondary_color, bp.tertiary_color,
                 bp.website, bp.social_handles, bp.restricted_words, bp.tagline,
                 bp.preferred_ctas, bp.imagery_preferences, bp.posting_rules,
                 bp.fonts, bp.brand_examples, bp.prohibited_visual_styles,
@@ -1533,6 +1560,7 @@ const worker = {
         return response(request, env, {
           data: {
             id: duplicate.id,
+            palette: image.palette,
             clientId,
             filename: duplicate.filename,
             contentType: duplicate.content_type,
@@ -1567,6 +1595,7 @@ const worker = {
         {
           data: {
             id: assetId,
+            palette: image.palette,
             clientId,
             filename,
             contentType,

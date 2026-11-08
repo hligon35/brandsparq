@@ -835,6 +835,12 @@ export const REQUIRED_SCHEMA = {
       notnull: 1,
       pk: 0,
     },
+    {
+      name: "tertiary_color",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
   ],
   campaigns: [
     {

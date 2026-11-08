@@ -1,3 +1,4 @@
+import { prominentColors } from "../../src/shared/image-upload";
 import { decode as decodeJpeg } from "jpeg-js";
 import { decode } from "fast-png";
 export class UploadError extends Error {
@@ -40,6 +41,7 @@ export async function readUpload(request: Request, limit: number) {
 export function inspectImage(buffer: ArrayBuffer, derivative = false) {
   const b = new Uint8Array(buffer),
     v = new DataView(buffer);
+  let palette: string[] = [];
   let type = "",
     width = 0,
     height = 0;
@@ -50,7 +52,8 @@ export function inspectImage(buffer: ArrayBuffer, derivative = false) {
     type = "image/png";
     if (width * height > 24000000) throw new UploadError("Image exceeds 24 million pixels.");
     try {
-      decode(b, { checkCrc: true });
+      const pixels = decode(b, { checkCrc: true });
+      palette = prominentColors(pixels.data, pixels.channels, pixels.depth);
     } catch {
       throw new UploadError("Corrupt PNG image.");
     }
@@ -93,14 +96,15 @@ export function inspectImage(buffer: ArrayBuffer, derivative = false) {
     throw new UploadError("Analysis and thumbnail derivatives must be JPEG.");
   if (type === "image/jpeg")
     try {
-      decodeJpeg(b, {
+      const pixels = decodeJpeg(b, {
         useTArray: true,
         tolerantDecoding: false,
         maxResolutionInMP: 24,
         maxMemoryUsageInMB: 96,
       });
+      palette = prominentColors(pixels.data, 4);
     } catch {
       throw new UploadError("Corrupt JPEG image or decoding memory limit exceeded.");
     }
-  return { type, width, height };
+  return { type, width, height, palette };
 }

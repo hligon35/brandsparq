@@ -450,11 +450,12 @@ test("logo upload selects prominent colors and persists them", async ({ page, re
   const { encode } = await import("fast-png");
   const pixels = new Uint8Array(10 * 10 * 4);
   for (let i = 0; i < 100; i++) {
-    pixels[i * 4 + (i < 80 ? 0 : 2)] = 255;
+    pixels[i * 4 + (i < 70 ? 0 : i < 90 ? 2 : 1)] = 255;
     pixels[i * 4 + 3] = 255;
   }
   await signIn(page);
   await page.goto("/clients/client-a/brand");
+  await page.getByRole("button", { name: "Brand asset actions", exact: true }).click();
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Upload logo", exact: true }).click();
   await (await chooser).setFiles({
@@ -468,6 +469,9 @@ test("logo upload selects prominent colors and persists them", async ({ page, re
   await expect(page.getByRole("button", { name: "Secondary color", exact: true })).toContainText(
     "#0000FF",
   );
+  await expect(page.getByRole("button", { name: "Tertiary color", exact: true })).toContainText(
+    "#00FF00",
+  );
   const thumbnail = page.getByRole("img", { name: "Primary logo preview", exact: true });
   await expect(thumbnail).toBeVisible();
   await expect.poll(() => thumbnail.evaluate((image) => image.naturalWidth)).toBe(10);
@@ -475,9 +479,7 @@ test("logo upload selects prominent colors and persists them", async ({ page, re
   expect(
     assetReads.some((request) => /^Bearer .+/.test(request.headers().authorization || "")),
   ).toBe(true);
-  await page.getByRole("button", { name: "Save Brand Brain", exact: true }).click();
-  await expect(page.getByRole("alert", { name: "Brand Brain saved" })).toBeVisible();
-  await page.getByRole("button", { name: "Close message" }).click();
+  // Logo and colors are durable without a separate Brand Brain save.
   await page.reload();
   await expect(thumbnail).toBeVisible();
   await expect.poll(() => thumbnail.evaluate((image) => image.naturalWidth)).toBe(10);
@@ -490,6 +492,11 @@ test("logo upload selects prominent colors and persists them", async ({ page, re
   const assets = (
     await (await request.get("/v1/clients/client-a/brand-assets", { headers })).json()
   ).data;
+  expect([brand.primary_color, brand.secondary_color, brand.tertiary_color]).toEqual([
+    "#FF0000",
+    "#0000FF",
+    "#00FF00",
+  ]);
   expect(brand.logo_asset_id).toBeTruthy();
   expect(assets.some((a) => a.asset_id === brand.logo_asset_id && a.role === "logo")).toBe(true);
 });

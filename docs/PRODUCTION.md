@@ -394,3 +394,10 @@ or process/timeout error. Do not infer missing migrations or bad authentication
 from a generic failure. When holds are absent, preflight shows the actual pilot
 mode and workspace no-response policy. All existing migration, hold and
 unfinished-publishing requirements remain enforced; these reads change no data.
+
+### Logo uploads and three-color palettes
+
+Apply `0032_brand_tertiary_color.sql` before deploying this Worker and publishing the mobile OTA.
+Brand Brain now uses **Brand asset actions** to upload a logo, alternate logo or reference image, or choose the preferred logo. Logo colors are extracted during server-side image validation and saved with the attachment; a separate Brand Brain save is not required for the automatic palette. Up to three distinct opaque colors are retained. Monochrome logos do not receive invented secondary or tertiary colors. Manual color changes still use **Save Brand Brain**.
+
+Re-upload an existing logo once to extract its palette; duplicate uploads reuse the same original asset. Original files and transparency are retained. Native logo previews use authenticated image requests instead of creating full-size base64 copies in JavaScript. Verify the AAMWA logo upload on the installed iOS app after the OTA; browser tests cannot certify a native crash fix.
