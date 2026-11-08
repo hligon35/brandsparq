@@ -1,6 +1,8 @@
 import { EssentialSection } from "@/components/essential";
 import { AppUpdateControl } from "@/components/AppUpdateControl";
-import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
+import { useEditorDraft } from "@/hooks/useEditorDraft";
+import { editorDraftKey } from "@/shared/editor-draft";
+import { EditorDraftNotice } from "@/components/editor-draft-notice";
 import { TimezonePicker, TimeWindows } from "@/components/pickers";
 import { useCapabilities } from "@/auth/capabilities";
 import { useAuth } from "@/auth/context";
@@ -39,24 +41,26 @@ export default function SettingsScreen() {
     }
   }
   const [saving, setSaving] = useState(false);
-  const { markSaved, discardChanges } = useUnsavedChanges(
+  const editor = useEditorDraft(
+    editorDraftKey(user?.id || "anonymous", "settings", "workspace"),
     { workspace, notifications },
     true,
     (saved) => {
-      setWorkspace(saved.workspace);
+      setWorkspace((current: any) => (can("settings_manage") ? saved.workspace : current));
       setNotifications(saved.notifications);
     },
   );
+  const { markSaved, discardChanges } = editor;
   const [loadError, setLoadError] = useState("");
   const [loaded, setLoaded] = useState(false);
-  const personalEditable = loaded && !saving;
+  const personalEditable = loaded && editor.ready && !editor.pending && !saving;
   const editable = personalEditable && can("settings_manage");
 
-  function load() {
+  function load(recover = false) {
     setLoadError("");
     return api
       .getSettings()
-      .then(({ data }) => {
+      .then(async ({ data }) => {
         const nextWorkspace = {
           timezone: data.workspace?.timezone || "America/Indiana/Indianapolis",
           defaultPrepublishMinutes: data.workspace?.default_prepublish_minutes ?? 30,
@@ -78,7 +82,10 @@ export default function SettingsScreen() {
         };
         setWorkspace(nextWorkspace);
         setNotifications(nextNotifications);
-        markSaved({ workspace: nextWorkspace, notifications: nextNotifications });
+        await editor.initialize(
+          { workspace: nextWorkspace, notifications: nextNotifications },
+          { recover, clear: !recover },
+        );
         setLoaded(true);
       })
       .catch((error) => {
@@ -86,7 +93,7 @@ export default function SettingsScreen() {
       });
   }
   useEffect(() => {
-    void load();
+    void load(true);
   }, []);
 
   async function save() {
@@ -94,6 +101,7 @@ export default function SettingsScreen() {
     try {
       await api.saveSettings({ ...(can("settings_manage") ? { workspace } : {}), notifications });
       markSaved({ workspace, notifications });
+      await editor.flush();
       Alert.alert(
         "Settings saved",
         "BrandSparQ will use these rules for scheduling and notifications.",
@@ -115,6 +123,7 @@ export default function SettingsScreen() {
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
+        accessibilityLabel={label}
         style={styles.input}
         editable={personal ? personalEditable : editable}
         keyboardType="number-pad"
@@ -140,11 +149,15 @@ export default function SettingsScreen() {
   return (
     <PageScroll>
       <PageHeader title="Settings" subtitle="Manage app updates, scheduling, and notifications." />
-      <AppUpdateControl beforeRestart={discardChanges} disabled={saving || notificationBusy} />
+      <EditorDraftNotice editor={editor} busy={saving || notificationBusy} />
+      <AppUpdateControl
+        beforeRestart={discardChanges}
+        disabled={saving || notificationBusy || editor.pending}
+      />
       {!!loadError && (
         <Card>
           <Text accessibilityRole="alert">{loadError}</Text>
-          <Button label="Try again" onPress={load} />
+          <Button label="Try again" onPress={() => void load()} />
         </Card>
       )}
       {!can("settings_manage") && <Text>Workspace settings are read-only for your role.</Text>}

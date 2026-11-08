@@ -572,6 +572,8 @@ export const api = {
       `/v1/public/review/${encodeURIComponent(token)}`,
     );
     if (result.data.image_url) result.data.image_url = resolveApiUrl(result.data.image_url);
+    if (result.data.source_image_url)
+      result.data.source_image_url = resolveApiUrl(result.data.source_image_url);
     return result;
   },
 

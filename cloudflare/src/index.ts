@@ -1,6 +1,7 @@
 import { reviewCopyEditable, scheduledCopyEditable } from "../../src/shared/post-copy";
 import { revokePushDevice } from "./push-cleanup";
 import { ArtworkNotReady, requireArtwork } from "./artwork";
+import { sourcePreviewKey } from "./post-preview";
 import { removeClient } from "./client-removal";
 import { processMetaWebhook, recoverMetaWebhooks } from "./meta-webhooks";
 import { validatedRequest } from "./request-validation";
@@ -225,7 +226,7 @@ async function getPost(env: Env, postId: string) {
 }
 
 async function signPostMedia(env: Env, requestUrl: string, userId: string, row: any) {
-  if (row?.graphic_key) {
+  if (row?.graphic_key && row.artwork_ready !== false) {
     row.image_url = await issuePostMediaUrl(env, requestUrl, userId, row.id, row.graphic_key);
   } else {
     row.image_url = null;
@@ -515,24 +516,39 @@ const worker = {
         );
       }
       row.artwork_ready = !!row.graphic_key && !!(await env.MEDIA.head(row.graphic_key));
-      row.image_url = row.graphic_key
+      row.image_url = row.artwork_ready
         ? "/v1/public/review/" + encodeURIComponent(publicReviewMatch[1]) + "/media"
         : null;
+      row.source_image_url =
+        !row.artwork_ready && (await sourcePreviewKey(env, row.id, row.client_id))
+          ? "/v1/public/review/" + encodeURIComponent(publicReviewMatch[1]) + "/source-media"
+          : null;
       return response(request, env, { data: row });
     }
 
-    const publicMediaMatch = url.pathname.match(/^\/v1\/public\/review\/([^/]+)\/media$/);
+    const publicMediaMatch = url.pathname.match(
+      /^\/v1\/public\/review\/([^/]+)\/(media|source-media)$/,
+    );
     if (publicMediaMatch && request.method === "GET") {
       const tokenHash = await hashReviewToken(publicMediaMatch[1], env);
       const row = await env.DB.prepare(
-        "SELECT p.graphic_key, rt.expires_at FROM review_tokens rt JOIN posts p ON p.id = rt.post_id WHERE rt.token_hash = ? AND rt.revoked_at IS NULL",
+        "SELECT p.id,p.client_id,p.graphic_key, rt.expires_at FROM review_tokens rt JOIN posts p ON p.id = rt.post_id WHERE rt.token_hash = ? AND rt.revoked_at IS NULL",
       )
         .bind(tokenHash)
-        .first<{ graphic_key?: string | null; expires_at: number }>();
-      if (!row || row.expires_at <= Date.now() || !row.graphic_key) {
+        .first<{
+          id: string;
+          client_id: string;
+          graphic_key?: string | null;
+          expires_at: number;
+        }>();
+      if (!row || row.expires_at <= Date.now()) {
         return response(request, env, { error: "Review image unavailable." }, { status: 404 });
       }
-      const object = await env.MEDIA.get(row.graphic_key);
+      const key =
+        publicMediaMatch[2] === "source-media"
+          ? await sourcePreviewKey(env, row.id, row.client_id)
+          : row.graphic_key;
+      const object = key ? await env.MEDIA.get(key) : null;
       if (!object)
         return response(request, env, { error: "Review image unavailable." }, { status: 404 });
       return new Response(object.body, {
@@ -2081,20 +2097,15 @@ const worker = {
 
       // Source previews are distinct from publishable artwork; never silently publish a fallback.
       post.source_image_url = null;
-      if (!post.graphic_key) {
-        const source = await env.DB.prepare(`SELECT a.r2_key FROM post_assets pa
-          JOIN assets a ON a.id=pa.asset_id AND a.client_id=?
-          WHERE pa.post_id=? AND pa.role='source' AND a.content_type LIKE 'image/%'
-          ORDER BY a.created_at ASC,a.id ASC LIMIT 1`)
-          .bind(post.client_id, post.id)
-          .first<{ r2_key: string }>();
+      if (!post.artwork_ready) {
+        const source = await sourcePreviewKey(env, post.id, post.client_id);
         if (source)
           post.source_image_url = await issuePostMediaUrl(
             env,
             request.url,
             sessionUser!.id,
             post.id,
-            source.r2_key,
+            source,
           );
       }
       return response(request, env, {

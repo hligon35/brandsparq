@@ -130,6 +130,7 @@ test("an uploaded source photo gets an authorized preview without becoming publi
   assert.equal(media.status, 200);
   assert.equal(await media.text(), "source photo bytes");
   w.exec("UPDATE posts SET graphic_key='finished.jpg' WHERE id='post'");
+  w.objects.set("finished.jpg", "finished artwork");
   const finished = (await (await w.request("/v1/posts/post", { user: "owner" })).json()).data;
   assert.ok(finished.image_url);
   assert.equal(finished.source_image_url, null);

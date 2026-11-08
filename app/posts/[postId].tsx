@@ -2,7 +2,11 @@ import { reviewCopyEditable, scheduledCopyEditable } from "@/shared/post-copy";
 import { EssentialSection } from "@/components/essential";
 import { renderFinalCopy, finalCopyError } from "@/shared/final-copy";
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
-import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
+import { useEditorDraft } from "@/hooks/useEditorDraft";
+import { editorDraftKey } from "@/shared/editor-draft";
+import { EditorDraftNotice } from "@/components/editor-draft-notice";
+import { useAuth } from "@/auth/context";
+import { approveSavedCopy } from "@/shared/approve-saved-copy";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert, confirmAction } from "@/components/feedback";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -18,6 +22,7 @@ type AiAction = "rewrite" | "image" | "regenerate" | null;
 
 export default function PostReviewScreen() {
   const can = useCapabilities();
+  const { user } = useAuth();
   const { postId } = useLocalSearchParams<{ postId: string }>();
   const router = useRouter();
   const [conflict, setConflict] = useState(false);
@@ -39,7 +44,13 @@ export default function PostReviewScreen() {
       // Only renew media; never replace draft copy, approval state or edit revisions.
       setPost((current) =>
         current?.id === id
-          ? { ...current, imageUrl: fresh.imageUrl, sourceImageUrl: fresh.sourceImageUrl }
+          ? {
+              ...current,
+              imageUrl: fresh.imageUrl,
+              sourceImageUrl: fresh.sourceImageUrl,
+              artworkReady: fresh.artworkReady,
+              publishBlockReason: fresh.publishBlockReason,
+            }
           : current,
       );
       setPreviewError(!fresh.imageUrl && !fresh.sourceImageUrl);
@@ -59,7 +70,8 @@ export default function PostReviewScreen() {
   const [creative, setCreative] = useState<any>(null);
   const [assigningAccount, setAssigningAccount] = useState(false);
   const { wide } = useResponsive();
-  const { dirty, markSaved } = useUnsavedChanges(
+  const editor = useEditorDraft(
+    editorDraftKey(user?.id || "anonymous", "post", postId),
     { headlineDraft, captionDraft },
     !!post &&
       can("review", post.clientId) &&
@@ -71,7 +83,12 @@ export default function PostReviewScreen() {
     },
   );
 
-  async function reload() {
+  const { dirty, markSaved } = editor;
+  const draftSnapshot = useRef({ dirty, text: JSON.stringify({ headlineDraft, captionDraft }) });
+  draftSnapshot.current = { dirty, text: JSON.stringify({ headlineDraft, captionDraft }) };
+
+  async function reload(preserveEdits = false, recover = false) {
+    const startedText = draftSnapshot.current.text;
     const version = ++loadVersion.current;
     setConflict(false);
     if (!postId) return;
@@ -83,6 +100,11 @@ export default function PostReviewScreen() {
         api.getClients(),
       ]);
       if (version !== loadVersion.current || entityRef.current !== postId) return;
+      if (
+        preserveEdits &&
+        (draftSnapshot.current.dirty || draftSnapshot.current.text !== startedText)
+      )
+        return;
       setTimezone(
         clients.find((client) => client.id === nextPost.clientId)?.timezone ||
           Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -90,24 +112,28 @@ export default function PostReviewScreen() {
       previewAttempt.current = "";
       setPreviewError(false);
       setPost(nextPost);
-      setHeadlineDraft(nextPost.title || "");
-      setCaptionDraft(renderFinalCopy(nextPost.caption || "", nextPost.hashtags));
-      markSaved({
-        headlineDraft: nextPost.title || "",
-        captionDraft: renderFinalCopy(nextPost.caption || "", nextPost.hashtags),
-      });
+      const allowed =
+        can("review", nextPost.clientId) &&
+        (reviewCopyEditable(nextPost.status) ||
+          (scheduledCopyEditable(nextPost.status) && can("calendar_manage", nextPost.clientId)));
+      await editor.initialize(
+        {
+          headlineDraft: nextPost.title || "",
+          captionDraft: renderFinalCopy(nextPost.caption || "", nextPost.hashtags),
+        },
+        { recover: recover && allowed, clear: !recover, persist: allowed },
+      );
       setCreative(nextCreative.data);
     } catch (error) {
       if (version !== loadVersion.current || entityRef.current !== postId) return;
       if (isEditConflict(error)) setConflict(true);
-      setPost(undefined);
       setLoadError(error instanceof Error ? error.message : "Unable to load post.");
       throw error;
     }
   }
 
   useEffect(() => {
-    void reload().catch(() => undefined);
+    void reload(false, true).catch(() => undefined);
     return () => {
       loadVersion.current++;
     };
@@ -130,7 +156,7 @@ export default function PostReviewScreen() {
   useEffect(() => {
     if (!["regenerating", "review_ready"].includes(post?.status || "")) return;
     const timer = setInterval(() => {
-      if (!dirty) void reload().catch(() => undefined);
+      if (!draftSnapshot.current.dirty) void reload(true, true).catch(() => undefined);
     }, 3000);
     return () => clearInterval(timer);
   }, [post?.status, postId, dirty]);
@@ -142,7 +168,7 @@ export default function PostReviewScreen() {
           <Text style={styles.title}>{loadError ? "Post unavailable" : "Loading post…"}</Text>
           {!!loadError && <Text style={styles.body}>{loadError}</Text>}
           {!!loadError && (
-            <Pressable onPress={() => void reload()}>
+            <Pressable onPress={() => void reload().catch(() => undefined)}>
               <Text style={styles.retry}>Try again</Text>
             </Pressable>
           )}
@@ -152,9 +178,11 @@ export default function PostReviewScreen() {
   }
 
   const reviewable = reviewCopyEditable(post.status);
-  const editable = reviewable && can("review", post.clientId);
+  const editable = reviewable && editor.ready && !editor.pending && can("review", post.clientId);
   const scheduled = scheduledCopyEditable(post.status);
   const copyEditable =
+    editor.ready &&
+    !editor.pending &&
     can("review", post.clientId) &&
     (reviewable || (scheduled && can("calendar_manage", post.clientId)));
   const previewUrl = post.imageUrl || post.sourceImageUrl;
@@ -184,15 +212,36 @@ export default function PostReviewScreen() {
     }
   }
 
+  async function persistCopy() {
+    const id = post!.id;
+    const saved = await api.editPost(id, {
+      headline: headlineDraft,
+      caption: captionDraft,
+      hashtags: [],
+      expectedRevision: post!.revision,
+    });
+    if (entityRef.current !== id) throw new Error("The post changed. Reopen it before continuing.");
+    setPost((current) =>
+      current?.id === id
+        ? {
+            ...current,
+            revision: saved.revision,
+            title: headlineDraft,
+            caption: captionDraft,
+            hashtags: [],
+            status: current.status === "edit_requested" ? "awaiting_approval" : current.status,
+          }
+        : current,
+    );
+    markSaved({ headlineDraft, captionDraft });
+    await editor.flush().catch(() => undefined);
+    return saved;
+  }
+
   async function saveCopy() {
     setSaving(true);
     try {
-      await api.editPost(post!.id, {
-        headline: headlineDraft,
-        caption: captionDraft,
-        hashtags: [],
-        expectedRevision: post!.revision,
-      });
+      await persistCopy();
       await reload();
     } catch (error) {
       if (isEditConflict(error)) setConflict(true);
@@ -229,23 +278,22 @@ export default function PostReviewScreen() {
   }
 
   async function approve() {
+    const operation = loadVersion.current;
     setSaving(true);
     try {
-      let revision = post!.revision;
-      {
-        const saved = await api.editPost(post!.id, {
-          headline: headlineDraft,
-          caption: captionDraft,
-          hashtags: [],
-          expectedRevision: revision,
-        });
-        revision = saved.revision;
-        markSaved({ headlineDraft, captionDraft });
-      }
-      await api.approvePost(post!.id, revision);
+      const id = post!.id;
+      const saved = await persistCopy();
+      await approveSavedCopy(
+        saved.revision,
+        (revision) => api.approvePost(id, revision),
+        () => api.getPost(id),
+      );
+      if (entityRef.current !== id || operation !== loadVersion.current) return;
       Alert.alert("Approved", "This post is now on the marketing calendar.");
-      router.back();
+      if (router.canGoBack()) router.back();
+      else router.replace({ pathname: "/calendar", params: { clientId: post!.clientId } });
     } catch (error) {
+      if (operation !== loadVersion.current) return;
       if (isEditConflict(error)) setConflict(true);
       Alert.alert("Approval failed", error instanceof Error ? error.message : "Try again.");
     } finally {
@@ -254,6 +302,13 @@ export default function PostReviewScreen() {
   }
 
   async function runAi(action: Exclude<AiAction, null>) {
+    if (!editor.ready || editor.pending) {
+      Alert.alert(
+        "Resolve recovered draft first",
+        "Restore or discard the recovered draft before requesting AI changes.",
+      );
+      return;
+    }
     if (
       dirty &&
       !(await confirmAction(
@@ -293,7 +348,13 @@ export default function PostReviewScreen() {
 
   return (
     <PageScroll>
-      {conflict && <EditConflict busy={saving || assigningAccount} onReload={reload} />}
+      {conflict && <EditConflict busy={saving || assigningAccount} onReload={() => reload()} />}
+      <EditorDraftNotice editor={editor} busy={saving || assigningAccount || !!aiAction} />
+      {!!loadError && (
+        <Card subtle>
+          <Text accessibilityRole="alert">{loadError}</Text>
+        </Card>
+      )}
       <PageHeader
         title={post.clientName || "Client"}
         subtitle={post.platform.toUpperCase()}

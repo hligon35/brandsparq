@@ -20,7 +20,12 @@ const remove = async (key: string) => {
   else await SecureStore.deleteItemAsync(key);
 };
 export async function readDraft<T>(key: string): Promise<T | null> {
-  await queues.get(key)?.catch(() => undefined);
+  // A completing writer can enqueue a newer snapshot before restoration starts.
+  for (;;) {
+    const pending = queues.get(key);
+    await pending?.catch(() => undefined);
+    if (queues.get(key) === pending) break;
+  }
   const pointer = await read(key);
   if (!pointer) return null;
   const manifest = JSON.parse(pointer);

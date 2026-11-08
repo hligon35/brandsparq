@@ -1,4 +1,4 @@
-import { GuardedLink as Link } from "@/hooks/useUnsavedChanges";
+import { GuardedLink as Link, useGuardedTabPress } from "@/hooks/useUnsavedChanges";
 import { useCapabilities } from "@/auth/capabilities";
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs, usePathname } from "expo-router";
@@ -76,6 +76,7 @@ function MobileHeader() {
 
 export default function TabsLayout() {
   const can = useCapabilities();
+  const tabPress = useGuardedTabPress();
   const { ready, user } = useAuth();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -93,6 +94,16 @@ export default function TabsLayout() {
 
   return (
     <Tabs
+      screenListeners={({ navigation, route }) => ({
+        tabPress: (event) => {
+          const state = navigation.getState();
+          tabPress(
+            event,
+            () => navigation.navigate(route.name, route.params),
+            state.routes[state.index]?.key === route.key,
+          );
+        },
+      })}
       screenOptions={{
         headerShown: true,
         header: () => (desktopWeb ? <DesktopHeader /> : <MobileHeader />),

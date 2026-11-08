@@ -77,11 +77,15 @@ export default function CreateScreen() {
         !!destinationIds.length ||
         creationMode !== "campaign" ||
         outputCount !== 3),
-    () => {
+    (saved) => {
       operation.current++;
       pending.current = null;
       setPendingCreation(false);
       setItems([]);
+      setObjective(saved.objective);
+      setCreationMode(saved.creationMode);
+      setOutputCount(saved.outputCount);
+      setDestinationIds(saved.destinationIds);
       void saveDraft(draftKey, null).catch(() => undefined);
     },
   );

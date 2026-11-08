@@ -1,7 +1,11 @@
+import { useEditorDraft } from "@/hooks/useEditorDraft";
+import { editorDraftKey } from "@/shared/editor-draft";
+import { EditorDraftNotice } from "@/components/editor-draft-notice";
+import { useAuth } from "@/auth/context";
 import { EssentialSection } from "@/components/essential";
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
 import { AssetThumbnail } from "@/components/asset-thumbnail";
-import { GuardedLink as Link, useUnsavedChanges } from "@/hooks/useUnsavedChanges";
+import { GuardedLink as Link } from "@/hooks/useUnsavedChanges";
 
 import { useCapabilities } from "@/auth/capabilities";
 import { TimezonePicker, ColorPicker } from "@/components/pickers";
@@ -38,6 +42,7 @@ const fields = [
 export default function BrandBrainScreen() {
   const { clientId } = useLocalSearchParams<{ clientId: string }>();
   const can = useCapabilities();
+  const { user } = useAuth();
   const [conflict, setConflict] = useState(false);
   const entityRef = useRef(clientId);
   entityRef.current = clientId;
@@ -46,7 +51,7 @@ export default function BrandBrainScreen() {
   const [clientActive, setClientActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [revision, setRevision] = useState<number>();
-  const editable = loaded && clientActive && !saving && can("brand_manage", clientId);
+
   const [brand, setBrand] = useState<Record<string, string>>({});
   const [name, setName] = useState("Brand Brain");
   const [timezone, setTimezone] = useState("");
@@ -60,7 +65,8 @@ export default function BrandBrainScreen() {
   } | null>(null);
   const [error, setError] = useState("");
   const { wide } = useResponsive();
-  const { markSaved } = useUnsavedChanges(
+  const editor = useEditorDraft(
+    editorDraftKey(user?.id || "anonymous", "brand", clientId),
     { name, timezone, brand },
     loaded && clientActive && can("brand_manage", clientId),
     (saved) => {
@@ -70,7 +76,17 @@ export default function BrandBrainScreen() {
     },
   );
 
-  function applyProfile(data: any) {
+  const { markSaved } = editor;
+  const editable =
+    loaded &&
+    editor.ready &&
+    !editor.pending &&
+    clientActive &&
+    !saving &&
+    can("brand_manage", clientId);
+
+  async function applyProfile(data: any, recover = false) {
+    const version = loadVersion.current;
     setClientActive(data.client_status === undefined || data.client_status === "active");
     setName(data.name || "Brand Brain");
     setTimezone(data.timezone || "");
@@ -102,12 +118,17 @@ export default function BrandBrainScreen() {
       timezone: data.timezone || "",
       brand: nextBrand,
     };
-    markSaved(savedProfile.current);
+    await editor.initialize(savedProfile.current, {
+      recover,
+      clear: !recover,
+      persist: can("brand_manage", clientId) && data.client_status !== "archived",
+    });
+    if (entityRef.current !== clientId || version !== loadVersion.current) return;
     setRevision(data.revision);
     setLoaded(true);
   }
 
-  async function load() {
+  async function load(recover = false) {
     const version = ++loadVersion.current;
     setConflict(false);
     if (!clientId) return;
@@ -118,7 +139,7 @@ export default function BrandBrainScreen() {
         api.getBrandAssets(clientId),
       ]);
       if (version !== loadVersion.current || entityRef.current !== clientId) return;
-      applyProfile(data);
+      await applyProfile(data, recover && can("brand_manage", clientId));
       setAssets(assetResult.data);
     } catch (err) {
       if (version !== loadVersion.current || entityRef.current !== clientId) return;
@@ -127,7 +148,7 @@ export default function BrandBrainScreen() {
     }
   }
   useEffect(() => {
-    void load();
+    void load(true);
     return () => {
       loadVersion.current++;
     };
@@ -144,7 +165,7 @@ export default function BrandBrainScreen() {
         expectedRevision: revision,
       });
       if (entityRef.current !== clientId) return;
-      applyProfile(saved.data);
+      await applyProfile(saved.data);
       Alert.alert("Brand Brain saved", "Future generations will use these rules.");
     } catch (err) {
       if (isEditConflict(err)) setConflict(true);
@@ -218,14 +239,15 @@ export default function BrandBrainScreen() {
 
   return (
     <PageScroll>
-      {conflict && <EditConflict busy={saving} onReload={load} />}
+      {conflict && <EditConflict busy={saving} onReload={() => load()} />}
+      <EditorDraftNotice editor={editor} busy={saving} />
       <PageHeader title={name} subtitle="Brand Brain · Voice, visuals, and publishing rules." />
 
       {error && (
         <Card subtle>
           <Text style={styles.errorTitle}>Brand Brain unavailable</Text>
           <Text style={styles.errorBody}>{error}</Text>
-          <Pressable onPress={load}>
+          <Pressable onPress={() => void load()}>
             <Text style={styles.retry}>Try again</Text>
           </Pressable>
         </Card>

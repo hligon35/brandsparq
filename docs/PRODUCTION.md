@@ -2,6 +2,44 @@
 
 Production host: `https://brandsparq.getsparqd.com`
 
+## Mobile editing and recovery pass 2
+
+This builds on mobile stability pass 1 and adds no migration beyond `0033_push_cleanup.sql`.
+Deploy the updated Worker/web app before the matching mobile OTA in the target environment.
+No additional native dependency or native rebuild is required.
+
+The authenticated Brand Brain, campaign, individual post-copy, and Settings editors retain
+device drafts scoped by user, editor type, and entity. Drafts are debounced, flushed when
+backgrounding/leaving an editor, and cleared after a confirmed save or explicit discard.
+Native drafts use encrypted SecureStore chunks; web drafts use that browser tab's session
+storage. An abrupt OS termination before the last write finishes can still lose recent edits.
+Storage failures are reported without claiming that changes were saved to the server.
+
+A draft with an unchanged server baseline restores automatically after the authorized editor
+loads. If saved fields changed elsewhere, current server fields remain visible and the user
+must explicitly restore or discard the recovered draft before editing. Restoring is a local
+action; saving still uses the latest loaded revision checks. Read-only editors do not restore
+or clear private drafts. Pending writes coalesce rather than queuing every intermediate edit.
+
+Bottom tabs now use the same unsaved-change guard as header actions and guarded links. Keep
+editing retains the current route; discard restores the saved form and clears its draft before
+leaving. Create also resets its mode, objective, output count and destinations on discard.
+
+Caption saving checkpoints the returned content revision before approval or refresh. If an
+approval response is lost, the app checks that the exact revision is already approved before
+reporting success; it never automatically submits a second approval. A failed refresh retains
+the visible copy. Polling cannot replace edits made after a refresh request began.
+
+Public review links can show a clearly labeled source photo when final artwork is missing.
+The source-image route requires a valid, unexpired, unrevoked review token and the asset must
+belong to that post's client. It does not become publishable artwork. Preview retry updates
+only image fields and preserves unsaved review text; expired review links require a new link.
+
+Device acceptance: restart each authenticated editor with unsaved changes; restore and discard
+a draft after a remote update; cancel and confirm bottom-tab navigation; interrupt approval
+after caption saving; retry a broken public preview while editing its caption. Browser test
+definitions and native exports do not replace installed iOS/Android verification.
+
 ## Mobile stability pass 1
 
 Apply `0033_push_cleanup.sql` to the target database, then deploy the Worker/web bundle
