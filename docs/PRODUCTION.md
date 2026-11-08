@@ -185,13 +185,14 @@ Workspace settings control:
 - timezone
 - minimum spacing
 - maximum daily posts
-- preferred windows
 - blackout windows
 - pre-publish alert timing
 - no-response policy
 - analytics refresh cadence
 
-Approval passes the AI-proposed time through the scheduling engine. Conflicts are moved to the next valid slot.
+Choose a specific date and time with the time picker on each post’s Reschedule screen. A valid requested time is preserved; there is no preferred-window restriction. Approval still accepts the AI-proposed time, and real conflicts (blackouts, allowed weekdays, spacing, daily caps, campaign dates, or past times) move to the next valid slot with an adjustment notice.
+
+Preferred posting windows are retired from Settings and the settings API. Legacy values in workspace/client storage are ignored, and older app payloads cannot reactivate the feature. No migration is required for this change.
 
 No-response policies:
 

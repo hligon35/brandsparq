@@ -321,21 +321,21 @@ test("publish job duplicates cannot claim twice and retry keeps one execution id
 test("calendar respects Indianapolis daylight saving, blackout windows, spacing and daily caps", async (t) => {
   const w = workspace(t);
   w.exec(
-    `UPDATE workspace_settings SET preferred_windows='["09:00-11:00"]',blackout_windows='["09:00-09:30"]',min_post_spacing_minutes=60,max_posts_per_day=1`,
+    `UPDATE workspace_settings SET blackout_windows='["09:00-09:30"]',min_post_spacing_minutes=60,max_posts_per_day=1`,
   );
   assert.equal(
-    await findNextAvailableSlot(w.env, "client-a", "2030-01-07T13:00:00Z"),
+    await findNextAvailableSlot(w.env, "client-a", "2030-01-07T14:00:00Z"),
     "2030-01-07T14:45:00.000Z",
   );
   assert.equal(
-    await findNextAvailableSlot(w.env, "client-a", "2030-07-08T12:00:00Z"),
+    await findNextAvailableSlot(w.env, "client-a", "2030-07-08T13:00:00Z"),
     "2030-07-08T13:45:00.000Z",
   );
   w.post("existing", "client-a", "calendar_scheduled");
   w.exec("UPDATE posts SET scheduled_publish_at='2030-07-08T13:45:00.000Z' WHERE id='existing'");
   assert.equal(
     await findNextAvailableSlot(w.env, "client-a", "2030-07-08T13:45:00Z"),
-    "2030-07-09T13:45:00.000Z",
+    "2030-07-09T04:00:00.000Z",
   );
 });
 

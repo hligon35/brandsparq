@@ -931,3 +931,33 @@ test("campaign delivery actions report eligible changes and preserve post naviga
   await page.getByRole("link", { name: "Open post", exact: true }).click();
   await expect(page).toHaveURL(/posts\/fixture-post$/);
 });
+
+test("custom time picker schedules noon exactly and Settings has no preferred windows", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/review/fixture-review");
+  await page.getByRole("button", { name: /Approve/ }).click();
+  await expect(
+    page.getByText("This post has been added to the official marketing calendar."),
+  ).toBeVisible();
+  await signIn(page);
+  await page.goto("/posts/fixture-post/reschedule");
+  await expect(page.getByRole("button", { name: "Save custom time", exact: true })).toBeEnabled();
+  await page.getByRole("textbox", { name: "YYYY-MM-DD", exact: true }).fill("2030-01-07");
+  await page.getByRole("button", { name: /^Time:/ }).click();
+  await page.getByRole("button", { name: "Hour 12", exact: true }).click();
+  await page.getByRole("button", { name: "Minute 00", exact: true }).click();
+  await page.getByRole("button", { name: "Use time", exact: true }).click();
+  await page.getByRole("button", { name: "Save custom time", exact: true }).click();
+  await expect(page.getByRole("alert", { name: "Rescheduled", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close message", exact: true }).click();
+  const state = await (await request.post("/__test/state")).json();
+  expect(state.post.scheduled_publish_at).toBe("2030-01-07T17:00:00.000Z");
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+  await expect(page.getByText("Preferred windows", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Add preferred windows", exact: true }),
+  ).toHaveCount(0);
+});
