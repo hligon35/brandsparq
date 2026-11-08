@@ -5,7 +5,7 @@ import { GuardedLink as Link, useUnsavedChanges } from "@/hooks/useUnsavedChange
 
 import { useCapabilities } from "@/auth/capabilities";
 import { TimezonePicker, ColorPicker } from "@/components/pickers";
-import { logoColors } from "@/media/logoColors";
+import { Ionicons } from "@expo/vector-icons";
 import { Alert, confirmAction } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams } from "expo-router";
@@ -51,6 +51,13 @@ export default function BrandBrainScreen() {
   const [name, setName] = useState("Brand Brain");
   const [timezone, setTimezone] = useState("");
   const [assets, setAssets] = useState<any[]>([]);
+  const [assetMenuOpen, setAssetMenuOpen] = useState(false);
+  const assetBusy = useRef(false);
+  const savedProfile = useRef<{
+    name: string;
+    timezone: string;
+    brand: Record<string, string>;
+  } | null>(null);
   const [error, setError] = useState("");
   const { wide } = useResponsive();
   const { markSaved } = useUnsavedChanges(
@@ -79,6 +86,7 @@ export default function BrandBrainScreen() {
       restrictedWords: data.restricted_words || "",
       primaryColor: data.primary_color || "",
       secondaryColor: data.secondary_color || "",
+      tertiaryColor: data.tertiary_color || "",
       fonts: data.fonts || "",
       brandExamples: data.brand_examples || "",
       prohibitedVisualStyles: data.prohibited_visual_styles || "",
@@ -89,11 +97,12 @@ export default function BrandBrainScreen() {
       platformRules: data.platform_rules || "",
     };
     setBrand(nextBrand);
-    markSaved({
+    savedProfile.current = {
       name: data.name || "Brand Brain",
       timezone: data.timezone || "",
       brand: nextBrand,
-    });
+    };
+    markSaved(savedProfile.current);
     setRevision(data.revision);
     setLoaded(true);
   }
@@ -146,7 +155,10 @@ export default function BrandBrainScreen() {
   }
 
   async function addAsset(role: "logo" | "alternate_logo" | "reference") {
-    if (!clientId) return;
+    if (!clientId || assetBusy.current) return;
+    assetBusy.current = true;
+    const version = loadVersion.current;
+    setAssetMenuOpen(false);
     setSaving(true);
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -154,7 +166,7 @@ export default function BrandBrainScreen() {
         selectionLimit: 1,
         quality: 1,
       });
-      if (result.canceled || !result.assets[0]) return;
+      if (result.canceled || !result.assets[0] || version !== loadVersion.current) return;
       const file = result.assets[0];
       const uploaded = await api.uploadAsset(
         clientId,
@@ -162,32 +174,45 @@ export default function BrandBrainScreen() {
         file.fileName || `brand-${role}.png`,
         file.mimeType || "image/png",
       );
+      if (version !== loadVersion.current) return;
       const attached = await api.attachBrandAsset(
         clientId,
         uploaded.id,
         role,
         revision!,
         file.fileName || undefined,
+        role !== "reference" ? uploaded.palette : undefined,
       );
       if (entityRef.current !== clientId) return;
       setRevision(attached.revision);
-      const extracted = role !== "reference" ? await logoColors(file.uri).catch(() => []) : [];
-      const refreshedAssets = await api.getBrandAssets(clientId);
-      if (entityRef.current !== clientId) return;
-      setAssets(refreshedAssets.data);
+      const extracted = attached.palette || [];
       if (role !== "reference" && !extracted.length)
         Alert.alert("Logo uploaded", "Choose the brand colors manually for this image.");
-      if (extracted.length)
-        setBrand((current) => ({
-          ...current,
+      if (extracted.length) {
+        const palette = {
           primaryColor: extracted[0],
-          secondaryColor: extracted[1] || extracted[0],
-        }));
+          secondaryColor: extracted[1] || "",
+          tertiaryColor: extracted[2] || "",
+        };
+        setBrand((current) => ({ ...current, ...palette }));
+        // Only the palette was persisted; keep other draft fields dirty.
+        if (savedProfile.current) {
+          savedProfile.current = {
+            ...savedProfile.current,
+            brand: { ...savedProfile.current.brand, ...palette },
+          };
+          markSaved(savedProfile.current);
+        }
+      }
+      const refreshedAssets = await api.getBrandAssets(clientId);
+      if (version !== loadVersion.current) return;
+      setAssets(refreshedAssets.data);
     } catch (err) {
       if (isEditConflict(err)) setConflict(true);
       Alert.alert("Unable to add brand asset", err instanceof Error ? err.message : "Try again.");
     } finally {
-      setSaving(false);
+      assetBusy.current = false;
+      if (version === loadVersion.current) setSaving(false);
     }
   }
 
@@ -237,39 +262,61 @@ export default function BrandBrainScreen() {
           title="Brand assets"
           subtitle="Upload primary logos, alternate logos, and approved reference images."
         />
-        {editable && (
-          <View style={styles.assetActions}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Brand asset actions"
+          accessibilityState={{ expanded: assetMenuOpen, disabled: !editable }}
+          disabled={!editable}
+          onPress={() => setAssetMenuOpen((open) => !open)}
+          style={styles.assetDropdown}
+        >
+          <Text style={styles.assetName}>
+            {saving ? "Adding asset…" : "Add or choose brand asset"}
+          </Text>
+          <Ionicons
+            name={assetMenuOpen ? "chevron-up" : "chevron-down"}
+            size={18}
+            color={colors.muted}
+          />
+        </Pressable>
+        <Text style={styles.assetRole}>
+          Active logo: {brand.logoPreference === "alternate" ? "Alternate" : "Primary"}
+        </Text>
+        {assetMenuOpen && editable && (
+          <View style={styles.assetMenu}>
             {[
-              { label: "Upload\nlogo", role: "logo" },
-              { label: "Upload\nalternate logo", role: "alternate_logo" },
-              { label: "Add reference\nimage", role: "reference" },
+              { label: "Upload logo", role: "logo" },
+              { label: "Upload alternate logo", role: "alternate_logo" },
+              { label: "Add reference image", role: "reference" },
             ].map((item) => (
-              <View key={item.role} style={styles.assetCell}>
-                <Button
-                  label={item.label}
-                  secondary
-                  onPress={
-                    saving
-                      ? undefined
-                      : () => addAsset(item.role as "logo" | "alternate_logo" | "reference")
-                  }
-                />
-              </View>
+              <Pressable
+                key={item.role}
+                accessibilityRole="button"
+                accessibilityLabel={item.label}
+                onPress={() => void addAsset(item.role as "logo" | "alternate_logo" | "reference")}
+                style={styles.assetOption}
+              >
+                <Text style={styles.assetName}>{item.label}</Text>
+              </Pressable>
             ))}
-            <View style={[styles.assetCell, { gap: 8 }]}>
-              {["primary", "alternate"].map((value) => (
-                <Button
-                  key={value}
-                  label={value}
-                  secondary={brand.logoPreference !== value}
-                  onPress={
-                    saving
-                      ? undefined
-                      : () => setBrand((current) => ({ ...current, logoPreference: value }))
-                  }
-                />
-              ))}
-            </View>
+            {["primary", "alternate"].map((value) => (
+              <Pressable
+                key={value}
+                accessibilityRole="button"
+                accessibilityLabel={`Use ${value} logo`}
+                accessibilityState={{ selected: brand.logoPreference === value }}
+                onPress={() => {
+                  setBrand((current) => ({ ...current, logoPreference: value }));
+                  setAssetMenuOpen(false);
+                }}
+                style={styles.assetOption}
+              >
+                <Text style={styles.assetName}>Use {value} logo</Text>
+                {brand.logoPreference === value && (
+                  <Ionicons name="checkmark" size={18} color={colors.primary} />
+                )}
+              </Pressable>
+            ))}
           </View>
         )}
         {!!assets.length && (
@@ -333,13 +380,13 @@ export default function BrandBrainScreen() {
       <Card>
         <SectionTitle
           title="Brand colors"
-          subtitle="Logo uploads select prominent colors. Tap a color to adjust it, then save Brand Brain."
+          subtitle="Logo uploads automatically save up to three distinct colors. Tap a color to adjust it, then save Brand Brain."
         />
-        <View style={{ flexDirection: "row", gap: 12 }}>
-          {["primaryColor", "secondaryColor"].map((key, i) => (
-            <View key={key} style={{ flex: 1 }}>
+        <View style={styles.paletteRow}>
+          {["primaryColor", "secondaryColor", "tertiaryColor"].map((key, i) => (
+            <View key={key} style={styles.paletteColor}>
               <ColorPicker
-                label={i === 0 ? "Primary" : "Secondary"}
+                label={["Primary", "Secondary", "Tertiary"][i]}
                 value={brand[key] || ""}
                 disabled={!editable}
                 onChange={(value) => setBrand((current) => ({ ...current, [key]: value }))}
@@ -437,8 +484,25 @@ const styles = StyleSheet.create({
   },
   multiline: { minHeight: 96, textAlignVertical: "top" },
   saveWrap: { alignSelf: "stretch" },
-  assetActions: { flexDirection: "row", flexWrap: "wrap", columnGap: "4%", rowGap: 12 },
-  assetCell: { width: "48%", justifyContent: "center" },
+  paletteRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  paletteColor: { flexGrow: 1, flexBasis: 120, minWidth: 0 },
+  assetDropdown: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 48,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+  },
+  assetMenu: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    overflow: "hidden",
+  },
+  assetOption: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, padding: 12 },
   assetList: { gap: 8 },
   assetRow: {
     flexDirection: "row",

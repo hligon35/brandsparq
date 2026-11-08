@@ -189,6 +189,7 @@ function brandContext(row: any) {
     audience: row.audience || "general audience",
     primaryColor: row.primary_color || "",
     secondaryColor: row.secondary_color || "",
+    tertiaryColor: row.tertiary_color || "",
     website: row.website || "",
     tagline: row.tagline || "",
     preferredCtas: row.preferred_ctas || "",
@@ -332,7 +333,7 @@ async function brandLogoInput(
 async function loadPost(env: GenerationEnv, postId: string) {
   return env.DB.prepare(
     `SELECT p.*,c.name AS client_name,c.timezone,
-      bp.voice,bp.audience,bp.primary_color,bp.secondary_color,bp.website,
+      bp.voice,bp.audience,bp.primary_color,bp.secondary_color,bp.tertiary_color,bp.website,
       bp.tagline,bp.preferred_ctas,bp.imagery_preferences,bp.posting_rules,bp.restricted_words,
       bp.fonts,bp.brand_examples,bp.prohibited_visual_styles,bp.competitor_references,
       bp.brand_vocabulary,bp.hashtag_policy,bp.target_locations,bp.platform_rules,
@@ -373,6 +374,7 @@ async function generateGraphic(
     cta: generated.cta,
     primaryColor: post.primary_color,
     secondaryColor: post.secondary_color,
+    tertiaryColor: post.tertiary_color,
     logoAssetId: post.logo_asset_id,
   });
 
@@ -790,7 +792,7 @@ async function processGenerationJob(env: GenerationEnv, jobId: string, claimToke
 
   let job = await env.DB.prepare(
     `SELECT g.*,c.name AS client_name,c.timezone,
-      bp.voice,bp.audience,bp.primary_color,bp.secondary_color,bp.website,
+      bp.voice,bp.audience,bp.primary_color,bp.secondary_color,bp.tertiary_color,bp.website,
       bp.tagline,bp.preferred_ctas,bp.imagery_preferences,bp.posting_rules,bp.restricted_words,
       bp.fonts,bp.brand_examples,bp.prohibited_visual_styles,bp.competitor_references,
       bp.brand_vocabulary,bp.hashtag_policy,bp.target_locations,bp.platform_rules,
@@ -1131,6 +1133,7 @@ async function processGenerationJob(env: GenerationEnv, jobId: string, claimToke
       cta: p.cta,
       primaryColor: job.primary_color,
       secondaryColor: job.secondary_color,
+      tertiaryColor: job.tertiary_color,
       logoAssetId: job.logo_asset_id,
     });
 

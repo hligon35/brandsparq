@@ -127,6 +127,11 @@ const sourceBlob = (uri: string) =>
   });
 
 export const api = {
+  assetImageSource: (assetId: string) => ({
+    uri: resolveApiUrl(`/v1/assets/${encodeURIComponent(assetId)}`)!,
+    headers: Object.fromEntries(authHeaders().entries()),
+    cache: "reload" as const,
+  }),
   async getAssetImage(assetId: string, signal?: AbortSignal) {
     const session = transport.captureSession();
     return readResponse(
@@ -294,12 +299,13 @@ export const api = {
     role: string,
     expectedRevision: number,
     label?: string,
+    palette?: string[],
   ) =>
-    jsonRequest<{ ok: true; id: string; revision: number }>(
+    jsonRequest<{ ok: true; id: string; revision: number; palette?: string[] }>(
       `/v1/clients/${clientId}/brand-assets`,
       {
         method: "POST",
-        body: JSON.stringify({ assetId, role, label, expectedRevision }),
+        body: JSON.stringify({ assetId, role, label, expectedRevision, palette }),
       },
     ),
 

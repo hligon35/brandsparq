@@ -41,6 +41,7 @@ export interface BrandProfile {
 }
 
 export interface Asset {
+  palette?: string[];
   id: string;
   clientId: string;
   filename: string;

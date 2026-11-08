@@ -7,6 +7,7 @@ const fields: Record<string, string> = {
   audience: "audience",
   primaryColor: "primary_color",
   secondaryColor: "secondary_color",
+  tertiaryColor: "tertiary_color",
   website: "website",
   restrictedWords: "restricted_words",
   tagline: "tagline",

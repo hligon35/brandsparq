@@ -59,6 +59,7 @@ export function deterministicComposition(input: {
   cta?: string | null;
   primaryColor?: string | null;
   secondaryColor?: string | null;
+  tertiaryColor?: string | null;
   logoAssetId?: string | null;
 }) {
   const profile = creativeProfile(input.platform);
@@ -98,6 +99,7 @@ export function deterministicComposition(input: {
     colors: {
       primary: input.primaryColor || "#0B78F6",
       secondary: input.secondaryColor || "#00C9D7",
+      ...(input.tertiaryColor ? { tertiary: input.tertiaryColor } : {}),
     },
   };
 }
