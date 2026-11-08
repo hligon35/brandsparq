@@ -12,6 +12,61 @@ async function signIn(page) {
       "Bearer " + (await page.evaluate(() => sessionStorage.getItem("brandsparq_session"))),
   };
 }
+test("review shows the source image and saves caption edits when graphic generation failed", async ({
+  page,
+  request,
+}) => {
+  await request.post("/__test/source-preview");
+  await signIn(page);
+  await page.goto("/posts/fixture-post");
+  const photo = page.getByRole("img", { name: "Source photo preview", exact: true });
+  await expect(photo).toBeVisible();
+  await expect
+    .poll(() => photo.evaluate((image) => image.complete && image.naturalWidth > 0))
+    .toBe(true);
+  const caption = page.getByLabel("Caption", { exact: true });
+  await expect(caption).toBeEditable();
+  await caption.fill("Caption corrected from review #Wellness");
+  const saved = page.waitForResponse(
+    (r) => r.url().endsWith("/v1/posts/fixture-post/edit") && r.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Save copy", exact: true }).click();
+  expect((await saved).status()).toBe(200);
+  await expect(page.getByRole("button", { name: "Save copy", exact: true })).toBeVisible();
+  await page.reload();
+  await expect(caption).toHaveValue("Caption corrected from review #Wellness");
+  const state = await (await request.post("/__test/state")).json();
+  expect(state.post.graphic_key).toBeNull();
+  expect(state.post.status).toBe("awaiting_approval");
+});
+
+test("scheduled posts retain image, editable caption and their scheduled time", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/review/fixture-review");
+  await page.getByRole("button", { name: /Approve/ }).click();
+  await expect(
+    page.getByText("This post has been added to the official marketing calendar."),
+  ).toBeVisible();
+  const before = await (await request.post("/__test/state")).json();
+  await signIn(page);
+  await page.goto("/posts/fixture-post");
+  await expect(page.getByRole("img", { name: "Post image", exact: true })).toBeVisible();
+  const caption = page.getByLabel("Caption", { exact: true });
+  await expect(caption).toBeEditable();
+  await caption.fill("Updated scheduled caption");
+  const saved = page.waitForResponse(
+    (r) => r.url().endsWith("/v1/posts/fixture-post/edit") && r.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Save copy", exact: true }).click();
+  expect((await saved).status()).toBe(200);
+  await page.reload();
+  await expect(caption).toHaveValue("Updated scheduled caption");
+  const after = await (await request.post("/__test/state")).json();
+  expect(after.post.scheduled_publish_at).toBe(before.post.scheduled_publish_at);
+  expect(after.post.status).toBe(before.post.status);
+});
 test("stale Brand Brain edits remain visible and reload requires explicit discard", async ({
   page,
   request,

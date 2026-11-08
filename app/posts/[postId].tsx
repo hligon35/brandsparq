@@ -1,3 +1,4 @@
+import { reviewCopyEditable, scheduledCopyEditable } from "@/shared/post-copy";
 import { EssentialSection } from "@/components/essential";
 import { renderFinalCopy, finalCopyError } from "@/shared/final-copy";
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
@@ -37,9 +38,11 @@ export default function PostReviewScreen() {
       if (entityRef.current !== id) return;
       // Only renew media; never replace draft copy, approval state or edit revisions.
       setPost((current) =>
-        current?.id === id ? { ...current, imageUrl: fresh.imageUrl } : current,
+        current?.id === id
+          ? { ...current, imageUrl: fresh.imageUrl, sourceImageUrl: fresh.sourceImageUrl }
+          : current,
       );
-      setPreviewError(!fresh.imageUrl);
+      setPreviewError(!fresh.imageUrl && !fresh.sourceImageUrl);
     } catch {
       if (entityRef.current === id) setPreviewError(true);
     } finally {
@@ -58,7 +61,10 @@ export default function PostReviewScreen() {
   const { wide } = useResponsive();
   const { dirty, markSaved } = useUnsavedChanges(
     { headlineDraft, captionDraft },
-    !!post && can("review", post.clientId),
+    !!post &&
+      can("review", post.clientId) &&
+      (reviewCopyEditable(post.status) ||
+        (scheduledCopyEditable(post.status) && can("calendar_manage", post.clientId))),
     (saved) => {
       setHeadlineDraft(saved.headlineDraft);
       setCaptionDraft(saved.captionDraft);
@@ -73,7 +79,7 @@ export default function PostReviewScreen() {
     try {
       const [nextPost, nextCreative, clients] = await Promise.all([
         api.getPost(postId),
-        api.getPostCreative(postId),
+        api.getPostCreative(postId).catch(() => ({ data: null })),
         api.getClients(),
       ]);
       if (version !== loadVersion.current || entityRef.current !== postId) return;
@@ -122,12 +128,12 @@ export default function PostReviewScreen() {
   }, [post?.clientId, post?.platform]);
 
   useEffect(() => {
-    if (post?.status !== "regenerating") return;
+    if (!["regenerating", "review_ready"].includes(post?.status || "")) return;
     const timer = setInterval(() => {
-      void reload().catch(() => undefined);
+      if (!dirty) void reload().catch(() => undefined);
     }, 3000);
     return () => clearInterval(timer);
-  }, [post?.status, postId]);
+  }, [post?.status, postId, dirty]);
 
   if (!post) {
     return (
@@ -145,8 +151,13 @@ export default function PostReviewScreen() {
     );
   }
 
-  const reviewable = ["awaiting_approval", "edit_requested"].includes(post.status);
+  const reviewable = reviewCopyEditable(post.status);
   const editable = reviewable && can("review", post.clientId);
+  const scheduled = scheduledCopyEditable(post.status);
+  const copyEditable =
+    can("review", post.clientId) &&
+    (reviewable || (scheduled && can("calendar_manage", post.clientId)));
+  const previewUrl = post.imageUrl || post.sourceImageUrl;
   async function assignAccount(accountId: string) {
     if (
       dirty &&
@@ -290,10 +301,12 @@ export default function PostReviewScreen() {
       />
 
       <View style={[styles.reviewGrid, wide && styles.reviewGridWide]}>
-        <Card style={[styles.mediaCard, wide && { flex: 1.05 }]}>
-          {post.imageUrl ? (
+        <Card style={[styles.mediaCard, wide ? { flex: 1.05 } : { width: "100%" }]}>
+          {previewUrl ? (
             <Image
-              source={{ uri: post.imageUrl }}
+              accessibilityLabel={post.imageUrl ? "Post image" : "Source photo preview"}
+              source={{ uri: previewUrl }}
+              resizeMethod="resize"
               style={styles.image}
               resizeMode="contain"
               onError={() => {
@@ -307,8 +320,14 @@ export default function PostReviewScreen() {
             />
           ) : (
             <View style={styles.placeholderWrap}>
-              <Text style={styles.placeholder}>GRAPHIC GENERATION PENDING</Text>
+              <Text style={styles.placeholder}>Image not available yet</Text>
             </View>
+          )}
+          {!post.imageUrl && post.sourceImageUrl && (
+            <Text style={styles.body}>
+              Source photo shown. The generated graphic is unavailable and must be completed before
+              publishing.
+            </Text>
           )}
           {previewError && (
             <View>
@@ -322,40 +341,52 @@ export default function PostReviewScreen() {
           )}
         </Card>
 
-        <View style={[styles.copyColumn, wide && { flex: 0.95 }]}>
-          {editable && (
-            <EssentialSection
-              title="Final publication copy"
-              summary="Check the graphic and branding. AI can alter logos."
-              collapsible={false}
-            >
-              <Text style={styles.label}>Headline</Text>
-              <TextInput
-                accessibilityLabel="Headline"
-                editable={!saving && !assigningAccount && !aiAction}
-                value={headlineDraft}
-                onChangeText={setHeadlineDraft}
-                style={styles.singleInput}
-              />
-              <Text style={styles.label}>Caption and hashtags · exact outgoing copy</Text>
-              {!!finalCopyError(post.platform, captionDraft) && (
-                <Text accessibilityRole="alert">{finalCopyError(post.platform, captionDraft)}</Text>
-              )}
-              <TextInput
-                accessibilityLabel="Caption"
-                editable={!saving && !assigningAccount && !aiAction}
-                value={captionDraft}
-                onChangeText={setCaptionDraft}
-                multiline
-                style={styles.input}
-              />
+        <View style={[styles.copyColumn, wide ? { flex: 0.95 } : { width: "100%" }]}>
+          <EssentialSection
+            title="Final publication copy"
+            summary={
+              scheduled
+                ? "Save caption changes here without changing the scheduled date or time."
+                : "Review the image, caption, and hashtags before approval."
+            }
+            collapsible={false}
+          >
+            <Text style={styles.label}>Headline</Text>
+            <TextInput
+              accessibilityLabel="Headline"
+              editable={copyEditable && !saving && !assigningAccount && !aiAction}
+              value={headlineDraft}
+              onChangeText={setHeadlineDraft}
+              style={styles.singleInput}
+            />
+            <Text style={styles.label}>Caption and hashtags · exact outgoing copy</Text>
+            {!!finalCopyError(post.platform, captionDraft) && (
+              <Text accessibilityRole="alert">{finalCopyError(post.platform, captionDraft)}</Text>
+            )}
+            <TextInput
+              accessibilityLabel="Caption"
+              editable={copyEditable && !saving && !assigningAccount && !aiAction}
+              value={captionDraft}
+              onChangeText={setCaptionDraft}
+              multiline
+              style={styles.input}
+            />
+            {copyEditable ? (
               <Button
                 label={saving ? "Saving…" : "Save copy"}
                 secondary
-                onPress={saving || aiAction ? undefined : saveCopy}
+                onPress={saving || assigningAccount || aiAction ? undefined : saveCopy}
               />
-            </EssentialSection>
-          )}
+            ) : (
+              <Text style={styles.body}>
+                {["review_ready", "regenerating"].includes(post.status)
+                  ? "Copy becomes editable when generation finishes."
+                  : scheduled
+                    ? "Editing scheduled copy requires review and calendar permissions."
+                    : "This post is read-only in its current state or for your role."}
+              </Text>
+            )}
+          </EssentialSection>
 
           <EssentialSection title="Publishing account">
             {socialAccounts.length ? (
@@ -501,6 +532,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   mediaCard: {
+    minWidth: 0,
     padding: 10,
   },
   copyColumn: {

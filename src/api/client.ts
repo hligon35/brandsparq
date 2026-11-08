@@ -42,6 +42,7 @@ type ApiPost = {
   headline?: string | null;
   caption: string;
   image_url?: string | null;
+  source_image_url?: string | null;
   suggested_publish_at?: string | null;
   scheduled_publish_at?: string | null;
   approved_at?: string | null;
@@ -78,6 +79,7 @@ function mapPost(row: ApiPost): MarketingPost {
       }
     })(),
     imageUrl: resolveApiUrl(row.image_url),
+    sourceImageUrl: resolveApiUrl(row.source_image_url),
     suggestedPublishAt: row.suggested_publish_at ?? undefined,
     scheduledPublishAt: row.scheduled_publish_at ?? undefined,
     approvedAt: row.approved_at ?? undefined,
