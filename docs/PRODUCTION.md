@@ -2,6 +2,138 @@
 
 Production host: `https://brandsparq.getsparqd.com`
 
+## Mobile functionality final pass
+
+This pass remains on `preview/mobile-stability-pass-1`. It adds no migration beyond
+`0033_push_cleanup.sql` from pass 1, and no new native dependency. Apply outstanding
+migrations and deploy the matching Worker/web app before publishing the preview OTA.
+Do not treat a preview push or successful export as production/device acceptance.
+
+Review, notifications, generation, paused content and the compact calendar agenda now
+render rows with a single virtualized vertical list. Search and bulk selection remain
+outside recycled rows. Notifications/generation searches wait briefly for typing to pause;
+loaded history pages are rebuilt from current server membership on refresh. Generation
+metadata with invalid legacy JSON no longer crashes the row renderer.
+
+Screen refreshes follow navigation focus and native AppState. Timed refreshes stop while
+hidden or backgrounded; return/foreground triggers a fresh load. A refresh controller
+serializes its requests, coalesces repeated refresh taps and invalidates stale results.
+Generation and analytics request polling data only while there are unfinished jobs.
+Inbox counts, session capability refresh and pending push cleanup also pause their timers
+in the background. In-flight HTTP work can still finish, but invalidated refresh results
+are ignored. Dirty/pending editor drafts are preserved; inputs changed during a refresh
+are not replaced by its response. RGB controls use measured track widths, continuous drag
+and accessibility increment/decrement actions.
+
+A root React render boundary offers **Try again** after a caught render failure. Native
+ErrorUtils reporting preserves the framework's original handler. Authenticated runtime
+reports queue on the device (at most 10, retained at most seven days) and retry on active
+launch/foreground and once per minute while active. Entries only upload using their
+original signed-in account. The authenticated `/v1/client-diagnostics` endpoint accepts
+at most ten submissions per user/hour and deduplicates matching unresolved error types
+for 30 minutes into **System Health → system events**, category `mobile`.
+
+Reports contain an allowlisted error code, render/runtime source, fatal flag, platform,
+app version, OTA update UUID (or embedded) and up to eight bundle line/column coordinates.
+Raw messages, function/component names, stack strings, paths, URLs, captions, images and
+credentials are excluded on both the client and Worker. No source map upload or external
+reporting service is configured. Reporting is best effort: errors before sign-in, abrupt
+termination before a queue write, native process crashes and out-of-memory exits still
+require device/Xcode/Android logs. A render-boundary retry remounts the workspace and
+recovers successfully persisted drafts; it cannot recover unwritten edits.
+
+Validation for this pass: app/Worker TypeScript, lint/format, schema check, iOS/Android/web
+exports and Worker dry-run packaging passed. Eleven new controller/geometry/diagnostic
+security tests passed. The full suite reported 425 passing and two existing failures
+because dependency dispositions are expired (`GHSA-mrhx-c7xc-m3w5` and the toolchain review).
+The reviews were not extended or bypassed. New browser cases parse across three profiles;
+browser execution and native acceptance remain unverified in this environment. Maestro
+and a booted emulator/simulator are required for `npm run test:mobile`.
+
+Before releasing the OTA, run the expanded isolated Maestro workspace flow on both native
+platforms, plus these device checks:
+
+| Check | Acceptance |
+| --- | --- |
+| Review editing | Artwork visible; edit/save caption; refresh and reopen retain saved copy. |
+| Draft interruption | Edit caption/Brand Brain/campaign/Settings; background and restart; recover local draft; changed server baseline requires explicit restore/discard. |
+| Navigation | Dirty Create/editor: each bottom tab and back action offers Keep editing/Discard; Keep editing retains the route. |
+| Background recovery | Background during generation, return after completion; active screen refreshes; repeat offline then reconnect; no late response replaces typed copy. |
+| Long lists | Scroll review, notifications, paused jobs, generation and calendar beyond the initial viewport; selection persists and Load more remains reachable. |
+| Color controls | Drag RGB tracks at narrow/wide widths; reach 0 and 255; VoiceOver/TalkBack increments/decrements channels. |
+| Scheduling | Native picker selects an exact hour/minute, shows the client time zone and saves the intended time. |
+| AAMWA assets | Upload the real logo on iOS/Android; no app exit; normalized image and up to three extracted colors survive reopening. |
+| Push lifecycle | Offline sign-out, app restart, reconnection and account switch do not deliver the old account's notifications once cleanup succeeds. |
+| Runtime recovery | Inject a render error in an isolated debug build; Try again recovers; a sanitized mobile system event appears after authenticated reconnect. |
+
+## Mobile editing and recovery pass 2
+
+This builds on mobile stability pass 1 and adds no migration beyond `0033_push_cleanup.sql`.
+Deploy the updated Worker/web app before the matching mobile OTA in the target environment.
+No additional native dependency or native rebuild is required.
+
+The authenticated Brand Brain, campaign, individual post-copy, and Settings editors retain
+device drafts scoped by user, editor type, and entity. Drafts are debounced, flushed when
+backgrounding/leaving an editor, and cleared after a confirmed save or explicit discard.
+Native drafts use encrypted SecureStore chunks; web drafts use that browser tab's session
+storage. An abrupt OS termination before the last write finishes can still lose recent edits.
+Storage failures are reported without claiming that changes were saved to the server.
+
+A draft with an unchanged server baseline restores automatically after the authorized editor
+loads. If saved fields changed elsewhere, current server fields remain visible and the user
+must explicitly restore or discard the recovered draft before editing. Restoring is a local
+action; saving still uses the latest loaded revision checks. Read-only editors do not restore
+or clear private drafts. Pending writes coalesce rather than queuing every intermediate edit.
+
+Bottom tabs now use the same unsaved-change guard as header actions and guarded links. Keep
+editing retains the current route; discard restores the saved form and clears its draft before
+leaving. Create also resets its mode, objective, output count and destinations on discard.
+
+Caption saving checkpoints the returned content revision before approval or refresh. If an
+approval response is lost, the app checks that the exact revision is already approved before
+reporting success; it never automatically submits a second approval. A failed refresh retains
+the visible copy. Polling cannot replace edits made after a refresh request began.
+
+Public review links can show a clearly labeled source photo when final artwork is missing.
+The source-image route requires a valid, unexpired, unrevoked review token and the asset must
+belong to that post's client. It does not become publishable artwork. Preview retry updates
+only image fields and preserves unsaved review text; expired review links require a new link.
+
+Device acceptance: restart each authenticated editor with unsaved changes; restore and discard
+a draft after a remote update; cancel and confirm bottom-tab navigation; interrupt approval
+after caption saving; retry a broken public preview while editing its caption. Browser test
+definitions and native exports do not replace installed iOS/Android verification.
+
+## Mobile stability pass 1
+
+Apply `0033_push_cleanup.sql` to the target database, then deploy the Worker/web bundle
+before publishing the mobile OTA to that environment. This pass uses existing native
+modules and does not require a new native build.
+
+Push registration now prepares a disabled registration and saves a device-scoped cleanup
+capability securely before enabling delivery. Sign-out and expired-session cleanup retain
+failed revocations and retry on launch, foregrounding, and every minute while active,
+including while signed out. Cleanup cannot read account data or disable a newer registration.
+Offline cleanup takes effect when the device reconnects and the retry succeeds; local sign-out
+does not wait for it. Older registrations are upgraded on an authenticated launch/foreground.
+Legacy registrations without a cleanup capability retain account-scoped cleanup for retry
+when the original account is available; use Enable push after updating if needed.
+
+Approval, campaign approval, bulk approval, resuming, and creating a publish job require a
+final graphic key and an existing R2 object. Source-photo previews are not final artwork.
+Missing artwork preserves the copy and selected schedule and produces an actionable error.
+
+New image uploads use a working copy capped at a 2000-pixel longest edge and 8 MB, with one
+1200-pixel fallback if needed. PNG uploads retain transparency; HEIC and other formats become
+JPEG. The device's selected file is unchanged, but the newly stored upload is the normalized
+copy, not a separate full-resolution original. Native creation uploads process one source at
+a time. Existing stored assets are unchanged.
+
+Native acceptance still needs an installed iOS and Android app: switch Social Post/Campaign,
+open Settings/Notifications/Paused Content, upload a large camera photo and a transparent
+logo, attempt approval with missing artwork, and sign out offline then reconnect. Verify that
+old push notifications stop and a subsequent account's registration remains enabled.
+
 The individual post screen displays publication copy on mobile and web. Reviewers can edit
 awaiting-approval copy; editing scheduled copy also requires calendar management permission.
 Saving scheduled copy preserves its date and time, invalidates stale publish jobs, and resets
@@ -411,4 +543,4 @@ unfinished-publishing requirements remain enforced; these reads change no data.
 Apply `0032_brand_tertiary_color.sql` before deploying this Worker and publishing the mobile OTA.
 Brand Brain now uses **Brand asset actions** to upload a logo, alternate logo or reference image, or choose the preferred logo. Logo colors are extracted during server-side image validation and saved with the attachment; a separate Brand Brain save is not required for the automatic palette. Up to three distinct opaque colors are retained. Monochrome logos do not receive invented secondary or tertiary colors. Manual color changes still use **Save Brand Brain**.
 
-Re-upload an existing logo once to extract its palette; duplicate uploads reuse the same original asset. Original files and transparency are retained. Native logo previews use authenticated image requests instead of creating full-size base64 copies in JavaScript. Verify the AAMWA logo upload on the installed iOS app after the OTA; browser tests cannot certify a native crash fix.
+Re-upload an existing logo once to extract its palette; duplicate uploads reuse the same original asset. PNG transparency is retained. New uploads use normalized working copies as described in Mobile stability pass 1. Native logo previews use authenticated image requests instead of creating full-size base64 copies in JavaScript. Verify the AAMWA logo upload on the installed iOS app after the OTA; browser tests cannot certify a native crash fix.

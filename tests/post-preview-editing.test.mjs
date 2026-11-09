@@ -116,6 +116,7 @@ test("a publisher claiming the job before the edit transaction fences the edit",
 test("an uploaded source photo gets an authorized preview without becoming publishable artwork", async (t) => {
   const w = workspace(t);
   w.post("post");
+  w.exec("UPDATE posts SET graphic_key=NULL WHERE id='post'");
   w.exec(
     "INSERT INTO assets(id,client_id,r2_key,filename,content_type) VALUES ('photo','client-a','source.jpg','photo.jpg','image/jpeg')",
   );
@@ -129,6 +130,7 @@ test("an uploaded source photo gets an authorized preview without becoming publi
   assert.equal(media.status, 200);
   assert.equal(await media.text(), "source photo bytes");
   w.exec("UPDATE posts SET graphic_key='finished.jpg' WHERE id='post'");
+  w.objects.set("finished.jpg", "finished artwork");
   const finished = (await (await w.request("/v1/posts/post", { user: "owner" })).json()).data;
   assert.ok(finished.image_url);
   assert.equal(finished.source_image_url, null);
@@ -137,6 +139,7 @@ test("an uploaded source photo gets an authorized preview without becoming publi
 test("source preview cannot cross client boundaries or grant access to unauthorized readers", async (t) => {
   const w = workspace(t);
   w.post("post", "client-b");
+  w.exec("UPDATE posts SET graphic_key=NULL WHERE id='post'");
   w.exec(
     "INSERT INTO assets(id,client_id,r2_key,filename,content_type) VALUES ('photo','client-a','private.jpg','photo.jpg','image/jpeg')",
   );

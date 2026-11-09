@@ -1,10 +1,14 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { EssentialSection } from "@/components/essential";
 import { AppUpdateControl } from "@/components/AppUpdateControl";
-import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
+import { useEditorDraft } from "@/hooks/useEditorDraft";
+import { editorDraftKey } from "@/shared/editor-draft";
+import { EditorDraftNotice } from "@/components/editor-draft-notice";
 import { TimezonePicker, TimeWindows } from "@/components/pickers";
 import { useCapabilities } from "@/auth/capabilities";
+import { useAuth } from "@/auth/context";
 import { Alert } from "@/components/feedback";
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { registerThisDeviceForPush } from "@/notifications/register";
 import { api } from "@/api/client";
@@ -13,13 +17,14 @@ import { colors, radius, spacing } from "@/theme/tokens";
 
 export default function SettingsScreen() {
   const can = useCapabilities();
+  const { user } = useAuth();
   const [workspace, setWorkspace] = useState<any>({});
   const [notifications, setNotifications] = useState<any>({});
   const [notificationBusy, setNotificationBusy] = useState(false);
   async function notificationAction(push: boolean) {
     setNotificationBusy(true);
     try {
-      if (push) await registerThisDeviceForPush();
+      if (push) await registerThisDeviceForPush(user!.id);
       else await api.testNotifications();
       Alert.alert(
         push ? "Push enabled" : "Test sent",
@@ -37,24 +42,30 @@ export default function SettingsScreen() {
     }
   }
   const [saving, setSaving] = useState(false);
-  const { markSaved, discardChanges } = useUnsavedChanges(
+  const editor = useEditorDraft(
+    editorDraftKey(user?.id || "anonymous", "settings", "workspace"),
     { workspace, notifications },
     true,
     (saved) => {
-      setWorkspace(saved.workspace);
+      setWorkspace((current: any) => (can("settings_manage") ? saved.workspace : current));
       setNotifications(saved.notifications);
     },
   );
+  const { markSaved, discardChanges } = editor;
   const [loadError, setLoadError] = useState("");
   const [loaded, setLoaded] = useState(false);
-  const personalEditable = loaded && !saving;
+  const personalEditable = loaded && editor.ready && !editor.pending && !saving;
   const editable = personalEditable && can("settings_manage");
 
-  function load() {
+  const refreshDraft = useRef("");
+  refreshDraft.current = JSON.stringify({ workspace, notifications });
+  function load(recover = false, isCurrent = () => true) {
+    const started = refreshDraft.current;
     setLoadError("");
     return api
       .getSettings()
-      .then(({ data }) => {
+      .then(async ({ data }) => {
+        if (!isCurrent() || (recover && started !== refreshDraft.current)) return;
         const nextWorkspace = {
           timezone: data.workspace?.timezone || "America/Indiana/Indianapolis",
           defaultPrepublishMinutes: data.workspace?.default_prepublish_minutes ?? 30,
@@ -76,15 +87,20 @@ export default function SettingsScreen() {
         };
         setWorkspace(nextWorkspace);
         setNotifications(nextNotifications);
-        markSaved({ workspace: nextWorkspace, notifications: nextNotifications });
+        await editor.initialize(
+          { workspace: nextWorkspace, notifications: nextNotifications },
+          { recover, clear: !recover },
+        );
         setLoaded(true);
       })
       .catch((error) => {
+        if (!isCurrent()) return;
         setLoadError(error instanceof Error ? error.message : "Unable to load settings.");
       });
   }
-  useEffect(() => {
-    void load();
+  useFocusedRefresh(async (context) => {
+    if (saving || notificationBusy || editor.pending || editor.dirty) return;
+    await load(true, context.current);
   }, []);
 
   async function save() {
@@ -92,6 +108,7 @@ export default function SettingsScreen() {
     try {
       await api.saveSettings({ ...(can("settings_manage") ? { workspace } : {}), notifications });
       markSaved({ workspace, notifications });
+      await editor.flush();
       Alert.alert(
         "Settings saved",
         "BrandSparQ will use these rules for scheduling and notifications.",
@@ -113,6 +130,7 @@ export default function SettingsScreen() {
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
+        accessibilityLabel={label}
         style={styles.input}
         editable={personal ? personalEditable : editable}
         keyboardType="number-pad"
@@ -138,11 +156,15 @@ export default function SettingsScreen() {
   return (
     <PageScroll>
       <PageHeader title="Settings" subtitle="Manage app updates, scheduling, and notifications." />
-      <AppUpdateControl beforeRestart={discardChanges} disabled={saving || notificationBusy} />
+      <EditorDraftNotice editor={editor} busy={saving || notificationBusy} />
+      <AppUpdateControl
+        beforeRestart={discardChanges}
+        disabled={saving || notificationBusy || editor.pending}
+      />
       {!!loadError && (
         <Card>
           <Text accessibilityRole="alert">{loadError}</Text>
-          <Button label="Try again" onPress={load} />
+          <Button label="Try again" onPress={() => void load()} />
         </Card>
       )}
       {!can("settings_manage") && <Text>Workspace settings are read-only for your role.</Text>}
@@ -150,7 +172,6 @@ export default function SettingsScreen() {
       <EssentialSection title="Notification devices">
         <View style={{ flexDirection: "row", gap: 8 }}>
           <View style={{ flex: 1 }}>
-            {" "}
             <Button
               label="Enable push"
               secondary

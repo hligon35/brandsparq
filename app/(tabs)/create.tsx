@@ -77,11 +77,15 @@ export default function CreateScreen() {
         !!destinationIds.length ||
         creationMode !== "campaign" ||
         outputCount !== 3),
-    () => {
+    (saved) => {
       operation.current++;
       pending.current = null;
       setPendingCreation(false);
       setItems([]);
+      setObjective(saved.objective);
+      setCreationMode(saved.creationMode);
+      setOutputCount(saved.outputCount);
+      setDestinationIds(saved.destinationIds);
       void saveDraft(draftKey, null).catch(() => undefined);
     },
   );
@@ -313,6 +317,7 @@ export default function CreateScreen() {
             );
           },
           changed,
+          Platform.OS === "web" ? 3 : 1,
         );
         if (!alive.current || currentOperation !== operation.current) return;
         pending.current = {
@@ -566,7 +571,11 @@ export default function CreateScreen() {
                     <View key={item.key} style={{ gap: 6 }}>
                       {(item.source.uri && Platform.OS !== "web") ||
                       (Platform.OS === "web" && !item.originalId) ? (
-                        <Image source={{ uri: item.source.uri }} style={styles.preview} />
+                        <Image
+                          source={{ uri: item.source.uri }}
+                          resizeMethod="resize"
+                          style={styles.preview}
+                        />
                       ) : (
                         <Text style={styles.errorBody}>
                           {item.source.fileName || "Uploaded image"}

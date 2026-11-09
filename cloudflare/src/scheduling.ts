@@ -1,7 +1,9 @@
 import { renderFinalCopy, finalCopyError } from "../../src/shared/final-copy";
 import { postCampaign } from "./campaign-workflow";
+import { requireArtwork } from "./artwork";
 export interface SchedulingEnv {
   DB: D1Database;
+  MEDIA?: { head(key: string): Promise<unknown> };
 }
 
 type Rules = {
@@ -210,6 +212,7 @@ export async function reserveSchedule(
     .bind(postId)
     .first<any>();
   if (!reviewed) return null;
+  const artwork = input.decision || input.resume ? await requireArtwork(env, postId) : null;
   if (
     input.decision &&
     finalCopyError(reviewed.platform, renderFinalCopy(reviewed.caption || "", reviewed.hashtags))
@@ -244,6 +247,7 @@ export async function reserveSchedule(
         publish_version=publish_version+1,updated_at=?
         WHERE id=? AND client_id=? AND status=? AND publish_version=?
           AND content_revision=? AND social_account_id IS ?
+          AND (? IS NULL OR graphic_key=?)
           AND (?=0 OR EXISTS(SELECT 1 FROM social_accounts sa WHERE sa.id=posts.social_account_id AND sa.client_id=posts.client_id AND sa.platform=posts.platform
             AND sa.status='connected' AND sa.access_token_ciphertext IS NOT NULL AND COALESCE(sa.health_status,'healthy') NOT IN ('degraded','reauth_required','disconnected')
             AND (sa.token_expires_at IS NULL OR sa.token_expires_at>?)))
@@ -268,6 +272,8 @@ export async function reserveSchedule(
         input.publishVersion,
         contentRevision,
         socialAccountId,
+        artwork,
+        artwork,
         approving ? 1 : 0,
         Date.now(),
         campaign?.id || null,

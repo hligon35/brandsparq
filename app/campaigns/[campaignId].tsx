@@ -1,8 +1,13 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
+import { useEditorDraft } from "@/hooks/useEditorDraft";
+import { editorDraftKey } from "@/shared/editor-draft";
+import { EditorDraftNotice } from "@/components/editor-draft-notice";
+import { useAuth } from "@/auth/context";
 import { EssentialSection } from "@/components/essential";
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
-import { GuardedLink as Link, useUnsavedChanges } from "@/hooks/useUnsavedChanges";
+import { GuardedLink as Link } from "@/hooks/useUnsavedChanges";
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { api } from "@/api/client";
 import { useCapabilities } from "@/auth/capabilities";
@@ -12,6 +17,7 @@ import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/
 export default function CampaignDetailScreen() {
   const { campaignId } = useLocalSearchParams<{ campaignId: string }>();
   const can = useCapabilities();
+  const { user } = useAuth();
   const [conflict, setConflict] = useState(false);
   const entityRef = useRef(campaignId);
   entityRef.current = campaignId;
@@ -20,18 +26,29 @@ export default function CampaignDetailScreen() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const { markSaved, dirty } = useUnsavedChanges(
+  const editor = useEditorDraft(
+    editorDraftKey(user?.id || "anonymous", "campaign", campaignId),
     form,
     !!data && can("client_manage", data.campaign.client_id),
     setForm,
   );
-  async function load() {
+  const { dirty } = editor;
+  const refreshDraft = useRef("");
+  refreshDraft.current = JSON.stringify(form);
+  async function load(recover = false, isCurrent = () => true) {
+    const started = refreshDraft.current;
     const version = ++loadVersion.current;
     setConflict(false);
     setError("");
     try {
       const { data } = await api.getCampaign(campaignId);
-      if (version !== loadVersion.current || entityRef.current !== campaignId) return;
+      if (
+        version !== loadVersion.current ||
+        entityRef.current !== campaignId ||
+        !isCurrent() ||
+        (recover && started !== refreshDraft.current)
+      )
+        return;
       setData(data);
       const c = data.campaign;
       const nextForm = {
@@ -43,20 +60,31 @@ export default function CampaignDetailScreen() {
         notes: c.notes || "",
         status: c.status,
       };
-      setForm(nextForm);
-      markSaved(nextForm);
+      await editor.initialize(nextForm, {
+        recover: recover && can("client_manage", c.client_id),
+        clear: !recover,
+        persist: can("client_manage", c.client_id),
+      });
     } catch (e) {
-      if (version !== loadVersion.current || entityRef.current !== campaignId) return;
+      if (
+        version !== loadVersion.current ||
+        entityRef.current !== campaignId ||
+        !isCurrent() ||
+        (recover && started !== refreshDraft.current)
+      )
+        return;
       if (isEditConflict(e)) setConflict(true);
       setError(e instanceof Error ? e.message : "Unable to load campaign.");
     }
   }
-  useEffect(() => {
-    void load();
-    return () => {
-      loadVersion.current++;
-    };
-  }, [campaignId]);
+  useFocusedRefresh(
+    async (context) => {
+      if (saving || editor.pending || editor.dirty) return;
+      await load(true, context.current);
+    },
+    [campaignId],
+  );
+
   async function save() {
     setSaving(true);
     try {
@@ -65,6 +93,20 @@ export default function CampaignDetailScreen() {
         priority: Number(form.priority),
         expectedRevision: data.campaign.workflow_revision,
       });
+      if (entityRef.current !== campaignId) return;
+      editor.markSaved(form);
+      await editor.flush();
+      setData((current: any) =>
+        current
+          ? {
+              ...current,
+              campaign: {
+                ...current.campaign,
+                workflow_revision: current.campaign.workflow_revision + 1,
+              },
+            }
+          : current,
+      );
       await load();
       Alert.alert("Campaign saved");
     } catch (e) {
@@ -78,7 +120,7 @@ export default function CampaignDetailScreen() {
     [],
   );
   async function bulk(action: "pause" | "resume" | "cancel" | "approve") {
-    if (dirty) {
+    if (editor.pending || dirty) {
       Alert.alert(
         "Save campaign changes first",
         "Save or discard your edits before applying a delivery action.",
@@ -114,10 +156,12 @@ export default function CampaignDetailScreen() {
       setSaving(false);
     }
   }
-  const editable = !!data && can("client_manage", data.campaign.client_id);
+  const editable =
+    !!data && editor.ready && !editor.pending && can("client_manage", data.campaign.client_id);
   return (
     <PageScroll>
-      {conflict && <EditConflict busy={saving} onReload={load} />}
+      {conflict && <EditConflict busy={saving} onReload={() => load()} />}
+      <EditorDraftNotice editor={editor} busy={saving} />
       <PageHeader
         title={data?.campaign.name || "Campaign"}
         eyebrow={data?.campaign.client_name || "Campaigns"}
@@ -126,7 +170,7 @@ export default function CampaignDetailScreen() {
       {error ? (
         <Card>
           <Text style={styles.error}>{error}</Text>
-          <Button label="Try again" onPress={load} />
+          <Button label="Try again" onPress={() => void load()} />
         </Card>
       ) : !data ? (
         <Text style={styles.text}>Loading campaign…</Text>

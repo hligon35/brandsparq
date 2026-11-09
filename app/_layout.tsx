@@ -1,3 +1,6 @@
+import { RuntimeBoundary } from "@/components/runtime-boundary";
+import { installRuntimeDiagnostics } from "@/diagnostics/runtime";
+import { useEffect } from "react";
 import { InboxProvider } from "@/notifications/inbox";
 import { UnsavedChangesProvider } from "@/hooks/useUnsavedChanges";
 import { BrandLogo } from "@/components/brand";
@@ -12,16 +15,19 @@ import { colors } from "@/theme/tokens";
 import { FeedbackHost } from "@/components/feedback";
 
 export default function RootLayout() {
+  useEffect(() => installRuntimeDiagnostics(), []);
   return (
-    <AuthProvider>
-      <InboxProvider>
-        <UnsavedChangesProvider>
-          <RootNavigator />
-          <FeedbackHost />
-          <NotificationRouter />
-        </UnsavedChangesProvider>
-      </InboxProvider>
-    </AuthProvider>
+    <RuntimeBoundary>
+      <AuthProvider>
+        <InboxProvider>
+          <UnsavedChangesProvider>
+            <RootNavigator />
+            <FeedbackHost />
+            <NotificationRouter />
+          </UnsavedChangesProvider>
+        </InboxProvider>
+      </AuthProvider>
+    </RuntimeBoundary>
   );
 }
 

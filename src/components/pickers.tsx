@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { colorChannelAt } from "@/shared/color-control";
 import {
   FlatList,
   Modal,
@@ -242,7 +243,17 @@ export function ColorPicker({
   const [open, setOpen] = useState(false),
     [draft, setDraft] = useState(value || "#0B78F6");
   const valid = /^#[0-9a-f]{6}$/i.test(draft);
+  const widths = useRef([0, 0, 0]);
   const rgb = valid ? [1, 3, 5].map((i) => Number.parseInt(draft.slice(i, i + 2), 16)) : [0, 0, 0];
+  function adjust(index: number, position: number) {
+    setDraft((current) => {
+      const next = /^#[0-9a-f]{6}$/i.test(current)
+        ? [1, 3, 5].map((i) => Number.parseInt(current.slice(i, i + 2), 16))
+        : [0, 0, 0];
+      next[index] = colorChannelAt(position, widths.current[index]);
+      return "#" + next.map((value) => value.toString(16).padStart(2, "0")).join("");
+    });
+  }
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
@@ -313,6 +324,26 @@ export function ColorPicker({
                     {channel}: {rgb[index]}
                   </Text>
                   <View
+                    accessibilityRole="adjustable"
+                    accessibilityLabel={`${label} ${channel}`}
+                    accessibilityValue={{ min: 0, max: 255, now: rgb[index] }}
+                    accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
+                    onAccessibilityAction={(event) => {
+                      const next = [...rgb];
+                      next[index] = Math.max(
+                        0,
+                        Math.min(
+                          255,
+                          next[index] + (event.nativeEvent.actionName === "increment" ? 1 : -1),
+                        ),
+                      );
+                      setDraft(
+                        "#" + next.map((value) => value.toString(16).padStart(2, "0")).join(""),
+                      );
+                    }}
+                    onLayout={(event) => {
+                      widths.current[index] = event.nativeEvent.layout.width;
+                    }}
                     style={{
                       height: 44,
                       backgroundColor: ["#ffb3b3", "#b3ffb3", "#b3c9ff"][index],
@@ -320,15 +351,10 @@ export function ColorPicker({
                     }}
                     onStartShouldSetResponder={() => true}
                     onMoveShouldSetResponder={() => true}
-                    onResponderGrant={(e) => {
-                      const next = [...rgb];
-                      next[index] = Math.round(
-                        Math.max(0, Math.min(1, e.nativeEvent.locationX / 240)) * 255,
-                      );
-                      setDraft("#" + next.map((v) => v.toString(16).padStart(2, "0")).join(""));
-                    }}
+                    onResponderGrant={(event) => adjust(index, event.nativeEvent.locationX)}
+                    onResponderMove={(event) => adjust(index, event.nativeEvent.locationX)}
                   >
-                    <Text style={styles.text}>Tap to adjust</Text>
+                    <Text style={styles.text}>Drag to adjust</Text>
                   </View>
                 </View>
               ))}

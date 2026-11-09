@@ -1,5 +1,8 @@
+import { bindRuntimeDiagnostics, flushRuntimeDiagnostics } from "@/diagnostics/runtime";
+import { captureDiagnosticReporter } from "@/api/client";
+import { createActiveRefresh } from "@/shared/active-refresh";
 import { Button } from "@/components/ui";
-import { unregisterThisDevice } from "@/notifications/device";
+import { unregisterThisDevice, retryPushCleanup, upgradePushCleanup } from "@/notifications/device";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import {
@@ -54,10 +57,56 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [clearFailed, setClearFailed] = useState(false);
   const [restoreAttempt, setRestoreAttempt] = useState(0);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const currentUser = useRef(user);
+  currentUser.current = user;
+
+  useEffect(() => {
+    if (!user) return;
+    const captured = captureDiagnosticReporter();
+    const unbind = bindRuntimeDiagnostics({
+      owner: user.id,
+      current: captured.current,
+      send: captured.send,
+    });
+    const refresh = createActiveRefresh(async () => {
+      await flushRuntimeDiagnostics();
+    }, 60000);
+    refresh.setActive(AppState.currentState == null || AppState.currentState === "active");
+    const subscription = AppState.addEventListener("change", (state) =>
+      refresh.setActive(state === "active"),
+    );
+    return () => {
+      subscription.remove();
+      refresh.dispose();
+      unbind();
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    // A failed/offline restore is not a confirmed sign-out.
+    if (!ready || restoreError) return;
+    const refresh = createActiveRefresh(async (context) => {
+      await retryPushCleanup(currentUser.current?.id).catch(() => undefined);
+      if (context.reason === "foreground" && context.current() && currentUser.current)
+        await upgradePushCleanup(currentUser.current.id).catch(() => undefined);
+    }, 60000);
+    refresh.setActive(AppState.currentState == null || AppState.currentState === "active");
+    const subscription = AppState.addEventListener("change", (state) =>
+      refresh.setActive(state === "active"),
+    );
+    return () => {
+      subscription.remove();
+      refresh.dispose();
+    };
+  }, [ready, restoreError, user?.id]);
 
   useEffect(() => {
     setUnauthorizedHandler(async () => {
       const epoch = ++sessionEpoch.current;
+      const cleanup = captureSessionCleanup();
+      void unregisterThisDevice(cleanup.unregisterPushToken, currentUser.current?.id).catch(
+        () => undefined,
+      );
       setApiSessionToken(null);
       setUser(null);
       setNotice("The saved sign-in is no longer valid. Please sign in again.");
@@ -123,29 +172,29 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   // Refresh capabilities when the app returns to the foreground and while it stays open.
   // A late refresh from an old session must never restore a signed-out user.
-  const currentUser = useRef(user);
-  currentUser.current = user;
   useEffect(() => {
     if (!user) return;
-    let active = true;
     const epoch = sessionEpoch.current;
-    const refresh = async () => {
+    const refresh = createActiveRefresh(async (context) => {
       try {
         const result = await api.getSession();
-        if (active && epoch === sessionEpoch.current && currentUser.current?.id === user.id)
+        if (
+          context.current() &&
+          epoch === sessionEpoch.current &&
+          currentUser.current?.id === user.id
+        )
           setUser(result.user);
       } catch {
-        /* Authorization failures are handled centrally; transient failures retain the UI. */
+        /* Central auth handler owns expiration; transient errors retain capabilities. */
       }
-    };
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void refresh();
-    });
-    const timer = setInterval(() => void refresh(), 60000);
+    }, 60000);
+    refresh.setActive(AppState.currentState == null || AppState.currentState === "active");
+    const subscription = AppState.addEventListener("change", (state) =>
+      refresh.setActive(state === "active"),
+    );
     return () => {
-      active = false;
       subscription.remove();
-      clearInterval(timer);
+      refresh.dispose();
     };
   }, [user?.id]);
 
@@ -249,7 +298,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         // newly connected account. Local sign-out does not wait for the network.
         void (async () => {
           try {
-            await unregisterThisDevice(cleanup.unregisterPushToken);
+            await unregisterThisDevice(cleanup.unregisterPushToken, user?.id);
           } catch {
             /* Retry requires connectivity; local sign-out still completes. */
           } finally {

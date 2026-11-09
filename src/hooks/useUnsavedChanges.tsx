@@ -12,6 +12,7 @@ import { Link as ExpoLink, useFocusEffect, usePreventRemove, useRouter } from "e
 import { confirmAction } from "@/components/feedback";
 import { Platform } from "react-native";
 import { protectBrowserUnload } from "@/shared/browser-unload";
+import { runGuardedNavigation, interceptTabPress } from "@/shared/guarded-navigation";
 
 type Guard = { dirty(): boolean; leave(): Promise<boolean> };
 const NavigationGuard = createContext<{ current: Guard | null; navigating?: boolean }>({
@@ -25,18 +26,13 @@ export function UnsavedChangesProvider({ children }: PropsWithChildren) {
 
 export function useGuardedNavigation() {
   const guard = useContext(NavigationGuard);
-  return useCallback(
-    async (action: () => void) => {
-      if (guard.navigating) return;
-      guard.navigating = true;
-      try {
-        if (!guard.current || (await guard.current.leave())) action();
-      } finally {
-        guard.navigating = false;
-      }
-    },
-    [guard],
-  );
+  return useCallback((action: () => void) => runGuardedNavigation(guard, action), [guard]);
+}
+
+export function useGuardedTabPress() {
+  const guard = useContext(NavigationGuard);
+  return (event: { preventDefault(): void }, action: () => void, alreadyFocused: boolean) =>
+    interceptTabPress(event, guard, action, alreadyFocused);
 }
 
 /** Protect pushes from shared chrome as well as links inside editable screens. */
@@ -63,7 +59,11 @@ export function GuardedLink(props: ComponentProps<typeof ExpoLink>) {
   );
 }
 
-export function useUnsavedChanges<T>(value: T, enabled = true, restore?: (value: T) => void) {
+export function useUnsavedChanges<T>(
+  value: T,
+  enabled = true,
+  restore?: (value: T) => void | Promise<void>,
+) {
   const serialized = JSON.stringify(value);
   const [saved, setSaved] = useState<string | null>(null);
   const savedRef = useRef(saved);
@@ -94,9 +94,9 @@ export function useUnsavedChanges<T>(value: T, enabled = true, restore?: (value:
       "Discard changes",
       "Keep editing",
     )
-      .then((confirmed) => {
+      .then(async (confirmed) => {
         if (confirmed) {
-          if (savedRef.current !== null) restoreRef.current?.(JSON.parse(savedRef.current));
+          if (savedRef.current !== null) await restoreRef.current?.(JSON.parse(savedRef.current));
           dirtyRef.current = false;
           setDiscarded(true);
           release.current();
@@ -126,6 +126,7 @@ export function useUnsavedChanges<T>(value: T, enabled = true, restore?: (value:
   );
   const markSaved = useCallback((next: T) => {
     savedRef.current = JSON.stringify(next);
+    dirtyRef.current = false;
     setSaved(savedRef.current);
     setDiscarded(false);
   }, []);

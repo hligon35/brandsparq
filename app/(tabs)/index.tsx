@@ -1,8 +1,8 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { useAuth } from "@/auth/context";
 import { Ionicons } from "@expo/vector-icons";
 import { Link } from "expo-router";
-import { useCallback, useState } from "react";
-import { useFocusEffect } from "expo-router";
+import { useState } from "react";
 import { ActivityIndicator, RefreshControl, StyleSheet, Text, View, Pressable } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
@@ -14,23 +14,19 @@ export default function HomeScreen() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const load = useCallback(async () => {
+  const load = useFocusedRefresh(async (context) => {
     setLoading(true);
     setError("");
     try {
-      setDashboard((await api.getDashboard()).data);
+      const result = await api.getDashboard();
+      if (context.current()) setDashboard(result.data);
     } catch (err) {
-      setDashboard(null);
+      if (!context.current()) return;
       setError(err instanceof Error ? err.message : "Unable to load your workspace.");
     } finally {
-      setLoading(false);
+      if (context.current()) setLoading(false);
     }
   }, []);
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [load]),
-  );
   const next = dashboard?.nextPost;
   return (
     <PageScroll refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>

@@ -166,6 +166,18 @@ const server = http.createServer(async (incoming, outgoing) => {
             w.exec(
               "UPDATE posts SET status='failed',failure_code='PUBLISH_OUTCOME_UNKNOWN',failure_message='Provider response was lost.',approved_at=CURRENT_TIMESTAMP WHERE id='fixture-post'",
             );
+          } else if (url.pathname === "/__test/large-review") {
+            for (let i = 0; i < 120; i++) {
+              const id = `review-batch-${String(i).padStart(3, "0")}`;
+              w.post(id);
+              w.exec(
+                "UPDATE posts SET title=?,headline=?,graphic_key='fixture.jpg',created_at=? WHERE id=?",
+                `Review batch ${i}`,
+                `Review batch ${i}`,
+                new Date(Date.now() - i * 1000).toISOString(),
+                id,
+              );
+            }
           } else if (url.pathname === "/__test/old-generation") {
             w.exec(
               "UPDATE generation_jobs SET created_at='2000-01-01' WHERE id='fixture-generation'",

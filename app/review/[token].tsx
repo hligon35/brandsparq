@@ -1,3 +1,4 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { EssentialSection } from "@/components/essential";
 import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { renderFinalCopy, finalCopyError } from "@/shared/final-copy";
@@ -28,10 +29,15 @@ export default function PublicReviewScreen() {
   const [working, setWorking] = useState<Action>(null);
   const [approved, setApproved] = useState(false);
   const [error, setError] = useState("");
+  const [refreshError, setRefreshError] = useState("");
+  const [loadedToken, setLoadedToken] = useState("");
+  const [previewError, setPreviewError] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const previewAttempt = useRef(false);
   const { wide } = useResponsive();
-  const { markSaved } = useUnsavedChanges(
+  const { markSaved, dirty } = useUnsavedChanges(
     { headline, caption, comment, instruction },
-    !!post && !approved,
+    !!post && loadedToken === token && !approved,
     (saved) => {
       setHeadline(saved.headline);
       setCaption(saved.caption);
@@ -40,14 +46,55 @@ export default function PublicReviewScreen() {
     },
   );
 
-  async function load() {
+  const currentDraft = useRef({
+    dirty,
+    text: JSON.stringify({ headline, caption, comment, instruction }),
+  });
+  currentDraft.current = {
+    dirty,
+    text: JSON.stringify({ headline, caption, comment, instruction }),
+  };
+  async function renewPreview() {
+    if (previewBusy) return;
+    const identity = token;
+    setPreviewBusy(true);
+    try {
+      const fresh = (await api.getPublicReview(identity)).data;
+      if (entityRef.current !== identity) return;
+      const bust = (url?: string | null) =>
+        url ? `${url}${url.includes("?") ? "&" : "?"}preview=${Date.now()}` : null;
+      setPost((current: any) => ({
+        ...current,
+        image_url: bust(fresh.image_url),
+        source_image_url: bust(fresh.source_image_url),
+        artwork_ready: fresh.artwork_ready,
+      }));
+      setPreviewError(!fresh.image_url && !fresh.source_image_url);
+    } catch {
+      if (entityRef.current === identity) setPreviewError(true);
+    } finally {
+      if (entityRef.current === identity) setPreviewBusy(false);
+    }
+  }
+
+  async function load(preserveEdits = false, isCurrent = () => true) {
+    const startedText = currentDraft.current.text;
     const version = ++loadVersion.current;
     setConflict(false);
     if (!token) return;
     setError("");
     try {
       const result = await api.getPublicReview(token);
-      if (version !== loadVersion.current || entityRef.current !== token) return;
+      if (version !== loadVersion.current || entityRef.current !== token || !isCurrent()) return;
+      if (
+        preserveEdits &&
+        (currentDraft.current.dirty || currentDraft.current.text !== startedText)
+      )
+        return;
+      setRefreshError("");
+      setLoadedToken(token);
+      previewAttempt.current = false;
+      setPreviewError(false);
       markSaved({
         headline: result.data.headline || result.data.title || "",
         caption: renderFinalCopy(result.data.caption || "", result.data.hashtags),
@@ -60,26 +107,36 @@ export default function PublicReviewScreen() {
       setHeadline(result.data.headline || result.data.title || "");
       setCaption(renderFinalCopy(result.data.caption || "", result.data.hashtags));
     } catch (err) {
-      if (version !== loadVersion.current || entityRef.current !== token) return;
+      if (version !== loadVersion.current || entityRef.current !== token || !isCurrent()) return;
       if (isEditConflict(err)) setConflict(true);
-      setError(err instanceof Error ? err.message : "This review link is unavailable.");
+      if (preserveEdits)
+        setRefreshError("Unable to refresh this review. Your edits are preserved.");
+      else setError(err instanceof Error ? err.message : "This review link is unavailable.");
     }
   }
 
   useEffect(() => {
-    void load();
+    setApproved(false);
+    setLoadedToken("");
+    setPreviewBusy(false);
     return () => {
       loadVersion.current++;
     };
   }, [token]);
 
-  useEffect(() => {
-    if (post?.status !== "regenerating") return;
-    const timer = setInterval(() => {
-      void load();
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [post?.status, token]);
+  useFocusedRefresh(
+    async (context) => {
+      if (
+        working ||
+        (context.reason === "poll" &&
+          !["regenerating", "review_ready"].includes(post?.status || ""))
+      )
+        return;
+      await load(loadedToken === token, context.current);
+    },
+    [token],
+    3000,
+  );
 
   async function persistCopy(includeComment = false) {
     const identity = token;
@@ -172,7 +229,7 @@ export default function PublicReviewScreen() {
 
   return (
     <PageScroll>
-      {conflict && <EditConflict busy={working !== null} onReload={load} />}
+      {conflict && <EditConflict busy={working !== null} onReload={() => load()} />}
       <View style={styles.brand}>
         <BrandLogo compact />
       </View>
@@ -191,10 +248,15 @@ export default function PublicReviewScreen() {
         <Card subtle>
           <Text style={styles.heading}>Review link unavailable</Text>
           <Text style={styles.sub}>{error}</Text>
-          <Button label="Try again" secondary onPress={load} />
+          <Button label="Try again" secondary onPress={() => void load()} />
         </Card>
-      ) : post ? (
+      ) : post && loadedToken === token ? (
         <>
+          {!!refreshError && (
+            <Card subtle>
+              <Text accessibilityRole="alert">{refreshError}</Text>
+            </Card>
+          )}
           <PageHeader
             title={post.client_name}
             subtitle={String(post.platform).toUpperCase()}
@@ -202,17 +264,56 @@ export default function PublicReviewScreen() {
           />
 
           <View style={[styles.grid, wide && styles.gridWide]}>
-            <Card style={styles.mediaCard}>
-              {post.image_url ? (
-                <Image source={{ uri: post.image_url }} style={styles.image} resizeMode="contain" />
+            <Card style={[styles.mediaCard, wide ? { flex: 1.05 } : { width: "100%" }]}>
+              {post.image_url || post.source_image_url ? (
+                <Image
+                  accessibilityLabel={post.image_url ? "Post image" : "Source photo preview"}
+                  source={{ uri: post.image_url || post.source_image_url }}
+                  style={styles.image}
+                  resizeMode="contain"
+                  resizeMethod="resize"
+                  onLoad={() => setPreviewError(false)}
+                  onError={() => {
+                    setPreviewError(true);
+                    if (!previewAttempt.current) {
+                      previewAttempt.current = true;
+                      void renewPreview();
+                    }
+                  }}
+                />
               ) : (
                 <View style={styles.previewWrap}>
                   <Text style={styles.preview}>GRAPHIC GENERATION PENDING</Text>
                 </View>
               )}
+              {!post.image_url && post.source_image_url && (
+                <Text style={styles.sub}>
+                  Source photo preview. Final artwork must be completed before approval or
+                  publishing.
+                </Text>
+              )}
+              {previewError && (
+                <>
+                  <Text style={styles.sub}>
+                    Image preview unavailable. Your caption edits are preserved. If the review link
+                    expired, request a new link.
+                  </Text>
+                  <Button
+                    label={previewBusy ? "Refreshing image…" : "Retry image preview"}
+                    secondary
+                    onPress={previewBusy ? undefined : () => void renewPreview()}
+                  />
+                </>
+              )}
             </Card>
 
-            <View style={styles.copyColumn}>
+            <View style={[styles.copyColumn, wide ? { flex: 0.95 } : { width: "100%" }]}>
+              {post.artwork_ready === false && (
+                <Text accessibilityRole="alert">
+                  Final artwork is missing. Ask the workspace to complete the graphic before
+                  approval. Caption edits can still be saved.
+                </Text>
+              )}
               <EssentialSection
                 title="Final publication copy"
                 summary="Check the graphic and branding. AI can alter logos."
@@ -304,7 +405,11 @@ export default function PublicReviewScreen() {
 
               <Button
                 label={working === "approve" ? "Approving…" : "Approve and add to calendar"}
-                onPress={working || post.status === "regenerating" ? undefined : approve}
+                onPress={
+                  working || post.status === "regenerating" || post.artwork_ready === false
+                    ? undefined
+                    : approve
+                }
               />
             </View>
           </View>
@@ -322,8 +427,8 @@ const styles = StyleSheet.create({
   brand: { marginBottom: spacing.sm },
   grid: { gap: spacing.md },
   gridWide: { flexDirection: "row", alignItems: "flex-start" },
-  mediaCard: { flex: 1.05, padding: 10 },
-  copyColumn: { flex: 0.95, minWidth: 0, gap: spacing.md },
+  mediaCard: { minWidth: 0, padding: 10 },
+  copyColumn: { minWidth: 0, gap: spacing.md },
   image: {
     width: "100%",
     aspectRatio: 4 / 5,

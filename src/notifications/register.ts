@@ -2,7 +2,7 @@ import { registerAndRememberPushToken } from "./device";
 import { Platform } from "react-native";
 import { capturePushRegistration } from "@/api/client";
 
-export async function registerThisDeviceForPush() {
+export async function registerThisDeviceForPush(userId: string) {
   if (Platform.OS === "web") {
     throw new Error("Push registration is available in the installed iOS or Android app.");
   }
@@ -43,7 +43,9 @@ export async function registerThisDeviceForPush() {
 
   await registerAndRememberPushToken(
     token,
-    (value) => registration.register(value, Platform.OS),
+    userId,
+    registration.prepare,
+    (value, cleanupToken) => registration.register(value, Platform.OS, cleanupToken),
     registration.isCurrent,
   );
   return token;

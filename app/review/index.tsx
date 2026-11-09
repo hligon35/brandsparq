@@ -1,11 +1,12 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { IconButton } from "@/components/icon-button";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
-import { Link, useFocusEffect } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { Link } from "expo-router";
+import { useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
-import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
+import { Button, Card, PageHeader, PageList, StatusBadge } from "@/components/ui";
 import { useResponsive } from "@/hooks/useResponsive";
 import { colors, radius, spacing } from "@/theme/tokens";
 import type { MarketingPost } from "@/types/domain";
@@ -19,25 +20,26 @@ export default function ReviewScreen() {
   const [selected, setSelected] = useState<string[]>([]);
   const [working, setWorking] = useState(false);
   const { compact } = useResponsive();
+  const version = useRef(0);
 
-  async function load() {
+  async function load(isCurrent = refresh.active) {
+    const request = ++version.current;
     setLoading(true);
     setError("");
     try {
-      setPosts(await api.getReviewQueue());
+      const next = await api.getReviewQueue();
+      if (request !== version.current || !isCurrent()) return;
+      setPosts(next);
+      setSelected((old) => old.filter((id) => next.some((post) => post.id === id)));
     } catch (err) {
-      setPosts([]);
+      if (request !== version.current || !isCurrent()) return;
       setError(err instanceof Error ? err.message : "Unable to load review queue.");
     } finally {
-      setLoading(false);
+      if (request === version.current && isCurrent()) setLoading(false);
     }
   }
 
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, []),
-  );
+  const refresh = useFocusedRefresh((context) => load(context.current), []);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -67,7 +69,7 @@ export default function ReviewScreen() {
       );
       const failed = result.results.filter((item: any) => !item.ok);
       setSelected([]);
-      await load();
+      await refresh();
       if (failed.length)
         Alert.alert("Bulk approval finished", `${failed.length} post(s) need attention.`);
     } catch (err) {
@@ -83,7 +85,7 @@ export default function ReviewScreen() {
     try {
       await api.bulkRejectPosts(selected, "Changes requested during bulk review.");
       setSelected([]);
-      await load();
+      await refresh();
     } catch (err) {
       Alert.alert("Unable to request changes", err instanceof Error ? err.message : "Try again.");
     } finally {
@@ -92,104 +94,111 @@ export default function ReviewScreen() {
   }
 
   return (
-    <PageScroll>
-      <PageHeader
-        title="Review"
-        subtitle="Ready for your approval."
-        action={<IconButton label="Refresh review" onPress={load} />}
-      />
-
-      <Card subtle>
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search client, platform, headline, or caption"
-          placeholderTextColor={colors.muted}
-          style={styles.search}
-        />
-        {!!selected.length && (
-          <View style={styles.bulkBar}>
-            <Text style={styles.selectedText}>{selected.length} selected</Text>
-            <View style={styles.bulkActions}>
-              <Button
-                label={working ? "Working…" : "Approve selected"}
-                small
-                onPress={working ? undefined : bulkApprove}
-              />
-              <Button
-                label="Request changes"
-                small
-                secondary
-                onPress={working ? undefined : bulkReject}
-              />
-              <Button label="Clear" small secondary onPress={() => setSelected([])} />
-            </View>
-          </View>
-        )}
-      </Card>
-
-      {loading ? (
-        <View style={styles.loading}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : error ? (
-        <Card subtle>
-          <Text style={styles.emptyTitle}>Review queue unavailable</Text>
-          <Text style={styles.emptyBody}>{error}</Text>
-          <Pressable onPress={load}>
-            <Text style={styles.refresh}>Try again</Text>
-          </Pressable>
-        </Card>
-      ) : filtered.length ? (
-        <View style={styles.grid}>
-          {filtered.map((post) => {
-            const active = selected.includes(post.id);
-            return (
-              <View key={post.id} style={[styles.gridItem, compact && styles.gridItemCompact]}>
-                <Card style={[styles.card, active && styles.cardSelected]}>
-                  <View style={styles.cardTop}>
-                    <Pressable
-                      onPress={can("review", post.clientId) ? () => toggle(post.id) : undefined}
-                      style={[styles.selector, active && styles.selectorActive]}
-                    >
-                      <Text style={[styles.selectorText, active && styles.selectorTextActive]}>
-                        {active ? "✓" : "Select"}
-                      </Text>
-                    </Pressable>
-                    <StatusBadge label={post.status} />
-                    {!!post.sparqScore && <Text style={styles.score}>{post.sparqScore}</Text>}
-                  </View>
-                  <Text style={styles.client}>{post.clientName || "Client"}</Text>
-                  <Text style={styles.platform}>{post.platform.toUpperCase()}</Text>
-                  <Text style={styles.cardTitle} numberOfLines={2}>
-                    {post.title}
-                  </Text>
-                  {!!post.suggestedPublishAt && (
-                    <Text style={styles.time}>
-                      Suggested · {new Date(post.suggestedPublishAt).toLocaleString()}
-                    </Text>
-                  )}
-                  <Link href={`/posts/${post.id}`} asChild>
-                    <Pressable style={styles.openButton}>
-                      <Text style={styles.openText}>Open review →</Text>
-                    </Pressable>
-                  </Link>
-                </Card>
+    <PageList
+      data={filtered}
+      keyExtractor={(post) => post.id}
+      columns={compact ? 1 : 2}
+      extraData={{ selected, working }}
+      refreshing={loading}
+      onRefresh={() => void refresh()}
+      header={
+        <>
+          <PageHeader
+            title="Review"
+            subtitle="Ready for your approval."
+            action={<IconButton label="Refresh review" onPress={() => void refresh()} />}
+          />
+          <Card subtle>
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search client, platform, headline, or caption"
+              placeholderTextColor={colors.muted}
+              style={styles.search}
+            />
+            {!!selected.length && (
+              <View style={styles.bulkBar}>
+                <Text style={styles.selectedText}>{selected.length} selected</Text>
+                <View style={styles.bulkActions}>
+                  <Button
+                    label={working ? "Working…" : "Approve selected"}
+                    small
+                    onPress={working ? undefined : bulkApprove}
+                  />
+                  <Button
+                    label="Request changes"
+                    small
+                    secondary
+                    onPress={working ? undefined : bulkReject}
+                  />
+                  <Button label="Clear" small secondary onPress={() => setSelected([])} />
+                </View>
               </View>
-            );
-          })}
-        </View>
-      ) : (
-        <Card subtle>
-          <Text style={styles.emptyTitle}>
-            {query ? "No matching review items" : "You’re caught up."}
-          </Text>
-          <Text style={styles.emptyBody}>
-            {query ? "Try a different search." : "Nothing is waiting for approval right now."}
-          </Text>
-        </Card>
-      )}
-    </PageScroll>
+            )}
+          </Card>
+          {!!error && (
+            <Card subtle>
+              <Text accessibilityRole="alert">{error}</Text>
+              <Button label="Retry review" onPress={() => void refresh()} />
+            </Card>
+          )}
+        </>
+      }
+      renderItem={({ item: post }) => {
+        const active = selected.includes(post.id);
+        return (
+          <Card style={[styles.card, active && styles.cardSelected]}>
+            <View style={styles.cardTop}>
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityLabel={`Select ${post.title || "post"}`}
+                accessibilityState={{ checked: active, disabled: !can("review", post.clientId) }}
+                disabled={!can("review", post.clientId)}
+                onPress={can("review", post.clientId) ? () => toggle(post.id) : undefined}
+                style={[styles.selector, active && styles.selectorActive]}
+              >
+                <Text style={[styles.selectorText, active && styles.selectorTextActive]}>
+                  {active ? "✓" : "Select"}
+                </Text>
+              </Pressable>
+              <StatusBadge label={post.status} />
+              {!!post.sparqScore && <Text style={styles.score}>{post.sparqScore}</Text>}
+            </View>
+            <Text style={styles.client}>{post.clientName || "Client"}</Text>
+            <Text style={styles.platform}>{post.platform.toUpperCase()}</Text>
+            <Text style={styles.cardTitle} numberOfLines={2}>
+              {post.title}
+            </Text>
+            {!!post.suggestedPublishAt && (
+              <Text style={styles.time}>
+                Suggested · {new Date(post.suggestedPublishAt).toLocaleString()}
+              </Text>
+            )}
+            <Link href={`/posts/${post.id}`} asChild>
+              <Pressable style={styles.openButton}>
+                <Text style={styles.openText}>Open review →</Text>
+              </Pressable>
+            </Link>
+          </Card>
+        );
+      }}
+      empty={
+        loading ? (
+          <View style={styles.loading}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : (
+          <Card subtle>
+            <Text style={styles.emptyTitle}>
+              {query ? "No matching review items" : "You’re caught up."}
+            </Text>
+            <Text style={styles.emptyBody}>
+              {query ? "Try a different search." : "Nothing is waiting for approval right now."}
+            </Text>
+          </Card>
+        )
+      }
+    />
   );
 }
 
@@ -224,7 +233,7 @@ const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, alignItems: "stretch" },
   gridItem: { flexGrow: 1, flexBasis: 310, maxWidth: "100%" },
   gridItemCompact: { flexBasis: "100%" },
-  card: { height: "100%", minHeight: 0, gap: 8 },
+  card: { flexGrow: 1, minHeight: 0, gap: 8 },
   cardSelected: { borderColor: colors.primary, borderWidth: 2 },
   cardTop: {
     flexDirection: "row",

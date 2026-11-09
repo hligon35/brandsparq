@@ -1,3 +1,4 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { ClientPicker } from "@/components/client-picker";
 import { EssentialSection } from "@/components/essential";
 import { Link, useLocalSearchParams } from "expo-router";
@@ -39,7 +40,7 @@ export default function AnalyticsScreen() {
     if (requestedClient) setClientId(requestedClient);
   }, [requestedClient]);
 
-  async function load() {
+  async function load(isCurrent = refresh.active) {
     const version = ++loadVersion.current;
     setLoading(true);
     setError("");
@@ -49,27 +50,31 @@ export default function AnalyticsScreen() {
         api.getClients(),
         api.getAnalyticsJobs(),
       ]);
-      if (version !== loadVersion.current) return;
+      if (version !== loadVersion.current || !isCurrent()) return;
       setJobs(jobRows.data);
       setData(analytics.data);
       setClients(clientRows);
     } catch (e) {
-      if (version === loadVersion.current)
+      if (version === loadVersion.current && isCurrent())
         setError(e instanceof Error ? e.message : "Unable to load analytics.");
     } finally {
-      if (version === loadVersion.current) setLoading(false);
+      if (version === loadVersion.current && isCurrent()) setLoading(false);
     }
   }
 
-  useEffect(() => {
-    void load();
-  }, [clientId, days]);
-
-  useEffect(() => {
-    if (!jobs.some((job) => ["queued", "running"].includes(job.status))) return;
-    const timer = setInterval(() => void load(), 5000);
-    return () => clearInterval(timer);
-  }, [jobs, clientId, days]);
+  const refresh = useFocusedRefresh(
+    async (context) => {
+      if (
+        (syncing && context.reason !== "manual") ||
+        (context.reason === "poll" &&
+          !jobs.some((job) => ["queued", "running"].includes(job.status)))
+      )
+        return;
+      await load(context.current);
+    },
+    [clientId, days],
+    5000,
+  );
 
   async function sync() {
     setSyncing(true);
@@ -92,7 +97,7 @@ export default function AnalyticsScreen() {
           }
         }
       }
-      await load();
+      await refresh();
       if (failures.length)
         Alert.alert(
           "Analytics needs attention",
@@ -164,12 +169,12 @@ export default function AnalyticsScreen() {
           <Text accessibilityRole="alert" style={styles.error}>
             {error}
           </Text>
-          <Button label="Try again" onPress={load} />
+          <Button label="Try again" onPress={refresh} />
         </Card>
       )}
 
       {loading && <Text accessibilityLiveRegion="polite">Loading analytics…</Text>}
-      {!loading && !error && (
+      {!!data && !error && (
         <>
           <EssentialSection title="About these measurements" defaultOpen={false}>
             <StatusBadge label={overview.measurement_status || "unavailable"} />

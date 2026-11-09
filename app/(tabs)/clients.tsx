@@ -1,3 +1,4 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { TimezonePicker } from "@/components/pickers";
 import { IconButton } from "@/components/icon-button";
 import { ClientAvatar } from "@/components/client-avatar";
@@ -5,8 +6,8 @@ import { useAuth } from "@/auth/context";
 import { useCapabilities } from "@/auth/capabilities";
 import { StatusBadge } from "@/components/ui";
 import { Alert, confirmAction } from "@/components/feedback";
-import { Link, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { Link } from "expo-router";
+import { useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -41,19 +42,20 @@ export default function ClientsScreen() {
       .includes(search.toLowerCase()),
   );
 
-  async function load() {
+  async function load(isCurrent = refresh.active) {
     setError("");
     try {
-      setClients(await api.getClients(showArchived));
+      const rows = await api.getClients(showArchived);
+      if (isCurrent()) setClients(rows);
     } catch (err) {
-      setClients([]);
+      if (!isCurrent()) return;
       setError(err instanceof Error ? err.message : "Unable to load clients.");
     }
   }
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [showArchived]),
+  const refresh = useFocusedRefresh(
+    (context) =>
+      working && context.reason !== "manual" ? Promise.resolve() : load(context.current),
+    [showArchived],
   );
 
   async function create() {
@@ -63,7 +65,7 @@ export default function ClientsScreen() {
       await api.createClient(name.trim(), timezone.trim());
       setName("");
       setAdding(false);
-      await load();
+      await refresh();
     } catch (err) {
       Alert.alert("Unable to create client", err instanceof Error ? err.message : "Try again.");
     } finally {
@@ -83,7 +85,7 @@ export default function ClientsScreen() {
     setWorking(true);
     try {
       await api.archiveClient(client.id);
-      await load();
+      await refresh();
     } catch (err) {
       Alert.alert("Unable to archive client", err instanceof Error ? err.message : "Try again.");
     } finally {
@@ -103,7 +105,7 @@ export default function ClientsScreen() {
     setWorking(true);
     try {
       await api.removeClient(client.id, client.name);
-      await load();
+      await refresh();
     } catch (err) {
       Alert.alert("Unable to remove client", err instanceof Error ? err.message : "Try again.");
     } finally {
@@ -198,7 +200,7 @@ export default function ClientsScreen() {
         <Card subtle>
           <Text style={styles.errorTitle}>Clients unavailable</Text>
           <Text style={styles.sub}>{error}</Text>
-          <Pressable onPress={load}>
+          <Pressable onPress={refresh}>
             <Text style={styles.edit}>Try again</Text>
           </Pressable>
         </Card>
@@ -274,7 +276,7 @@ export default function ClientsScreen() {
                             setWorking(true);
                             try {
                               await api.restoreClient(client.id);
-                              await load();
+                              await refresh();
                             } catch (e) {
                               Alert.alert(
                                 "Unable to restore",

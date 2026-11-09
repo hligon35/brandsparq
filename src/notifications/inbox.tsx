@@ -1,3 +1,4 @@
+import { createActiveRefresh } from "@/shared/active-refresh";
 import {
   createContext,
   useContext,
@@ -14,33 +15,32 @@ const Inbox = createContext({ unreadCount: 0, refresh: async () => {} });
 export function InboxProvider({ children }: PropsWithChildren) {
   const { user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
-  const version = useRef(0);
+  const controller = useRef<ReturnType<typeof createActiveRefresh> | null>(null);
   const refresh = useCallback(async () => {
-    const current = ++version.current;
-    if (!user) {
-      setUnreadCount(0);
-      return;
-    }
-    try {
-      const result = await api.getNotifications({ limit: "1" });
-      if (current === version.current) setUnreadCount(result.unreadCount);
-    } catch {
-      /* Keep last known count on transient network failures. */
-    }
-  }, [user?.id]);
+    await controller.current?.request();
+  }, []);
   useEffect(() => {
     setUnreadCount(0);
-    void refresh();
-    const timer = setInterval(() => void refresh(), 30000);
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void refresh();
-    });
+    if (!user) return;
+    const active = createActiveRefresh(async (context) => {
+      try {
+        const result = await api.getNotifications({ limit: "1" });
+        if (context.current()) setUnreadCount(result.unreadCount);
+      } catch {
+        /* Keep last known count on transient network failures. */
+      }
+    }, 30000);
+    controller.current = active;
+    active.setActive(AppState.currentState == null || AppState.currentState === "active");
+    const subscription = AppState.addEventListener("change", (state) =>
+      active.setActive(state === "active"),
+    );
     return () => {
-      version.current++;
-      clearInterval(timer);
       subscription.remove();
+      active.dispose();
+      if (controller.current === active) controller.current = null;
     };
-  }, [refresh]);
+  }, [user?.id]);
   return <Inbox.Provider value={{ unreadCount, refresh }}>{children}</Inbox.Provider>;
 }
 export const useInbox = () => useContext(Inbox);

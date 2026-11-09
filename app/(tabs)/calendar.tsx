@@ -1,13 +1,14 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { calendarDate, calendarDayStart, sameCalendarDay } from "@/shared/calendar-time";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
-import { Link, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { ClientPicker } from "@/components/client-picker";
 import { IconButton } from "@/components/icon-button";
 import { api } from "@/api/client";
-import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
+import { Button, Card, PageHeader, PageScroll, PageList, StatusBadge } from "@/components/ui";
 import { useResponsive } from "@/hooks/useResponsive";
 import { colors, radius, spacing } from "@/theme/tokens";
 import type { Client, MarketingPost, Platform } from "@/types/domain";
@@ -105,7 +106,7 @@ export default function CalendarScreen() {
     if (requestedClient) setClientFilter(requestedClient);
   }, [requestedClient]);
 
-  async function load() {
+  async function load(isCurrent = refresh.active) {
     const version = ++loadVersion.current;
     setLoading(true);
     setError("");
@@ -117,24 +118,20 @@ export default function CalendarScreen() {
         ),
         api.getClients(),
       ]);
-      if (version !== loadVersion.current) return;
+      if (version !== loadVersion.current || !isCurrent()) return;
       setPosts(calendar);
       setSelected((current) => current.filter((id) => calendar.some((post) => post.id === id)));
       setClients(clientRows);
     } catch (err) {
-      if (version !== loadVersion.current) return;
+      if (version !== loadVersion.current || !isCurrent()) return;
       setPosts([]);
       setError(err instanceof Error ? err.message : "Unable to load calendar.");
     } finally {
-      if (version === loadVersion.current) setLoading(false);
+      if (version === loadVersion.current && isCurrent()) setLoading(false);
     }
   }
 
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [mode, anchor, timezone]),
-  );
+  const refresh = useFocusedRefresh((context) => load(context.current), [mode, anchor, timezone]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -183,7 +180,7 @@ export default function CalendarScreen() {
       const result = await api.bulkShiftPosts(selected, minutes);
       const failures = result.results.filter((item: any) => !item.ok);
       setSelected([]);
-      await load();
+      await refresh();
       if (failures.length)
         Alert.alert("Calendar updated", `${failures.length} post(s) could not be shifted.`);
     } catch (err) {
@@ -199,7 +196,7 @@ export default function CalendarScreen() {
     try {
       await api.bulkPausePosts(selected);
       setSelected([]);
-      await load();
+      await refresh();
     } catch (err) {
       Alert.alert("Unable to pause posts", err instanceof Error ? err.message : "Try again.");
     } finally {
@@ -259,8 +256,8 @@ export default function CalendarScreen() {
     "x",
   ];
 
-  return (
-    <PageScroll>
+  const header = (
+    <>
       <PageHeader title="Calendar" subtitle="Plan the right message at the right time." />
 
       <ClientPicker
@@ -359,12 +356,79 @@ export default function CalendarScreen() {
         <Card subtle>
           <Text style={styles.emptyTitle}>Calendar unavailable</Text>
           <Text style={styles.sub}>{error}</Text>
-          <Pressable onPress={load}>
+          <Pressable onPress={refresh}>
             <Text style={styles.openText}>Try again</Text>
           </Pressable>
         </Card>
       )}
-
+    </>
+  );
+  if (compact) {
+    type AgendaRow = { id: string; day: Date; post?: MarketingPost; count?: number };
+    const agenda: AgendaRow[] = [];
+    if (!error)
+      for (const day of mode === "day" ? [anchor] : range.days) {
+        if (mode === "month" && day.getUTCMonth() !== anchor.getUTCMonth()) continue;
+        const dayPosts = filtered
+          .filter((post) => sameCalendarDay(post.scheduledPublishAt, day, timezone))
+          .sort(
+            (a, b) =>
+              Date.parse(a.scheduledPublishAt || "") - Date.parse(b.scheduledPublishAt || ""),
+          );
+        if (mode === "month" && !dayPosts.length) continue;
+        if (mode !== "day")
+          agenda.push({ id: `day-${day.toISOString()}`, day, count: dayPosts.length });
+        agenda.push(...dayPosts.map((post) => ({ id: post.id, day, post })));
+      }
+    return (
+      <PageList
+        data={agenda}
+        keyExtractor={(row) => row.id}
+        extraData={{ selected, working }}
+        header={header}
+        refreshing={loading}
+        onRefresh={refresh}
+        renderItem={({ item }) =>
+          item.post ? (
+            postCard(item.post)
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Show ${item.day.toLocaleDateString(undefined, { timeZone: "UTC", month: "long", day: "numeric" })}`}
+              onPress={() => {
+                setAnchor(item.day);
+                setMode("day");
+              }}
+              style={styles.agendaHeading}
+            >
+              <Text style={styles.agendaDate}>
+                {item.day.toLocaleDateString(undefined, {
+                  timeZone: "UTC",
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </Text>
+              <Text style={styles.agendaCount}>{item.count ? `${item.count} posts` : "Open"}</Text>
+            </Pressable>
+          )
+        }
+        empty={
+          !loading && !error ? (
+            <Card subtle>
+              <Text style={styles.emptyTitle}>
+                {mode === "month" ? "No posts this month" : "Open space"}
+              </Text>
+              <Text style={styles.sub}>No posts scheduled for this period.</Text>
+            </Card>
+          ) : undefined
+        }
+      />
+    );
+  }
+  return (
+    <PageScroll>
+      {header}
       {!loading && !error && mode === "day" && (
         <View style={styles.dayView}>
           {filtered
@@ -383,121 +447,32 @@ export default function CalendarScreen() {
         </View>
       )}
 
-      {!loading &&
-        !error &&
-        mode === "week" &&
-        (compact ? (
-          <View style={styles.agenda}>
-            {range.days.map((day) => {
-              const dayPosts = filtered.filter((post) =>
-                sameCalendarDay(post.scheduledPublishAt, day, timezone),
-              );
-              return (
-                <View key={day.toISOString()} style={styles.agendaDay}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Show ${day.toLocaleDateString(undefined, { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" })}`}
-                    onPress={() => {
-                      setAnchor(day);
-                      setMode("day");
-                    }}
-                    style={styles.agendaHeading}
-                  >
-                    <Text style={styles.agendaDate}>
-                      {day.toLocaleDateString(undefined, {
-                        timeZone: "UTC",
-                        weekday: "short",
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </Text>
-                    <Text style={styles.agendaCount}>
-                      {dayPosts.length
-                        ? `${dayPosts.length} post${dayPosts.length === 1 ? "" : "s"}`
-                        : "Open"}
-                    </Text>
-                  </Pressable>
-                  {dayPosts.map(postCard)}
-                </View>
-              );
-            })}
-          </View>
-        ) : (
-          <View style={styles.weekGrid}>
-            {range.days.map((day) => {
-              const dayPosts = filtered.filter((post) =>
-                sameCalendarDay(post.scheduledPublishAt, day, timezone),
-              );
-              return (
-                <View key={day.toISOString()} style={styles.weekColumn}>
-                  <Pressable
-                    onPress={() => {
-                      setAnchor(day);
-                      setMode("day");
-                    }}
-                  >
-                    <Text style={styles.weekDay}>
-                      {day.toLocaleDateString(undefined, { timeZone: "UTC", weekday: "short" })}
-                    </Text>
-                    <Text style={styles.weekDate}>{day.getUTCDate()}</Text>
-                  </Pressable>
-                  <View style={styles.weekPosts}>
-                    {dayPosts.map(postCard)}
-                    {!dayPosts.length && <Text style={styles.openSpace}>Open</Text>}
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        ))}
-
-      {!loading && !error && mode === "month" && compact && (
-        <View style={styles.agenda}>
-          {range.days
-            .filter((day) => day.getUTCMonth() === anchor.getUTCMonth())
-            .map((day) => ({
-              day,
-              posts: filtered.filter((post) =>
-                sameCalendarDay(post.scheduledPublishAt, day, timezone),
-              ),
-            }))
-            .filter(({ posts }) => posts.length > 0)
-            .map(({ day, posts }) => (
-              <View key={day.toISOString()} style={styles.agendaDay}>
+      {!loading && !error && mode === "week" && (
+        <View style={styles.weekGrid}>
+          {range.days.map((day) => {
+            const dayPosts = filtered.filter((post) =>
+              sameCalendarDay(post.scheduledPublishAt, day, timezone),
+            );
+            return (
+              <View key={day.toISOString()} style={styles.weekColumn}>
                 <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Show ${day.toLocaleDateString(undefined, { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" })}`}
                   onPress={() => {
                     setAnchor(day);
                     setMode("day");
                   }}
-                  style={styles.agendaHeading}
                 >
-                  <Text style={styles.agendaDate}>
-                    {day.toLocaleDateString(undefined, {
-                      timeZone: "UTC",
-                      weekday: "long",
-                      month: "short",
-                      day: "numeric",
-                    })}
+                  <Text style={styles.weekDay}>
+                    {day.toLocaleDateString(undefined, { timeZone: "UTC", weekday: "short" })}
                   </Text>
-                  <Text style={styles.agendaCount}>
-                    {posts.length} post{posts.length === 1 ? "" : "s"}
-                  </Text>
+                  <Text style={styles.weekDate}>{day.getUTCDate()}</Text>
                 </Pressable>
-                {posts.map(postCard)}
+                <View style={styles.weekPosts}>
+                  {dayPosts.map(postCard)}
+                  {!dayPosts.length && <Text style={styles.openSpace}>Open</Text>}
+                </View>
               </View>
-            ))}
-          {!range.days.some(
-            (day) =>
-              day.getUTCMonth() === anchor.getUTCMonth() &&
-              filtered.some((post) => sameCalendarDay(post.scheduledPublishAt, day, timezone)),
-          ) && (
-            <Card subtle>
-              <Text style={styles.emptyTitle}>No posts this month</Text>
-              <Text style={styles.sub}>Approved posts will appear here when scheduled.</Text>
-            </Card>
-          )}
+            );
+          })}
         </View>
       )}
 
