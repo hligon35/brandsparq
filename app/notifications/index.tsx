@@ -1,13 +1,16 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { refreshPages } from "@/shared/refresh-pages";
 import { useInbox } from "@/notifications/inbox";
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter, type Href } from "expo-router";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Alert } from "@/components/feedback";
 import { api } from "@/api/client";
 import { notificationRoute } from "@/shared/notification-route";
 import { IconButton } from "@/components/icon-button";
-import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
+import { Button, Card, PageHeader, PageList, StatusBadge } from "@/components/ui";
 import { colors } from "@/theme/tokens";
 
 export default function NotificationsScreen() {
@@ -17,21 +20,32 @@ export default function NotificationsScreen() {
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
+  const search = useDebouncedValue(query);
+  const [error, setError] = useState("");
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const version = useRef(0);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
-  async function load(more = false) {
+  async function load(more = false, isCurrent = refresh.active, preserve = false) {
     const current = ++version.current;
     setLoading(true);
     try {
-      const result = await api.getNotifications({
-        search: query,
+      let result = await api.getNotifications({
+        search,
         filter,
         ...(more && nextCursor ? { cursor: nextCursor } : {}),
       });
-      if (current !== version.current) return;
+      if (preserve && !more)
+        result = {
+          ...result,
+          ...(await refreshPages(result, items.length, (cursor) => {
+            if (!isCurrent()) throw new Error("Refresh canceled");
+            return api.getNotifications({ search, filter, cursor });
+          })),
+        };
+      if (current !== version.current || !isCurrent()) return;
+      setError("");
       setItems((old) =>
         more
           ? [...old, ...result.data.filter((row) => !old.some((item) => item.id === row.id))]
@@ -40,20 +54,25 @@ export default function NotificationsScreen() {
       setNextCursor(result.nextCursor);
       setUnreadCount(result.unreadCount);
       void refreshInbox();
-      if (!more) setSelected([]);
+      if (!more)
+        setSelected((old) =>
+          preserve ? old.filter((id) => result.data.some((item) => item.id === id)) : [],
+        );
     } catch (e) {
-      Alert.alert("Unable to load notifications", e instanceof Error ? e.message : "Try again.");
+      if (current === version.current && isCurrent())
+        setError(e instanceof Error ? e.message : "Unable to load notifications.");
     } finally {
-      if (current === version.current) setLoading(false);
+      if (current === version.current && isCurrent()) setLoading(false);
     }
   }
-  useEffect(() => {
-    const timer = setTimeout(() => void load(), 200);
-    return () => {
-      clearTimeout(timer);
-      version.current++;
-    };
-  }, [query, filter]);
+  const refresh = useFocusedRefresh(
+    async (context) => {
+      if ((busy && context.reason !== "manual") || (context.reason === "poll" && loading)) return;
+      await load(false, context.current, true);
+    },
+    [search, filter],
+    30000,
+  );
   const unread = unreadCount;
   const visible = items;
   async function open(item: any) {
@@ -88,7 +107,7 @@ export default function NotificationsScreen() {
       await api.deleteNotifications(selected);
       setItems((old) => old.filter((item) => !selected.includes(item.id)));
       setSelected([]);
-      await load();
+      await refresh();
     } catch (e) {
       Alert.alert("Unable to delete notifications", e instanceof Error ? e.message : "Try again.");
     } finally {
@@ -99,7 +118,7 @@ export default function NotificationsScreen() {
     setBusy(true);
     try {
       await api.markAllNotificationsRead();
-      await load();
+      await refresh();
     } catch (e) {
       Alert.alert(
         "Unable to mark notifications read",
@@ -111,72 +130,93 @@ export default function NotificationsScreen() {
   }
   const allSelected = visible.length > 0 && visible.every((item) => selected.includes(item.id));
   return (
-    <PageScroll>
-      <PageHeader
-        title="Notifications"
-        subtitle={`${unread} new · Tap a notification to open it.`}
-        action={
-          <IconButton label="Refresh notifications" busy={loading} onPress={() => void load()} />
-        }
-      />
-      <TextInput
-        accessibilityLabel="Search notifications"
-        placeholder="Search notifications"
-        value={query}
-        onChangeText={setQuery}
-        style={{
-          minHeight: 48,
-          padding: 12,
-          color: colors.text,
-          backgroundColor: colors.surface,
-          borderRadius: 12,
-        }}
-      />
-      <Text style={styles.time}>Select all selects this loaded list (up to 100 at a time).</Text>
-      <View style={styles.toolbar}>
-        {["all", "unread", "failed"].map((value) => (
-          <Pressable
-            key={value}
-            accessibilityRole="button"
-            accessibilityState={{ selected: filter === value }}
-            onPress={() => setFilter(value)}
-            style={[styles.filter, filter === value && styles.active]}
-          >
-            <Text style={{ color: filter === value ? colors.white : colors.text }}>
-              {value === "unread" ? "New" : value === "failed" ? "Issues" : "All"}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-      <View style={styles.toolbar}>
-        <Button
-          label={allSelected ? "Deselect all" : "Select all"}
-          small
-          secondary
-          onPress={
-            busy || !visible.length
-              ? undefined
-              : () =>
-                  setSelected((old) =>
-                    allSelected
-                      ? old.filter((id) => !visible.some((item) => item.id === id))
-                      : [...new Set([...old, ...visible.map((item) => item.id)])].slice(0, 100),
-                  )
-          }
-        />
-        {!!selected.length && (
-          <Button
-            label={`Delete (${selected.length})`}
-            small
-            danger
-            onPress={busy ? undefined : remove}
+    <PageList
+      data={visible}
+      keyExtractor={(item) => item.id}
+      extraData={{ selected, busy }}
+      refreshing={loading}
+      onRefresh={() => void refresh()}
+      header={
+        <>
+          <PageHeader
+            title="Notifications"
+            subtitle={`${unread} new · Tap a notification to open it.`}
+            action={
+              <IconButton
+                label="Refresh notifications"
+                busy={loading}
+                onPress={() => void refresh()}
+              />
+            }
           />
-        )}
-        {!!unread && (
-          <Button label="Mark all read" small secondary onPress={busy ? undefined : markAll} />
-        )}
-      </View>
-      {visible.map((item) => (
+          <TextInput
+            accessibilityLabel="Search notifications"
+            placeholder="Search notifications"
+            value={query}
+            onChangeText={setQuery}
+            style={{
+              minHeight: 48,
+              padding: 12,
+              color: colors.text,
+              backgroundColor: colors.surface,
+              borderRadius: 12,
+            }}
+          />
+          <Text style={styles.time}>
+            Select all selects this loaded list (up to 100 at a time).
+          </Text>
+          <View style={styles.toolbar}>
+            {["all", "unread", "failed"].map((value) => (
+              <Pressable
+                key={value}
+                accessibilityRole="button"
+                accessibilityState={{ selected: filter === value }}
+                onPress={() => setFilter(value)}
+                style={[styles.filter, filter === value && styles.active]}
+              >
+                <Text style={{ color: filter === value ? colors.white : colors.text }}>
+                  {value === "unread" ? "New" : value === "failed" ? "Issues" : "All"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.toolbar}>
+            <Button
+              label={allSelected ? "Deselect all" : "Select all"}
+              small
+              secondary
+              onPress={
+                busy || !visible.length
+                  ? undefined
+                  : () =>
+                      setSelected((old) =>
+                        allSelected
+                          ? old.filter((id) => !visible.some((item) => item.id === id))
+                          : [...new Set([...old, ...visible.map((item) => item.id)])].slice(0, 100),
+                      )
+              }
+            />
+            {!!selected.length && (
+              <Button
+                label={`Delete (${selected.length})`}
+                small
+                danger
+                onPress={busy ? undefined : remove}
+              />
+            )}
+            {!!unread && (
+              <Button label="Mark all read" small secondary onPress={busy ? undefined : markAll} />
+            )}
+          </View>
+          {!!error && (
+            <Card subtle>
+              <Text accessibilityRole="alert">{error}</Text>
+              <Button label="Retry notifications" onPress={() => void refresh()} />
+            </Card>
+          )}
+        </>
+      }
+      renderItem={({ item }) => (
         <Card key={item.id} style={[{ padding: 12, gap: 8 }, !item.read_at && styles.newCard]}>
           <View style={styles.row}>
             <Pressable
@@ -225,24 +265,29 @@ export default function NotificationsScreen() {
             </Text>
           )}
         </Card>
-      ))}
-      {!!nextCursor && (
-        <Button
-          label={loading ? "Loading…" : "Load more notifications"}
-          secondary
-          onPress={loading ? undefined : () => void load(true)}
-        />
       )}
-      {!visible.length && (
+      footer={
+        <>
+          {!!nextCursor && (
+            <Button
+              label={loading ? "Loading…" : "Load more notifications"}
+              secondary
+              onPress={loading ? undefined : () => void load(true)}
+            />
+          )}
+        </>
+      }
+      empty={
         <Card>
           <Text style={styles.body}>
             {loading ? "Loading notifications…" : "No notifications in this view."}
           </Text>
         </Card>
-      )}
-    </PageScroll>
+      }
+    />
   );
 }
+
 const styles = StyleSheet.create({
   toolbar: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   filter: {

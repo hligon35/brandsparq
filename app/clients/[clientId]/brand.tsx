@@ -1,3 +1,4 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { useEditorDraft } from "@/hooks/useEditorDraft";
 import { editorDraftKey } from "@/shared/editor-draft";
 import { EditorDraftNotice } from "@/components/editor-draft-notice";
@@ -13,7 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Alert, confirmAction } from "@/components/feedback";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, SectionTitle } from "@/components/ui";
@@ -128,7 +129,10 @@ export default function BrandBrainScreen() {
     setLoaded(true);
   }
 
-  async function load(recover = false) {
+  const refreshDraft = useRef("");
+  refreshDraft.current = JSON.stringify({ name, timezone, brand });
+  async function load(recover = false, isCurrent = () => true) {
+    const started = refreshDraft.current;
     const version = ++loadVersion.current;
     setConflict(false);
     if (!clientId) return;
@@ -138,21 +142,34 @@ export default function BrandBrainScreen() {
         api.getBrand(clientId),
         api.getBrandAssets(clientId),
       ]);
-      if (version !== loadVersion.current || entityRef.current !== clientId) return;
+      if (
+        version !== loadVersion.current ||
+        entityRef.current !== clientId ||
+        !isCurrent() ||
+        (recover && started !== refreshDraft.current)
+      )
+        return;
       await applyProfile(data, recover && can("brand_manage", clientId));
       setAssets(assetResult.data);
     } catch (err) {
-      if (version !== loadVersion.current || entityRef.current !== clientId) return;
+      if (
+        version !== loadVersion.current ||
+        entityRef.current !== clientId ||
+        !isCurrent() ||
+        (recover && started !== refreshDraft.current)
+      )
+        return;
       if (isEditConflict(err)) setConflict(true);
       setError(err instanceof Error ? err.message : "Unable to load Brand Brain.");
     }
   }
-  useEffect(() => {
-    void load(true);
-    return () => {
-      loadVersion.current++;
-    };
-  }, [clientId]);
+  useFocusedRefresh(
+    async (context) => {
+      if (saving || editor.pending || editor.dirty) return;
+      await load(true, context.current);
+    },
+    [clientId],
+  );
 
   async function save() {
     if (!clientId) return;

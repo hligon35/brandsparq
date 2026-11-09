@@ -2,6 +2,70 @@
 
 Production host: `https://brandsparq.getsparqd.com`
 
+## Mobile functionality final pass
+
+This pass remains on `preview/mobile-stability-pass-1`. It adds no migration beyond
+`0033_push_cleanup.sql` from pass 1, and no new native dependency. Apply outstanding
+migrations and deploy the matching Worker/web app before publishing the preview OTA.
+Do not treat a preview push or successful export as production/device acceptance.
+
+Review, notifications, generation, paused content and the compact calendar agenda now
+render rows with a single virtualized vertical list. Search and bulk selection remain
+outside recycled rows. Notifications/generation searches wait briefly for typing to pause;
+loaded history pages are rebuilt from current server membership on refresh. Generation
+metadata with invalid legacy JSON no longer crashes the row renderer.
+
+Screen refreshes follow navigation focus and native AppState. Timed refreshes stop while
+hidden or backgrounded; return/foreground triggers a fresh load. A refresh controller
+serializes its requests, coalesces repeated refresh taps and invalidates stale results.
+Generation and analytics request polling data only while there are unfinished jobs.
+Inbox counts, session capability refresh and pending push cleanup also pause their timers
+in the background. In-flight HTTP work can still finish, but invalidated refresh results
+are ignored. Dirty/pending editor drafts are preserved; inputs changed during a refresh
+are not replaced by its response. RGB controls use measured track widths, continuous drag
+and accessibility increment/decrement actions.
+
+A root React render boundary offers **Try again** after a caught render failure. Native
+ErrorUtils reporting preserves the framework's original handler. Authenticated runtime
+reports queue on the device (at most 10, retained at most seven days) and retry on active
+launch/foreground and once per minute while active. Entries only upload using their
+original signed-in account. The authenticated `/v1/client-diagnostics` endpoint accepts
+at most ten submissions per user/hour and deduplicates matching unresolved error types
+for 30 minutes into **System Health → system events**, category `mobile`.
+
+Reports contain an allowlisted error code, render/runtime source, fatal flag, platform,
+app version, OTA update UUID (or embedded) and up to eight bundle line/column coordinates.
+Raw messages, function/component names, stack strings, paths, URLs, captions, images and
+credentials are excluded on both the client and Worker. No source map upload or external
+reporting service is configured. Reporting is best effort: errors before sign-in, abrupt
+termination before a queue write, native process crashes and out-of-memory exits still
+require device/Xcode/Android logs. A render-boundary retry remounts the workspace and
+recovers successfully persisted drafts; it cannot recover unwritten edits.
+
+Validation for this pass: app/Worker TypeScript, lint/format, schema check, iOS/Android/web
+exports and Worker dry-run packaging passed. Eleven new controller/geometry/diagnostic
+security tests passed. The full suite reported 425 passing and two existing failures
+because dependency dispositions are expired (`GHSA-mrhx-c7xc-m3w5` and the toolchain review).
+The reviews were not extended or bypassed. New browser cases parse across three profiles;
+browser execution and native acceptance remain unverified in this environment. Maestro
+and a booted emulator/simulator are required for `npm run test:mobile`.
+
+Before releasing the OTA, run the expanded isolated Maestro workspace flow on both native
+platforms, plus these device checks:
+
+| Check | Acceptance |
+| --- | --- |
+| Review editing | Artwork visible; edit/save caption; refresh and reopen retain saved copy. |
+| Draft interruption | Edit caption/Brand Brain/campaign/Settings; background and restart; recover local draft; changed server baseline requires explicit restore/discard. |
+| Navigation | Dirty Create/editor: each bottom tab and back action offers Keep editing/Discard; Keep editing retains the route. |
+| Background recovery | Background during generation, return after completion; active screen refreshes; repeat offline then reconnect; no late response replaces typed copy. |
+| Long lists | Scroll review, notifications, paused jobs, generation and calendar beyond the initial viewport; selection persists and Load more remains reachable. |
+| Color controls | Drag RGB tracks at narrow/wide widths; reach 0 and 255; VoiceOver/TalkBack increments/decrements channels. |
+| Scheduling | Native picker selects an exact hour/minute, shows the client time zone and saves the intended time. |
+| AAMWA assets | Upload the real logo on iOS/Android; no app exit; normalized image and up to three extracted colors survive reopening. |
+| Push lifecycle | Offline sign-out, app restart, reconnection and account switch do not deliver the old account's notifications once cleanup succeeds. |
+| Runtime recovery | Inject a render error in an isolated debug build; Try again recovers; a sanitized mobile system event appears after authenticated reconnect. |
+
 ## Mobile editing and recovery pass 2
 
 This builds on mobile stability pass 1 and adds no migration beyond `0033_push_cleanup.sql`.

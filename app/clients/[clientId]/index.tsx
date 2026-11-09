@@ -1,6 +1,6 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { EssentialRow, EssentialSection } from "@/components/essential";
-import { useCallback, useState } from "react";
-import { useFocusEffect } from "expo-router";
+import { useState } from "react";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
@@ -23,21 +23,20 @@ export default function ClientWorkspace() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
+  useFocusedRefresh(
+    async (context) => {
       setLoading(true);
       setError("");
       const from = new Date(),
         to = new Date(from.getTime() + 30 * 86400000);
-      void Promise.all([
+      await Promise.all([
         api.getClients(),
         api.getCalendar(from.toISOString(), to.toISOString()),
         api.getReviewQueue(),
         api.getSocialAccounts(clientId),
       ])
         .then(([clientList, scheduled, reviews, connections]) => {
-          if (!active) return;
+          if (!context.current()) return;
           setClients(clientList);
           setPosts(
             scheduled
@@ -50,16 +49,14 @@ export default function ClientWorkspace() {
           setAccounts(connections.data);
         })
         .catch((err) => {
-          if (active)
+          if (context.current())
             setError(err instanceof Error ? err.message : "Unable to load client workspace.");
         })
         .finally(() => {
-          if (active) setLoading(false);
+          if (context.current()) setLoading(false);
         });
-      return () => {
-        active = false;
-      };
-    }, [clientId, attempt]),
+    },
+    [clientId, attempt],
   );
   const client = clients.find((item) => item.id === clientId);
   return (

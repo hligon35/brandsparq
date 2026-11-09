@@ -1,3 +1,6 @@
+import { bindRuntimeDiagnostics, flushRuntimeDiagnostics } from "@/diagnostics/runtime";
+import { captureDiagnosticReporter } from "@/api/client";
+import { createActiveRefresh } from "@/shared/active-refresh";
 import { Button } from "@/components/ui";
 import { unregisterThisDevice, retryPushCleanup, upgradePushCleanup } from "@/notifications/device";
 import * as Linking from "expo-linking";
@@ -58,24 +61,42 @@ export function AuthProvider({ children }: PropsWithChildren) {
   currentUser.current = user;
 
   useEffect(() => {
-    // A failed/offline restore is not a confirmed sign-out.
-    if (!ready || restoreError) return;
-    const retry = () => void retryPushCleanup(currentUser.current?.id).catch(() => undefined);
-    retry();
-    if (user) void upgradePushCleanup(user.id).catch(() => undefined);
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
-        retry();
-        if (currentUser.current)
-          void upgradePushCleanup(currentUser.current.id).catch(() => undefined);
-      }
+    if (!user) return;
+    const captured = captureDiagnosticReporter();
+    const unbind = bindRuntimeDiagnostics({
+      owner: user.id,
+      current: captured.current,
+      send: captured.send,
     });
-    const timer = setInterval(() => {
-      if (AppState.currentState === "active") retry();
+    const refresh = createActiveRefresh(async () => {
+      await flushRuntimeDiagnostics();
     }, 60000);
+    refresh.setActive(AppState.currentState == null || AppState.currentState === "active");
+    const subscription = AppState.addEventListener("change", (state) =>
+      refresh.setActive(state === "active"),
+    );
     return () => {
       subscription.remove();
-      clearInterval(timer);
+      refresh.dispose();
+      unbind();
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    // A failed/offline restore is not a confirmed sign-out.
+    if (!ready || restoreError) return;
+    const refresh = createActiveRefresh(async (context) => {
+      await retryPushCleanup(currentUser.current?.id).catch(() => undefined);
+      if (context.reason === "foreground" && context.current() && currentUser.current)
+        await upgradePushCleanup(currentUser.current.id).catch(() => undefined);
+    }, 60000);
+    refresh.setActive(AppState.currentState == null || AppState.currentState === "active");
+    const subscription = AppState.addEventListener("change", (state) =>
+      refresh.setActive(state === "active"),
+    );
+    return () => {
+      subscription.remove();
+      refresh.dispose();
     };
   }, [ready, restoreError, user?.id]);
 
@@ -153,25 +174,27 @@ export function AuthProvider({ children }: PropsWithChildren) {
   // A late refresh from an old session must never restore a signed-out user.
   useEffect(() => {
     if (!user) return;
-    let active = true;
     const epoch = sessionEpoch.current;
-    const refresh = async () => {
+    const refresh = createActiveRefresh(async (context) => {
       try {
         const result = await api.getSession();
-        if (active && epoch === sessionEpoch.current && currentUser.current?.id === user.id)
+        if (
+          context.current() &&
+          epoch === sessionEpoch.current &&
+          currentUser.current?.id === user.id
+        )
           setUser(result.user);
       } catch {
-        /* Authorization failures are handled centrally; transient failures retain the UI. */
+        /* Central auth handler owns expiration; transient errors retain capabilities. */
       }
-    };
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void refresh();
-    });
-    const timer = setInterval(() => void refresh(), 60000);
+    }, 60000);
+    refresh.setActive(AppState.currentState == null || AppState.currentState === "active");
+    const subscription = AppState.addEventListener("change", (state) =>
+      refresh.setActive(state === "active"),
+    );
     return () => {
-      active = false;
       subscription.remove();
-      clearInterval(timer);
+      refresh.dispose();
     };
   }, [user?.id]);
 

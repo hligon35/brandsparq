@@ -1,3 +1,4 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { reviewCopyEditable, scheduledCopyEditable } from "@/shared/post-copy";
 import { EssentialSection } from "@/components/essential";
 import { renderFinalCopy, finalCopyError } from "@/shared/final-copy";
@@ -87,7 +88,7 @@ export default function PostReviewScreen() {
   const draftSnapshot = useRef({ dirty, text: JSON.stringify({ headlineDraft, captionDraft }) });
   draftSnapshot.current = { dirty, text: JSON.stringify({ headlineDraft, captionDraft }) };
 
-  async function reload(preserveEdits = false, recover = false) {
+  async function reload(preserveEdits = false, recover = false, isCurrent = () => true) {
     const startedText = draftSnapshot.current.text;
     const version = ++loadVersion.current;
     setConflict(false);
@@ -99,7 +100,7 @@ export default function PostReviewScreen() {
         api.getPostCreative(postId).catch(() => ({ data: null })),
         api.getClients(),
       ]);
-      if (version !== loadVersion.current || entityRef.current !== postId) return;
+      if (version !== loadVersion.current || entityRef.current !== postId || !isCurrent()) return;
       if (
         preserveEdits &&
         (draftSnapshot.current.dirty || draftSnapshot.current.text !== startedText)
@@ -125,19 +126,29 @@ export default function PostReviewScreen() {
       );
       setCreative(nextCreative.data);
     } catch (error) {
-      if (version !== loadVersion.current || entityRef.current !== postId) return;
+      if (version !== loadVersion.current || entityRef.current !== postId || !isCurrent()) return;
       if (isEditConflict(error)) setConflict(true);
       setLoadError(error instanceof Error ? error.message : "Unable to load post.");
       throw error;
     }
   }
 
-  useEffect(() => {
-    void reload(false, true).catch(() => undefined);
-    return () => {
-      loadVersion.current++;
-    };
-  }, [postId]);
+  useFocusedRefresh(
+    async (context) => {
+      if (
+        saving ||
+        aiAction ||
+        assigningAccount ||
+        editor.pending ||
+        (context.reason === "poll" &&
+          !["regenerating", "review_ready"].includes(post?.status || ""))
+      )
+        return;
+      await reload(post?.id === postId, true, context.current);
+    },
+    [postId],
+    3000,
+  );
 
   useEffect(() => {
     if (!post?.clientId) return;
@@ -152,14 +163,6 @@ export default function PostReviewScreen() {
       )
       .catch(() => setSocialAccounts([]));
   }, [post?.clientId, post?.platform]);
-
-  useEffect(() => {
-    if (!["regenerating", "review_ready"].includes(post?.status || "")) return;
-    const timer = setInterval(() => {
-      if (!draftSnapshot.current.dirty) void reload(true, true).catch(() => undefined);
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [post?.status, postId, dirty]);
 
   if (!post) {
     return (

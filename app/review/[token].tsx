@@ -1,3 +1,4 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { EssentialSection } from "@/components/essential";
 import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { renderFinalCopy, finalCopyError } from "@/shared/final-copy";
@@ -76,7 +77,7 @@ export default function PublicReviewScreen() {
     }
   }
 
-  async function load(preserveEdits = false) {
+  async function load(preserveEdits = false, isCurrent = () => true) {
     const startedText = currentDraft.current.text;
     const version = ++loadVersion.current;
     setConflict(false);
@@ -84,7 +85,7 @@ export default function PublicReviewScreen() {
     setError("");
     try {
       const result = await api.getPublicReview(token);
-      if (version !== loadVersion.current || entityRef.current !== token) return;
+      if (version !== loadVersion.current || entityRef.current !== token || !isCurrent()) return;
       if (
         preserveEdits &&
         (currentDraft.current.dirty || currentDraft.current.text !== startedText)
@@ -106,7 +107,7 @@ export default function PublicReviewScreen() {
       setHeadline(result.data.headline || result.data.title || "");
       setCaption(renderFinalCopy(result.data.caption || "", result.data.hashtags));
     } catch (err) {
-      if (version !== loadVersion.current || entityRef.current !== token) return;
+      if (version !== loadVersion.current || entityRef.current !== token || !isCurrent()) return;
       if (isEditConflict(err)) setConflict(true);
       if (preserveEdits)
         setRefreshError("Unable to refresh this review. Your edits are preserved.");
@@ -118,19 +119,24 @@ export default function PublicReviewScreen() {
     setApproved(false);
     setLoadedToken("");
     setPreviewBusy(false);
-    void load();
     return () => {
       loadVersion.current++;
     };
   }, [token]);
 
-  useEffect(() => {
-    if (!["regenerating", "review_ready"].includes(post?.status || "")) return;
-    const timer = setInterval(() => {
-      if (!currentDraft.current.dirty) void load(true);
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [post?.status, token]);
+  useFocusedRefresh(
+    async (context) => {
+      if (
+        working ||
+        (context.reason === "poll" &&
+          !["regenerating", "review_ready"].includes(post?.status || ""))
+      )
+        return;
+      await load(loadedToken === token, context.current);
+    },
+    [token],
+    3000,
+  );
 
   async function persistCopy(includeComment = false) {
     const identity = token;

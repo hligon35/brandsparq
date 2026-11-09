@@ -1,5 +1,6 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { Link } from "expo-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
@@ -16,20 +17,18 @@ export default function CampaignsScreen() {
       .includes(search.toLowerCase()),
   );
 
-  async function load() {
+  async function load(isCurrent = refresh.active) {
     setError("");
     try {
       const result = await api.getCampaigns();
-      setCampaigns(result.data);
+      if (isCurrent()) setCampaigns(result.data);
     } catch (err) {
-      setCampaigns([]);
+      if (!isCurrent()) return;
       setError(err instanceof Error ? err.message : "Unable to load campaigns.");
     }
   }
 
-  useEffect(() => {
-    void load();
-  }, []);
+  const refresh = useFocusedRefresh((context) => load(context.current), []);
   return (
     <PageScroll>
       <PageHeader title="Campaigns" subtitle="Plans, progress, and published content." />
@@ -37,7 +36,7 @@ export default function CampaignsScreen() {
         <Card subtle>
           <Text style={styles.title}>Campaigns unavailable</Text>
           <Text style={styles.meta}>{error}</Text>
-          <Pressable onPress={load}>
+          <Pressable onPress={refresh}>
             <Text style={styles.retry}>Try again</Text>
           </Pressable>
         </Card>

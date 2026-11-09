@@ -1,3 +1,4 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { useEditorDraft } from "@/hooks/useEditorDraft";
 import { editorDraftKey } from "@/shared/editor-draft";
 import { EditorDraftNotice } from "@/components/editor-draft-notice";
@@ -6,7 +7,7 @@ import { EssentialSection } from "@/components/essential";
 import { EditConflict, isEditConflict } from "@/components/edit-conflict";
 import { GuardedLink as Link } from "@/hooks/useUnsavedChanges";
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { api } from "@/api/client";
 import { useCapabilities } from "@/auth/capabilities";
@@ -32,13 +33,22 @@ export default function CampaignDetailScreen() {
     setForm,
   );
   const { dirty } = editor;
-  async function load(recover = false) {
+  const refreshDraft = useRef("");
+  refreshDraft.current = JSON.stringify(form);
+  async function load(recover = false, isCurrent = () => true) {
+    const started = refreshDraft.current;
     const version = ++loadVersion.current;
     setConflict(false);
     setError("");
     try {
       const { data } = await api.getCampaign(campaignId);
-      if (version !== loadVersion.current || entityRef.current !== campaignId) return;
+      if (
+        version !== loadVersion.current ||
+        entityRef.current !== campaignId ||
+        !isCurrent() ||
+        (recover && started !== refreshDraft.current)
+      )
+        return;
       setData(data);
       const c = data.campaign;
       const nextForm = {
@@ -56,17 +66,25 @@ export default function CampaignDetailScreen() {
         persist: can("client_manage", c.client_id),
       });
     } catch (e) {
-      if (version !== loadVersion.current || entityRef.current !== campaignId) return;
+      if (
+        version !== loadVersion.current ||
+        entityRef.current !== campaignId ||
+        !isCurrent() ||
+        (recover && started !== refreshDraft.current)
+      )
+        return;
       if (isEditConflict(e)) setConflict(true);
       setError(e instanceof Error ? e.message : "Unable to load campaign.");
     }
   }
-  useEffect(() => {
-    void load(true);
-    return () => {
-      loadVersion.current++;
-    };
-  }, [campaignId]);
+  useFocusedRefresh(
+    async (context) => {
+      if (saving || editor.pending || editor.dirty) return;
+      await load(true, context.current);
+    },
+    [campaignId],
+  );
+
   async function save() {
     setSaving(true);
     try {

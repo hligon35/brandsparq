@@ -10,6 +10,47 @@ name: BrandSparQ isolated fixture workspace acceptance
     timeout: 30000
 - openLink: "brandsparq-e2e://review"
 - assertVisible: "Launch campaign"
+# Private review exposes both artwork and editable copy on native screens.
+- openLink: "brandsparq-e2e://posts/fixture-post"
+- extendedWaitUntil:
+    visible: "Post image"
+    timeout: 15000
+- scrollUntilVisible:
+    element: "Caption"
+    direction: DOWN
+- tapOn: "Caption"
+- eraseText: 200
+- inputText: "Native acceptance caption"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Save copy"
+    direction: DOWN
+- tapOn: "Save copy"
+- extendedWaitUntil:
+    visible: "Save copy"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "Native acceptance caption"
+    timeout: 15000
+# The custom picker is usable without committing a scheduling mutation.
+- openLink: "brandsparq-e2e://posts/fixture-post/reschedule"
+- scrollUntilVisible:
+    element: "Time:.*"
+    direction: DOWN
+- tapOn: "Time:.*"
+- scrollUntilVisible:
+    element: "Hour 00"
+    direction: UP
+- scrollUntilVisible:
+    element: "Hour 12"
+    direction: DOWN
+- tapOn: "Hour 12"
+- scrollUntilVisible:
+    element: "Minute 00"
+    direction: UP
+- tapOn: "Minute 00"
+- tapOn: "Use time"
+- assertVisible: "Time: 12:00"
 - openLink: "brandsparq-e2e://clients"
 - assertVisible: "Your clients"
 - scrollUntilVisible:

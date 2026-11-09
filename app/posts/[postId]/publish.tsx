@@ -1,9 +1,10 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { EssentialSection } from "@/components/essential";
 import { publishActions } from "@/shared/publish-actions";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
-import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, StatusBadge } from "@/components/ui";
@@ -21,26 +22,26 @@ export default function PublishDecisionScreen() {
   const [loadError, setLoadError] = useState("");
   const { wide } = useResponsive();
 
-  async function load() {
+  async function load(isCurrent = refresh.active) {
     if (!postId) return;
     setLoadError("");
     try {
       const [nextPost, clients] = await Promise.all([api.getPost(postId), api.getClients()]);
+      if (!isCurrent()) return;
       setTimezone(
         clients.find((client) => client.id === nextPost.clientId)?.timezone ||
           Intl.DateTimeFormat().resolvedOptions().timeZone,
       );
       setPost(nextPost);
     } catch (error) {
-      setPost(undefined);
+      if (!isCurrent()) return;
       setLoadError(error instanceof Error ? error.message : "Unable to load post.");
     }
   }
 
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [postId]),
+  const refresh = useFocusedRefresh(
+    (context) => (working ? Promise.resolve() : load(context.current)),
+    [postId],
   );
 
   if (!post) {
@@ -50,7 +51,7 @@ export default function PublishDecisionScreen() {
           <Text style={styles.title}>{loadError ? "Post unavailable" : "Loading post…"}</Text>
           {!!loadError && <Text style={styles.sub}>{loadError}</Text>}
           {!!loadError && (
-            <Text onPress={load} style={styles.retry}>
+            <Text onPress={refresh} style={styles.retry}>
               Try again
             </Text>
           )}
@@ -129,7 +130,7 @@ export default function PublishDecisionScreen() {
                     setWorking(true);
                     try {
                       await api.pausedAction(post.id, "resume");
-                      await load();
+                      await refresh();
                     } catch (error) {
                       Alert.alert(
                         "Unable to resume",

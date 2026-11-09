@@ -136,6 +136,19 @@ const sourceBlob = (uri: string) =>
     return response.blob();
   });
 
+export function captureDiagnosticReporter() {
+  const captured = transport.captureSession();
+  return {
+    current: captured.isCurrent,
+    send: (diagnostic: import("@/shared/client-diagnostic").ClientDiagnostic) =>
+      jsonRequest(
+        "/v1/client-diagnostics",
+        { method: "POST", headers: captured.headers, body: JSON.stringify(diagnostic) },
+        { timeoutMs: 5000 },
+      ),
+  };
+}
+
 export const api = {
   cleanupPushToken: (token: string, cleanupToken: string) =>
     jsonRequest<{ ok: true }>("/v1/public/push-token/unregister", {

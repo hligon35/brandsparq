@@ -1,3 +1,4 @@
+import { sanitizeClientDiagnostic } from "../../src/shared/client-diagnostic";
 import { reviewCopyEditable, scheduledCopyEditable } from "../../src/shared/post-copy";
 import { revokePushDevice } from "./push-cleanup";
 import { ArtworkNotReady, requireArtwork } from "./artwork";
@@ -940,6 +941,35 @@ const worker = {
     const sessionUser = url.pathname.startsWith("/v1/") ? await getSessionUser(request, env) : null;
     if (url.pathname.startsWith("/v1/") && !sessionUser) {
       return response(request, env, { error: "Authentication required." }, { status: 401 });
+    }
+
+    if (sessionUser && url.pathname === "/v1/client-diagnostics" && request.method === "POST") {
+      const limit = await enforceRateLimit(
+        env,
+        `client-diagnostics:${sessionUser.id}`,
+        10,
+        60 * 60 * 1000,
+      );
+      if (!limit.allowed)
+        return response(
+          request,
+          env,
+          { error: "Diagnostic limit reached." },
+          { status: 429, headers: { "retry-after": String(limit.retryAfter) } },
+        );
+      const diagnostic = sanitizeClientDiagnostic(await request.json().catch(() => null));
+      if (!diagnostic)
+        return response(request, env, { error: "Invalid diagnostic." }, { status: 400 });
+      await recordSystemEvent(env, {
+        severity: diagnostic.fatal ? "error" : "warning",
+        category: "mobile",
+        eventType: `client_js_${diagnostic.code.toLowerCase()}_${diagnostic.platform}`,
+        entityType: "client_runtime",
+        entityId: sessionUser.id,
+        message: `Application JavaScript error (${diagnostic.code}).`,
+        metadata: diagnostic,
+      });
+      return response(request, env, { ok: true });
     }
 
     if (sessionUser) {

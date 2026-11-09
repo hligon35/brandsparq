@@ -2,6 +2,7 @@ import type { PropsWithChildren, ReactNode } from "react";
 import { useSegments } from "expo-router";
 import {
   Platform,
+  FlatList,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,6 +11,7 @@ import {
   type ScrollViewProps,
   type StyleProp,
   type ViewStyle,
+  type ListRenderItem,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useResponsive } from "@/hooks/useResponsive";
@@ -79,6 +81,70 @@ export function PageScroll({
     >
       <View style={[styles.scrollInner, { maxWidth: responsive.maxContentWidth }]}>{children}</View>
     </ScrollView>
+  );
+}
+
+/** One vertical virtualized surface; headers/footers share the normal page gutters. */
+export function PageList<T>({
+  data,
+  renderItem,
+  header,
+  footer,
+  empty,
+  columns = 1,
+  extraData,
+  refreshing,
+  onRefresh,
+  keyExtractor,
+}: {
+  data: T[];
+  renderItem: ListRenderItem<T>;
+  header?: ReactNode;
+  footer?: ReactNode;
+  empty?: ReactNode;
+  columns?: number;
+  extraData?: unknown;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  keyExtractor(item: T, index: number): string;
+}) {
+  const responsive = useResponsive();
+  const insets = useSafeAreaInsets();
+  return (
+    <FlatList
+      key={`columns-${columns}`}
+      style={styles.screen}
+      data={data}
+      numColumns={columns}
+      extraData={extraData}
+      keyExtractor={keyExtractor}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      initialNumToRender={8}
+      maxToRenderPerBatch={8}
+      windowSize={5}
+      keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={{
+        flexGrow: 1,
+        width: "100%",
+        alignSelf: "center",
+        maxWidth: responsive.maxContentWidth + responsive.gutter * 2,
+        paddingHorizontal: responsive.gutter,
+        paddingTop: responsive.compact ? spacing.md : spacing.lg,
+        paddingBottom: Math.max(responsive.compact ? spacing.md : spacing.lg, insets.bottom),
+      }}
+      columnWrapperStyle={columns > 1 ? { gap: spacing.md } : undefined}
+      ListHeaderComponent={
+        <View style={[styles.scrollInner, { paddingBottom: spacing.md }]}>{header}</View>
+      }
+      ListFooterComponent={footer ? <View style={styles.scrollInner}>{footer}</View> : undefined}
+      ListEmptyComponent={empty ? <View style={styles.scrollInner}>{empty}</View> : undefined}
+      renderItem={(info) => (
+        <View style={{ flex: 1, minWidth: 0, marginBottom: spacing.md }}>{renderItem(info)}</View>
+      )}
+    />
   );
 }
 

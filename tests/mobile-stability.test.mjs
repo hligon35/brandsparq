@@ -461,10 +461,19 @@ test("native container children never contain bare text or literal spacing", () 
         );
         function visit(node) {
           if (
-            ts.isJsxElement(node) &&
-            ["View", "ScrollView", "Pressable", "KeyboardAvoidingView", "SafeAreaView"].includes(
-              node.openingElement.tagName.getText(source),
-            )
+            ts.isJsxFragment(node) ||
+            (ts.isJsxElement(node) &&
+              [
+                "View",
+                "ScrollView",
+                "Pressable",
+                "KeyboardAvoidingView",
+                "SafeAreaView",
+                "PageScroll",
+                "PageList",
+                "Card",
+                "EssentialSection",
+              ].includes(node.openingElement.tagName.getText(source)))
           ) {
             for (const child of node.children) {
               if (

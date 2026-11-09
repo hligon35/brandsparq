@@ -1,10 +1,11 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { useCapabilities } from "@/auth/capabilities";
 import { useAuth } from "@/auth/context";
 import { Alert, confirmAction } from "@/components/feedback";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import { Image, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { ClientPicker } from "@/components/client-picker";
@@ -73,7 +74,7 @@ export default function SocialConnectionsScreen() {
     if (requestedClient) setClientId(requestedClient);
   }, [requestedClient]);
 
-  async function load(preferredClient?: string) {
+  async function load(preferredClient?: string, isCurrent = refresh.active) {
     const version = ++loadVersion.current;
     setLoading(true);
     try {
@@ -81,30 +82,24 @@ export default function SocialConnectionsScreen() {
       const preferred = preferredClient ?? clientId;
       const selected = c.some((item) => item.id === preferred) ? preferred : c[0]?.id || "";
       const result = selected ? await api.getSocialAccounts(selected) : { data: [] };
-      if (version !== loadVersion.current) return;
+      if (version !== loadVersion.current || !isCurrent()) return;
       setClients(c);
       setClientId(selected);
       setAccounts(result.data);
     } catch (error) {
-      if (version !== loadVersion.current) return;
+      if (version !== loadVersion.current || !isCurrent()) return;
       Alert.alert(
         "Unable to load social connections",
         error instanceof Error ? error.message : "Try again.",
       );
     } finally {
-      if (version === loadVersion.current) setLoading(false);
+      if (version === loadVersion.current && isCurrent()) setLoading(false);
     }
   }
 
-  useFocusEffect(
-    useCallback(() => {
-      setAccounts([]);
-      setExpanded(null);
-      void load(clientId);
-      return () => {
-        loadVersion.current++;
-      };
-    }, [clientId, callbackConnected]),
+  const refresh = useFocusedRefresh(
+    (context) => load(clientId, context.current),
+    [clientId, callbackConnected],
   );
 
   async function connect(platformName: string) {

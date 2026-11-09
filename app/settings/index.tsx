@@ -1,3 +1,4 @@
+import { useFocusedRefresh } from "@/hooks/useFocusedRefresh";
 import { EssentialSection } from "@/components/essential";
 import { AppUpdateControl } from "@/components/AppUpdateControl";
 import { useEditorDraft } from "@/hooks/useEditorDraft";
@@ -7,7 +8,7 @@ import { TimezonePicker, TimeWindows } from "@/components/pickers";
 import { useCapabilities } from "@/auth/capabilities";
 import { useAuth } from "@/auth/context";
 import { Alert } from "@/components/feedback";
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { registerThisDeviceForPush } from "@/notifications/register";
 import { api } from "@/api/client";
@@ -56,11 +57,15 @@ export default function SettingsScreen() {
   const personalEditable = loaded && editor.ready && !editor.pending && !saving;
   const editable = personalEditable && can("settings_manage");
 
-  function load(recover = false) {
+  const refreshDraft = useRef("");
+  refreshDraft.current = JSON.stringify({ workspace, notifications });
+  function load(recover = false, isCurrent = () => true) {
+    const started = refreshDraft.current;
     setLoadError("");
     return api
       .getSettings()
       .then(async ({ data }) => {
+        if (!isCurrent() || (recover && started !== refreshDraft.current)) return;
         const nextWorkspace = {
           timezone: data.workspace?.timezone || "America/Indiana/Indianapolis",
           defaultPrepublishMinutes: data.workspace?.default_prepublish_minutes ?? 30,
@@ -89,11 +94,13 @@ export default function SettingsScreen() {
         setLoaded(true);
       })
       .catch((error) => {
+        if (!isCurrent()) return;
         setLoadError(error instanceof Error ? error.message : "Unable to load settings.");
       });
   }
-  useEffect(() => {
-    void load(true);
+  useFocusedRefresh(async (context) => {
+    if (saving || notificationBusy || editor.pending || editor.dirty) return;
+    await load(true, context.current);
   }, []);
 
   async function save() {
