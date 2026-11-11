@@ -319,7 +319,11 @@ test("analytics accepts durable progress before provider calls and processes one
     calls++;
     throw Error("No provider needed for unsupported member");
   });
-  const response = await send(w, "/v1/analytics/sync", { accountId: "account", days: 7 });
+  const response = await send(w, "/v1/analytics/sync", {
+    accountId: "account",
+    days: 7,
+    scope: "brandsparq",
+  });
   assert.equal(response.status, 202);
   const result = await response.json(),
     id = result.results[0].jobId;
@@ -380,11 +384,13 @@ test("recent unsupported analytics accounts do not starve a never-synced account
       `account${i}`,
     );
     if (i < 20)
-      w.exec(
-        "INSERT INTO analytics_jobs(id,social_account_id,status) VALUES(?,?,'partial')",
-        `old${i}`,
-        `account${i}`,
-      );
+      for (const days of [7, 30, 90])
+        w.exec(
+          "INSERT INTO analytics_jobs(id,social_account_id,status,scope,range_days) VALUES(?,?,'partial','platform',?)",
+          `old${i}-${days}`,
+          `account${i}`,
+          days,
+        );
   }
   await worker.scheduled({}, w.env);
   assert.equal(

@@ -124,9 +124,7 @@ test("partial analytics sync failures are visible and missing metrics display un
   );
   await page.goto("/analytics");
   await page.getByRole("button", { name: "About these measurements", exact: true }).click();
-  await expect(
-    page.getByText("Metrics unavailable until a successful provider sync.", { exact: false }),
-  ).toBeVisible();
+  await expect(page.getByText("— means unavailable, not zero.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Sync analytics", exact: true }).click();
   await expect(page.getByText("Analytics needs attention", { exact: true })).toBeVisible();
   await expect(

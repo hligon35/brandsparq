@@ -500,10 +500,17 @@ export const api = {
       body: JSON.stringify({ enabled, accessRole }),
     }),
 
-  getAnalyticsOverview: (clientId?: string, days = 30) => {
+  getAnalyticsOverview: (
+    clientId?: string,
+    days = 30,
+    scope: "platform" | "brandsparq" = "platform",
+    accountId?: string,
+  ) => {
     const params = new URLSearchParams();
     if (clientId) params.set("clientId", clientId);
     params.set("days", String(days));
+    params.set("scope", scope);
+    if (accountId) params.set("accountId", accountId);
     return jsonRequest<{ data: any }>(`/v1/analytics/overview?${params.toString()}`);
   },
 
@@ -513,13 +520,13 @@ export const api = {
     ),
 
   getAnalyticsJobs: () => jsonRequest<{ data: any[] }>("/v1/analytics/jobs"),
-  syncAnalytics: (accountId?: string, days = 90) =>
+  syncAnalytics: (accountId?: string, days = 90, scope: "platform" | "brandsparq" = "platform") =>
     jsonRequest<{
       ok: boolean;
       results: Array<{ accountId: string; ok: boolean; status?: string; error?: string }>;
     }>("/v1/analytics/sync", {
       method: "POST",
-      body: JSON.stringify({ accountId, days }),
+      body: JSON.stringify({ accountId, days, scope }),
     }),
 
   validateSchedule: (clientId: string, scheduledAt: string) =>

@@ -2,6 +2,70 @@
 
 Production host: `https://brandsparq.getsparqd.com`
 
+## Platform account analytics
+
+Apply `0034_platform_analytics.sql` before deploying the updated Worker/web app, then
+publish the matching mobile OTA. There are no new native dependencies. These changes
+are on `preview/mobile-stability-pass-1`, recreated after the previous branch was merged.
+
+Analytics defaults to **Platform accounts**. Select a client and/or connected account,
+choose 7/30/90 days and tap **Sync analytics**. The **BrandSparQ posts** option retains
+the existing app-published-post report. The overview/sync endpoints accept
+`scope=platform|brandsparq`; the default is platform. Old durable jobs keep the
+brandsparq scope. Provider content lives in separate reporting tables and never enters
+approval, scheduling, generation or publishing queues. Matched provider IDs identify
+app-originated content without duplicating it in platform totals.
+
+Account summaries are requested even with no local published posts. Durable jobs first
+capture account insights, then paginate eligible platform content, with claim and
+connection-revision checks. Pages reconstruct provider URLs from opaque cursors; provider
+next URLs are never followed. Each content discovery is bounded to 50 pages. Incomplete
+or capped discovery is marked partial and retains unseen cached rows. A fully completed
+discovery removes reporting rows no longer returned for that account/range. Cron rotates
+7/30/90-day summaries per account, refreshing the least recently attempted range according
+to the workspace refresh interval. Failed attempts do not monopolize cron processing.
+
+| Provider | Reporting implemented |
+| --- | --- |
+| Facebook Pages | Follower snapshot, available daily Page views/engagement/reach, Page posts including external posts, available per-post insights and engagement counters. |
+| Instagram professional accounts | Follower snapshot, available period insights in intervals of at most 30 days, daily reach, media discovery and available per-media insights/counters. |
+| X | Follower snapshot, recent authorized timeline and returned lifetime public counters, subject to API tier/history limits. Account-wide period views/reach remain unavailable. |
+| TikTok | Follower snapshot through user.info.stats, paginated public videos and lifetime counters through Display API. Account-wide period views/reach remain unavailable. |
+| LinkedIn organizations | Period organization share statistics, organization post discovery and available per-post share statistics. Follower totals remain unavailable in this adapter. |
+| LinkedIn members | Explicit unsupported-account message; this integration does not provide member analytics. |
+
+Account period insights, current follower snapshots and lifetime content counters are
+labelled separately. Views are not relabelled as impressions. Unique reach is not added
+across days, accounts or disjoint Instagram intervals. Facebook reach remains daily;
+Instagram unique period reach is unavailable when the selected range requires multiple
+30-day intervals. Daily data can lag or have gaps. Content discovery includes the content
+eligible for each API, rather than a guarantee of all historical posts, expired stories,
+private content or Ads Manager campaign/spend data.
+
+Permission, token, rate-limit, unsupported-metric and content-insight failures appear on
+the account card and in sync health. They do not manufacture zero measurements or report
+an empty successful sync. Previous complete measurements survive failed refreshes. A
+stale account snapshot shows its measured date/period; snapshots for a different reporting
+period are excluded from current-period headline totals. Missing metrics display —, while
+a provider-measured zero displays 0. Prior complete content counters are also retained
+when insight access fails; errors explain that the refresh is incomplete.
+
+The fallback Meta OAuth scope request now includes `read_insights` and
+`instagram_manage_insights`, alongside the existing Page/Instagram permissions. If using
+`META_LOGIN_CONFIG_ID`, update the permissions in that Facebook Login for Business
+configuration as well. Configure the required Meta app review/access and account roles,
+then reconnect the accounts to obtain newly granted permissions. TikTok follower statistics
+require `user.info.stats`; video listing requires `video.list`. Existing keys and publishing
+permissions alone do not grant analytics access. No live app-console permissions have been
+changed by this implementation.
+
+Validation covers provider fixtures, external content with zero app posts, deduplication,
+pagination, deletion reconciliation, client isolation, stale claims, reconnects, missing
+permissions, range semantics and retained measurements. Provider fixtures cannot certify
+live API availability. After permission setup, verify a real Facebook and Instagram sync
+against the native platform dashboards, including an externally published post. Browser
+and installed-device acceptance remain required before production release.
+
 ## Mobile functionality final pass
 
 This pass remains on `preview/mobile-stability-pass-1`. It adds no migration beyond

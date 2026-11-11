@@ -24,14 +24,39 @@ globalThis.fetch = async (input, init = {}) => {
   if (url.hostname === "graph.facebook.com") {
     if (url.pathname.endsWith("/photos"))
       return Response.json({ id: "fixture-photo", post_id: "fixture-facebook-post" });
-    if (url.pathname.endsWith("/insights"))
+    if (url.pathname.endsWith("/posts"))
       return Response.json({
         data: [
-          { name: "post_media_view", values: [{ value: 120 }] },
-          { name: "post_total_media_view_unique", values: [{ value: 100 }] },
-          { name: "post_clicks", values: [{ value: 7 }] },
-          { name: "post_reactions_by_type_total", values: [{ value: { like: 12 } }] },
+          {
+            id: "outside-fixture-post",
+            message: "Published directly on Facebook",
+            created_time: new Date().toISOString(),
+            permalink_url: "https://www.facebook.com/fixture-post",
+            reactions: { summary: { total_count: 12 } },
+            comments: { summary: { total_count: 2 } },
+          },
         ],
+      });
+    if (url.searchParams.get("fields") === "followers_count")
+      return Response.json({ followers_count: 45 });
+    if (url.pathname.endsWith("/insights"))
+      return Response.json({
+        data: (url.searchParams.get("metric") || "").split(",").map((name) => ({
+          name,
+          values: [
+            {
+              value:
+                name === "post_reactions_by_type_total"
+                  ? { like: 12 }
+                  : name.includes("media_view") && !name.includes("unique")
+                    ? 120
+                    : name.includes("engagements")
+                      ? 14
+                      : 7,
+              end_time: new Date(new Date().setUTCHours(24, 0, 0, 0)).toISOString(),
+            },
+          ],
+        })),
       });
     return Response.json({ comments: { summary: { total_count: 2 } }, shares: { count: 3 } });
   }

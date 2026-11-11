@@ -1,3 +1,4 @@
+import { platformAnalyticsOverview } from "./platform-analytics-overview";
 import { dispatchMetaWebhook } from "./meta-webhooks";
 import { hashSecret } from "./security";
 import { enqueueAnalytics } from "./analytics-jobs";
@@ -848,6 +849,21 @@ export async function handleManagementRoute(
     if (![7, 30, 90].includes(days))
       return { body: { error: "Choose 7, 30 or 90 days." }, status: 400 };
     const allowedClients = await accessibleClientIds(env.DB, user);
+    const scope = url.searchParams.get("scope") || "platform";
+    if (!["platform", "brandsparq"].includes(scope))
+      return { body: { error: "Choose platform or brandsparq analytics." }, status: 400 };
+    if (scope === "platform")
+      return {
+        body: {
+          data: await platformAnalyticsOverview(
+            env,
+            allowedClients,
+            clientId,
+            days,
+            url.searchParams.get("accountId"),
+          ),
+        },
+      };
     if (!clientId && allowedClients !== null && allowedClients.length === 0) {
       return {
         body: {
@@ -881,6 +897,11 @@ export async function handleManagementRoute(
       bindings = allowedClients;
     }
 
+    const accountId = url.searchParams.get("accountId");
+    if (accountId) {
+      filter = `${filter || "WHERE 1=1"} AND p.social_account_id=?`;
+      bindings.push(accountId);
+    }
     // UTC publication cohort. All totals, rankings and trend points use these same posts.
     const rangeStart = new Date();
     rangeStart.setUTCHours(0, 0, 0, 0);
@@ -1046,13 +1067,16 @@ export async function handleManagementRoute(
   }
   if (request.method === "POST" && url.pathname === "/v1/analytics/sync") {
     const payload = await request
-      .json<{ accountId?: string; days?: number }>()
+      .json<{ accountId?: string; days?: number; scope?: string }>()
       .catch(() => ({}) as any);
     if (
       payload.days !== undefined &&
       (!Number.isInteger(payload.days) || payload.days < 1 || payload.days > 365)
     )
       return { body: { error: "Choose a date range between 1 and 365 days." }, status: 400 };
+    const scope = payload.scope || "platform";
+    if (!["platform", "brandsparq"].includes(scope))
+      return { body: { error: "Choose platform or brandsparq analytics." }, status: 400 };
     const allowedClients = await accessibleClientIds(env.DB, user);
     let accounts: Array<{ id: string; client_id: string }> = [];
 
@@ -1096,7 +1120,12 @@ export async function handleManagementRoute(
     const results = [];
     for (const account of permitted) {
       try {
-        const job = await enqueueAnalytics(env, account.id, payload.days || 90);
+        const job = await enqueueAnalytics(
+          env,
+          account.id,
+          payload.days || 90,
+          scope as "platform" | "brandsparq",
+        );
         results.push({ accountId: account.id, ok: true, jobId: job.id, status: job.status });
       } catch (error) {
         results.push({

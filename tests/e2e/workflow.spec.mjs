@@ -144,6 +144,7 @@ test("review edits and approval flow through calendar, publishing, notifications
     state.notifications.some((item) => item.type === "published" && item.status === "sent"),
   ).toBe(true);
   await page.goto("/analytics");
+  await page.getByRole("button", { name: "BrandSparQ posts", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Analytics", exact: true }).first()).toBeVisible();
   await expect(page.getByText("120", { exact: true }).first()).toBeVisible();
 });

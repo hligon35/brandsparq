@@ -336,17 +336,25 @@ async function runMaintenance(env: Env) {
   ).first<{ analytics_refresh_hours: number }>();
   const refreshMs = Number(settings?.analytics_refresh_hours || 6) * 60 * 60 * 1000;
   const accounts = await env.DB.prepare(
-    `SELECT sa.id,(SELECT MAX(updated_at) FROM analytics_jobs WHERE social_account_id=sa.id) AS last_sync
-     FROM social_accounts sa WHERE sa.status='connected'
-     AND NOT EXISTS(SELECT 1 FROM analytics_jobs j WHERE j.social_account_id=sa.id AND j.status IN ('queued','running'))
-     ORDER BY COALESCE(last_sync,''),sa.id LIMIT 20`,
-  ).all<{ id: string; last_sync: string | null }>();
+    `WITH candidates AS (
+      SELECT sa.id,
+        (SELECT MAX(updated_at) FROM analytics_jobs WHERE social_account_id=sa.id AND scope='platform' AND range_days=7) AS seven,
+        (SELECT MAX(updated_at) FROM analytics_jobs WHERE social_account_id=sa.id AND scope='platform' AND range_days=30) AS thirty,
+        (SELECT MAX(updated_at) FROM analytics_jobs WHERE social_account_id=sa.id AND scope='platform' AND range_days=90) AS ninety
+      FROM social_accounts sa JOIN clients c ON c.id=sa.client_id WHERE sa.status='connected' AND c.status='active'
+      AND NOT EXISTS(SELECT 1 FROM analytics_jobs j WHERE j.social_account_id=sa.id AND j.status IN ('queued','running'))
+    ) SELECT id,
+      CASE WHEN COALESCE(seven,'')<=COALESCE(thirty,'') AND COALESCE(seven,'')<=COALESCE(ninety,'') THEN 7
+      WHEN COALESCE(thirty,'')<=COALESCE(ninety,'') THEN 30 ELSE 90 END AS range_days,
+      MIN(COALESCE(seven,''),COALESCE(thirty,''),COALESCE(ninety,'')) AS last_sync
+      FROM candidates ORDER BY last_sync,id LIMIT 20`,
+  ).all<{ id: string; last_sync: string | null; range_days: number }>();
 
   for (const account of accounts.results) {
     const last = account.last_sync ? Date.parse(account.last_sync) : 0;
     if (!last || Date.now() - last >= refreshMs) {
       try {
-        await enqueueAnalytics(env, account.id);
+        await enqueueAnalytics(env, account.id, account.range_days, "platform");
       } catch (error) {
         await recordSystemEvent(env, {
           severity: "warning",

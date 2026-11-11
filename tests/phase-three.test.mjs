@@ -7,9 +7,20 @@ import { workspace } from "./workspace.mjs";
 import { encryptSecret } from "../cloudflare/src/security.ts";
 import { syncAccountAnalytics } from "../cloudflare/src/social.ts";
 import worker from "../cloudflare/src/index.ts";
-const send = (w, path, body, user = "owner") => w.request(path, { method: "POST", body, user });
+const send = (w, path, body, user = "owner") =>
+  w.request(path, {
+    method: "POST",
+    body: path === "/v1/analytics/sync" ? { ...body, scope: "brandsparq" } : body,
+    user,
+  });
 const overview = async (w, query = "", user = "owner") =>
-  (await (await w.request(`/v1/analytics/overview${query}`, { user })).json()).data;
+  (
+    await (
+      await w.request(`/v1/analytics/overview${query || "?"}${query ? "&" : ""}scope=brandsparq`, {
+        user,
+      })
+    ).json()
+  ).data;
 async function account(
   w,
   id = "social",

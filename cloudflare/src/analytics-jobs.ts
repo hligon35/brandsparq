@@ -1,29 +1,40 @@
+import { runPlatformAnalyticsPage, platformAnalyticsError } from "./platform-analytics";
 import { syncAccountAnalytics } from "./social";
 import type { ManagementEnv } from "./management";
 type Env = ManagementEnv;
-export async function enqueueAnalytics(env: Env, accountId: string, days = 90) {
+export async function enqueueAnalytics(
+  env: Env,
+  accountId: string,
+  days = 90,
+  scope: "brandsparq" | "platform" = "brandsparq",
+) {
   if (!Number.isInteger(days) || days < 1 || days > 365)
     throw new Error("Choose an analytics range between 1 and 365 days.");
+  if (scope === "platform" && ![7, 30, 90].includes(days))
+    throw new Error("Platform analytics supports 7, 30 or 90 days.");
   const checkRange = (job: any) => {
-    if (job && job.range_days !== days)
+    if (job && (job.range_days !== days || job.scope !== scope))
       throw new Error(
         `A ${job.range_days}-day analytics sync is already running. Wait for it to finish, then sync ${days} days.`,
       );
     return job;
   };
   const existing = await env.DB.prepare(
-    "SELECT id,status,range_days FROM analytics_jobs WHERE social_account_id=? AND status IN ('queued','running')",
+    "SELECT id,status,range_days,scope FROM analytics_jobs WHERE social_account_id=? AND status IN ('queued','running')",
   )
     .bind(accountId)
     .first<any>();
   if (existing) return checkRange(existing);
   if (!Number.isInteger(days) || days < 1 || days > 365)
     throw new Error("Choose an analytics range between 1 and 365 days.");
-  const posts = await env.DB.prepare(
-    "SELECT id FROM posts WHERE social_account_id=? AND status='published' AND platform_post_id IS NOT NULL AND julianday(published_at)>=julianday('now')-? ORDER BY published_at DESC,id LIMIT 1001",
-  )
-    .bind(accountId, days)
-    .all<{ id: string }>();
+  const posts =
+    scope === "platform"
+      ? { results: [] }
+      : await env.DB.prepare(
+          "SELECT id FROM posts WHERE social_account_id=? AND status='published' AND platform_post_id IS NOT NULL AND julianday(published_at)>=julianday('now')-? ORDER BY published_at DESC,id LIMIT 1001",
+        )
+          .bind(accountId, days)
+          .all<{ id: string }>();
   if (posts.results.length > 1000)
     throw new Error(
       "Analytics sync supports up to 1000 posts per account in the selected period. Choose a shorter date range in Analytics and sync again.",
@@ -31,14 +42,14 @@ export async function enqueueAnalytics(env: Env, accountId: string, days = 90) {
   const id = crypto.randomUUID();
   await env.DB.batch([
     env.DB.prepare(
-      "INSERT OR IGNORE INTO analytics_jobs(id,social_account_id,range_days) VALUES (?,?,?)",
-    ).bind(id, accountId, days),
+      "INSERT OR IGNORE INTO analytics_jobs(id,social_account_id,range_days,scope) VALUES (?,?,?,?)",
+    ).bind(id, accountId, days, scope),
     env.DB.prepare(
       "INSERT INTO analytics_job_items(job_id,post_id) SELECT ?,value FROM json_each(?) WHERE EXISTS(SELECT 1 FROM analytics_jobs WHERE id=?)",
     ).bind(id, JSON.stringify(posts.results.map((p) => p.id)), id),
   ]);
   const job = await env.DB.prepare(
-    "SELECT id,status,range_days FROM analytics_jobs WHERE social_account_id=? AND status IN ('queued','running')",
+    "SELECT id,status,range_days,scope FROM analytics_jobs WHERE social_account_id=? AND status IN ('queued','running')",
   )
     .bind(accountId)
     .first<any>();
@@ -60,6 +71,40 @@ export async function runAnalyticsJob(env: Env, id: string) {
     .run();
   if (!changed.meta.changes) return;
   const job = await env.DB.prepare("SELECT * FROM analytics_jobs WHERE id=?").bind(id).first<any>();
+  if (job.scope === "platform") {
+    try {
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO analytics_sync_runs(id,social_account_id,status) VALUES (?,?,'running')",
+      )
+        .bind(job.id, job.social_account_id)
+        .run();
+      const result = await runPlatformAnalyticsPage(env, job, claim);
+      const latest = await env.DB.prepare(
+        "SELECT status,error_message FROM analytics_jobs WHERE id=?",
+      )
+        .bind(id)
+        .first<any>();
+      if (!result.more && latest && !["queued", "running"].includes(latest.status))
+        await env.DB.prepare(
+          "UPDATE analytics_sync_runs SET status=?,completed_at=CURRENT_TIMESTAMP,error_message=? WHERE id=?",
+        )
+          .bind(latest.status, latest.error_message, id)
+          .run();
+      if (result.more)
+        await env.GENERATION_QUEUE?.send({ kind: "analytics", jobId: id }).catch(() => undefined);
+    } catch (error) {
+      const message = platformAnalyticsError(error);
+      await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE analytics_sync_runs SET status='failed',completed_at=CURRENT_TIMESTAMP,error_message=? WHERE id=? AND EXISTS(SELECT 1 FROM analytics_jobs WHERE id=? AND claim_token=?)",
+        ).bind(message, id, id, claim),
+        env.DB.prepare(
+          "UPDATE analytics_jobs SET status='partial',failed=failed+1,error_message=?,updated_at=CURRENT_TIMESTAMP,claim_token=NULL,claim_until=NULL WHERE id=? AND claim_token=?",
+        ).bind(message, id, claim),
+      ]);
+    }
+    return;
+  }
   const item = await env.DB.prepare(
     "SELECT post_id FROM analytics_job_items WHERE job_id=? AND status='queued' ORDER BY post_id LIMIT 1",
   )
@@ -120,6 +165,9 @@ export async function recoverAnalyticsJobs(env: Env) {
     } catch {
       /* Durable jobs remain eligible next minute. */
     }
+  await env.DB.prepare(
+    "DELETE FROM platform_content WHERE rowid IN (SELECT rowid FROM platform_content WHERE published_at<datetime('now','-400 days') LIMIT 100)",
+  ).run();
   // Bounded retention of terminal job detail and old samples/runs. Keep latest good sample for each post.
   await env.DB.prepare(
     "DELETE FROM analytics_jobs WHERE id IN (SELECT id FROM analytics_jobs WHERE status NOT IN ('queued','running') AND updated_at<datetime('now','-30 days') LIMIT 100)",

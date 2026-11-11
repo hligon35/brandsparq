@@ -5,7 +5,7 @@ import { Link, useLocalSearchParams } from "expo-router";
 import { useCapabilities } from "@/auth/capabilities";
 import { Alert } from "@/components/feedback";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View, Linking } from "react-native";
 import { IconButton } from "@/components/icon-button";
 import { api } from "@/api/client";
 import { Button, Card, PageHeader, PageScroll, SectionTitle, StatusBadge } from "@/components/ui";
@@ -29,6 +29,9 @@ export default function AnalyticsScreen() {
   const [data, setData] = useState<any>();
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState(requestedClient || "all");
+  const [scope, setScope] = useState<"platform" | "brandsparq">("platform");
+  const [accountId, setAccountId] = useState("all");
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [days, setDays] = useState(30);
   const [jobs, setJobs] = useState<any[]>([]);
   const [syncing, setSyncing] = useState(false);
@@ -45,14 +48,34 @@ export default function AnalyticsScreen() {
     setLoading(true);
     setError("");
     try {
-      const [analytics, clientRows, jobRows] = await Promise.all([
-        api.getAnalyticsOverview(clientId === "all" ? undefined : clientId, days),
+      const [analytics, clientRows, jobRows, accountRows] = await Promise.all([
+        api.getAnalyticsOverview(
+          clientId === "all" ? undefined : clientId,
+          days,
+          scope,
+          accountId === "all" ? undefined : accountId,
+        ),
         api.getClients(),
         api.getAnalyticsJobs(),
+        api.getSocialAccounts(clientId === "all" ? undefined : clientId),
       ]);
       if (version !== loadVersion.current || !isCurrent()) return;
-      setJobs(jobRows.data);
-      setData(analytics.data);
+      setJobs(
+        jobRows.data.filter(
+          (job) =>
+            job.scope === scope &&
+            (accountId === "all" || job.social_account_id === accountId) &&
+            (clientId === "all" || job.client_id === clientId),
+        ),
+      );
+      setAccounts(accountRows.data);
+      setData({
+        ...analytics.data,
+        selectedScope: scope,
+        selectedAccount: accountId,
+        selectedClient: clientId,
+        selectedDays: days,
+      });
       setClients(clientRows);
     } catch (e) {
       if (version === loadVersion.current && isCurrent())
@@ -72,7 +95,7 @@ export default function AnalyticsScreen() {
         return;
       await load(context.current);
     },
-    [clientId, days],
+    [clientId, days, scope, accountId],
     5000,
   );
 
@@ -82,13 +105,23 @@ export default function AnalyticsScreen() {
       const accounts = (await api.getSocialAccounts(clientId === "all" ? undefined : clientId))
         .data;
       const failures: Array<{ error?: string }> = [];
-      if (clientId === "all") {
-        const result = await api.syncAnalytics(undefined, days);
+      if (
+        !accounts.some(
+          (row: any) => row.status === "connected" && (accountId === "all" || row.id === accountId),
+        )
+      ) {
+        Alert.alert("No connected account", "Connect a social account before syncing analytics.");
+        return;
+      }
+      if (clientId === "all" && accountId === "all") {
+        const result = await api.syncAnalytics(undefined, days, scope);
         failures.push(...result.results.filter((row) => !row.ok || row.status === "unsupported"));
       } else {
-        for (const account of accounts.filter((row: any) => row.status === "connected")) {
+        for (const account of accounts.filter(
+          (row: any) => row.status === "connected" && (accountId === "all" || row.id === accountId),
+        )) {
           try {
-            const result = await api.syncAnalytics(account.id, days);
+            const result = await api.syncAnalytics(account.id, days, scope);
             failures.push(
               ...result.results.filter((row) => !row.ok || row.status === "unsupported"),
             );
@@ -112,11 +145,26 @@ export default function AnalyticsScreen() {
     }
   }
 
-  const overview = data?.overview || {};
-  const history = data?.history || [];
+  const currentData =
+    data?.selectedScope === scope &&
+    data?.selectedAccount === accountId &&
+    data?.selectedClient === clientId &&
+    data?.selectedDays === days
+      ? data
+      : undefined;
+  const platform = scope === "platform";
+  const overview = currentData?.overview || {};
+  const history = (currentData?.history || []).filter((row: any) =>
+    [row.views, row.impressions, row.reach].some((value) => value != null),
+  );
+  const chartKey = history.some((row: any) => row.views != null)
+    ? "views"
+    : history.some((row: any) => row.impressions != null)
+      ? "impressions"
+      : "reach";
   const maxImpressions = useMemo(
-    () => Math.max(1, ...history.map((row: any) => Number(row.impressions || 0))),
-    [history],
+    () => Math.max(1, ...history.map((row: any) => Number(row[chartKey] || 0))),
+    [history, chartKey],
   );
 
   return (
@@ -141,8 +189,37 @@ export default function AnalyticsScreen() {
         <ClientPicker
           clients={[{ id: "all", name: "All clients", color: colors.primary }, ...clients]}
           value={clientId}
-          onChange={setClientId}
+          onChange={(id) => {
+            setClientId(id);
+            setAccountId("all");
+          }}
         />
+        <ClientPicker
+          clients={[
+            { id: "all", name: "All connected accounts", color: colors.primary },
+            ...accounts.map((account) => ({
+              id: account.id,
+              name: `${account.account_name || account.platform} · ${account.platform}`,
+              color: colors.primary,
+            })),
+          ]}
+          value={accountId}
+          onChange={setAccountId}
+        />
+        <View style={styles.rangeRow}>
+          <Button
+            label="Platform accounts"
+            small
+            secondary={!platform}
+            onPress={() => setScope("platform")}
+          />
+          <Button
+            label="BrandSparQ posts"
+            small
+            secondary={platform}
+            onPress={() => setScope("brandsparq")}
+          />
+        </View>
         <View style={styles.rangeRow}>
           {[7, 30, 90].map((value) => (
             <Pressable
@@ -174,24 +251,54 @@ export default function AnalyticsScreen() {
       )}
 
       {loading && <Text accessibilityLiveRegion="polite">Loading analytics…</Text>}
-      {!!data && !error && (
+      {!!currentData && !error && (
         <>
           <EssentialSection title="About these measurements" defaultOpen={false}>
             <StatusBadge label={overview.measurement_status || "unavailable"} />
-            <Text style={styles.muted}>
-              Posts published in the selected {days} UTC days. Values are lifetime provider
-              measurements for those posts, not engagement earned only during the range.
-            </Text>
-            <Text style={styles.muted}>
-              {overview.measured_posts || 0} of {overview.posts || 0} posts measured.{" "}
-              {overview.oldest_measurement
-                ? `Oldest measurement: ${new Date(overview.oldest_measurement).toLocaleString()}.`
-                : "Metrics unavailable until a successful provider sync."}{" "}
-              Missing metrics display —; a measured zero displays 0.
-            </Text>
+            {platform ? (
+              <>
+                <Text style={styles.muted}>
+                  Platform account insights include content published outside BrandSparQ. Followers
+                  are current snapshots; other account metrics use the selected {days} UTC days
+                  where supported.
+                </Text>
+                <Text style={styles.muted}>
+                  — means unavailable, not zero. Reach is shown only for one account when the
+                  provider supplies a unique period total. Views and impressions are different
+                  measurements. Content counters below are lifetime values for content published
+                  during this period.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.muted}>
+                  Posts published in the selected {days} UTC days. Values are lifetime provider
+                  measurements for those posts, not engagement earned only during the range.
+                </Text>
+                <Text style={styles.muted}>
+                  {overview.measured_posts || 0} of {overview.posts || 0} posts measured.{" "}
+                  {overview.oldest_measurement
+                    ? `Oldest measurement: ${new Date(overview.oldest_measurement).toLocaleString()}.`
+                    : "Metrics unavailable until a successful provider sync."}{" "}
+                  Missing metrics display —; a measured zero displays 0.
+                </Text>
+              </>
+            )}
           </EssentialSection>
           <View style={styles.grid}>
-            {metrics.map(([label, key]) => (
+            {(platform
+              ? [
+                  ["Synced content", "posts"],
+                  ["Followers", "followers"],
+                  ["Views", "views"],
+                  ["Impressions", "impressions"],
+                  ["Unique reach", "reach"],
+                  ["Interactions", "interactions"],
+                  ["Likes", "likes"],
+                  ["Comments", "comments"],
+                ]
+              : metrics
+            ).map(([label, key]) => (
               <Card key={key} style={styles.metricCard}>
                 <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
                   {overview[key] == null ? "—" : Number(overview[key]).toLocaleString()}
@@ -199,17 +306,92 @@ export default function AnalyticsScreen() {
                 <Text style={styles.label}>{label}</Text>
                 {key !== "posts" && (
                   <Text style={styles.muted}>
-                    {overview[`${key}_measured_posts`] || 0}/{overview.posts || 0} measured
+                    {platform
+                      ? `${overview[`${key}_measured_accounts`] || 0}/${overview.accounts || 0} accounts measured`
+                      : `${overview[`${key}_measured_posts`] || 0}/${overview.posts || 0} posts measured`}
                   </Text>
                 )}
               </Card>
             ))}
           </View>
 
+          {platform && (
+            <EssentialSection title="Account insights">
+              {!currentData.accounts?.length && (
+                <Text style={styles.muted}>
+                  No social accounts match this selection. Connect an account to get platform
+                  analytics.
+                </Text>
+              )}
+              {(currentData.accounts || []).map((account: any) => (
+                <Card key={account.id} subtle>
+                  <Text style={styles.platform}>{account.account_name || account.platform}</Text>
+                  <Text style={styles.muted}>
+                    {account.client_name} · {account.platform}
+                  </Text>
+                  <StatusBadge label={account.measurement_status} />
+                  <Text style={styles.muted}>
+                    Followers:{" "}
+                    {account.metrics.followers == null
+                      ? "—"
+                      : Number(account.metrics.followers).toLocaleString()}{" "}
+                    · Views:{" "}
+                    {account.metrics.views == null
+                      ? "—"
+                      : Number(account.metrics.views).toLocaleString()}{" "}
+                    · Reach:{" "}
+                    {account.metrics.reach == null
+                      ? "—"
+                      : Number(account.metrics.reach).toLocaleString()}
+                  </Text>
+                  <Text style={styles.muted}>
+                    {account.measured_at
+                      ? `Measured ${new Date(account.measured_at.includes("T") ? account.measured_at : account.measured_at + "Z").toLocaleString()}`
+                      : "Not measured yet. Tap Sync analytics."}
+                  </Text>
+                  {account.range_start && (
+                    <Text style={styles.muted}>
+                      Measurement period: {account.range_start.slice(0, 10)} to{" "}
+                      {account.range_end.slice(0, 10)} (end exclusive, UTC).
+                    </Text>
+                  )}
+                  {!!account.error && (
+                    <Text accessibilityRole="alert" style={styles.error}>
+                      {account.error}
+                    </Text>
+                  )}
+                  {!!account.error && account.measured_at && (
+                    <Text style={styles.muted}>
+                      Previous measurements retained; this attempt did not produce a complete
+                      update.
+                    </Text>
+                  )}
+                  {(account.limitations || [])
+                    .filter((note: string) => !note.startsWith("Error:"))
+                    .map((note: string) => (
+                      <Text key={note} style={styles.muted}>
+                        {note}
+                      </Text>
+                    ))}
+                  <Link
+                    href={{ pathname: "/social", params: { clientId: account.client_id } }}
+                    asChild
+                  >
+                    <Button label="Manage connection" secondary small />
+                  </Link>
+                </Card>
+              ))}
+            </EssentialSection>
+          )}
+
           <Card>
             <SectionTitle
               title="Performance trend"
-              subtitle={`Measurements available by each UTC day for the same publication cohort. Gaps mean unavailable.`}
+              subtitle={
+                platform
+                  ? `Daily ${chartKey} supplied by the platform. Gaps mean unavailable; Instagram period totals may have no daily series.`
+                  : "Measurements available by each UTC day for the same publication cohort. Gaps mean unavailable."
+              }
             />
             {history.length ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -217,7 +399,7 @@ export default function AnalyticsScreen() {
                   {history.map((row: any) => (
                     <View key={row.day} style={styles.barColumn}>
                       <Text style={styles.barValue}>
-                        {row.impressions == null ? "—" : Number(row.impressions).toLocaleString()}
+                        {row[chartKey] == null ? "—" : Number(row[chartKey]).toLocaleString()}
                       </Text>
                       <View style={styles.barTrack}>
                         <View
@@ -225,7 +407,7 @@ export default function AnalyticsScreen() {
                             styles.bar,
                             {
                               height:
-                                `${Math.max(row.impressions == null ? 0 : 5, (Number(row.impressions || 0) / maxImpressions) * 100)}%` as any,
+                                `${Math.max(row[chartKey] == null ? 0 : 5, (Number(row[chartKey] || 0) / maxImpressions) * 100)}%` as any,
                             },
                           ]}
                         />
@@ -242,19 +424,25 @@ export default function AnalyticsScreen() {
               </ScrollView>
             ) : (
               <Text style={styles.muted}>
-                Trend data will appear after analytics snapshots are captured.
+                Daily trends appear when supplied by the provider; period totals and follower
+                snapshots do not imply a daily series.
               </Text>
             )}
           </Card>
 
           <EssentialSection title="Platform performance">
-            {(data?.byPlatform || []).map((row: any) => (
+            {(currentData?.byPlatform || []).map((row: any) => (
               <View key={row.platform} style={styles.platformRow}>
                 <View>
                   <Text style={styles.platform}>{row.platform}</Text>
                   <Text style={styles.muted}>{row.posts} published</Text>
                 </View>
                 <View style={styles.platformMetrics}>
+                  {platform && (
+                    <Text style={styles.platformMetric}>
+                      {row.views == null ? "—" : Number(row.views).toLocaleString()} views
+                    </Text>
+                  )}
                   <Text style={styles.platformMetric}>
                     {row.impressions == null ? "—" : Number(row.impressions).toLocaleString()} imp.
                   </Text>
@@ -267,14 +455,16 @@ export default function AnalyticsScreen() {
                 </View>
               </View>
             ))}
-            {!data?.byPlatform?.length && (
+            {!currentData?.byPlatform?.length && (
               <Text style={styles.muted}>No published platform data yet.</Text>
             )}
           </EssentialSection>
 
-          <EssentialSection title="Top content">
-            {(data?.topPosts || []).map((post: any, index: number) => (
-              <View key={post.id} style={styles.topRow}>
+          <EssentialSection
+            title={platform ? "Top platform content · lifetime engagement" : "Top content"}
+          >
+            {(currentData?.topPosts || []).map((post: any, index: number) => (
+              <View key={`${post.account_id || post.client_id}:${post.id}`} style={styles.topRow}>
                 <Text style={styles.rank}>#{index + 1}</Text>
                 <View style={styles.topCopy}>
                   <Text style={styles.topTitle} numberOfLines={1}>
@@ -282,17 +472,47 @@ export default function AnalyticsScreen() {
                   </Text>
                   <Text style={styles.muted}>
                     {post.client_name} · {post.platform}
+                    {platform ? (post.from_app ? " · BrandSparQ" : " · Platform") : ""}
                   </Text>
+                  {platform && (
+                    <Text style={styles.muted}>
+                      {post.likes == null ? "—" : Number(post.likes).toLocaleString()} likes ·{" "}
+                      {post.comments == null ? "—" : Number(post.comments).toLocaleString()}{" "}
+                      comments · {post.shares == null ? "—" : Number(post.shares).toLocaleString()}{" "}
+                      shares
+                    </Text>
+                  )}
+                  {!!post.platform_url && (
+                    <Button
+                      label="View on platform"
+                      secondary
+                      small
+                      onPress={() =>
+                        void Linking.openURL(post.platform_url).catch(() =>
+                          Alert.alert(
+                            "Unable to open link",
+                            "Try opening the post on the platform directly.",
+                          ),
+                        )
+                      }
+                    />
+                  )}
                 </View>
                 <View style={styles.topMetric}>
                   <Text style={styles.topMetricValue}>
-                    {post.impressions == null ? "—" : Number(post.impressions).toLocaleString()}
+                    {(platform ? (post.views ?? post.impressions) : post.impressions) == null
+                      ? "—"
+                      : Number(
+                          platform ? (post.views ?? post.impressions) : post.impressions,
+                        ).toLocaleString()}
                   </Text>
-                  <Text style={styles.topMetricLabel}>impressions</Text>
+                  <Text style={styles.topMetricLabel}>
+                    {platform && post.views != null ? "views" : "impressions"}
+                  </Text>
                 </View>
               </View>
             ))}
-            {!data?.topPosts?.length && (
+            {!currentData?.topPosts?.length && (
               <Text style={styles.muted}>
                 Top content will appear after posts are published and measured.
               </Text>

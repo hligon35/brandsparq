@@ -402,10 +402,14 @@ test("analytics isolate clients and include current history across SQLite and IS
     "UPDATE post_metrics SET measured_at=? WHERE id='hidden-metric'",
     new Date().toISOString(),
   );
-  const viewer = await (await w.request("/v1/analytics/overview", { user: "viewer" })).json();
+  const viewer = await (
+    await w.request("/v1/analytics/overview?scope=brandsparq", { user: "viewer" })
+  ).json();
   assert.equal(viewer.data.overview.impressions, 25);
   assert.equal(viewer.data.history.at(-1).impressions, 25);
-  const owner = await (await w.request("/v1/analytics/overview", { user: "owner" })).json();
+  const owner = await (
+    await w.request("/v1/analytics/overview?scope=brandsparq", { user: "owner" })
+  ).json();
   assert.equal(owner.data.overview.impressions, 925);
   assert.equal(owner.data.history.at(-1).impressions, 925);
   assert.equal(

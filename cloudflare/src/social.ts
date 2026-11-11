@@ -33,7 +33,7 @@ export interface SocialEnv {
 
 type Platform = "facebook" | "instagram" | "linkedin" | "tiktok" | "x";
 
-type SocialAccountRow = {
+export type SocialAccountRow = {
   id: string;
   client_id: string;
   platform: Platform;
@@ -277,7 +277,7 @@ export async function socialOAuthStart(
     } else {
       auth.searchParams.set(
         "scope",
-        "pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,business_management",
+        "pages_show_list,pages_read_engagement,pages_manage_posts,read_insights,instagram_basic,instagram_content_publish,instagram_manage_insights,business_management",
       );
     }
     return auth.toString();
@@ -306,7 +306,10 @@ export async function socialOAuthStart(
     const auth = new URL("https://www.tiktok.com/v2/auth/authorize/");
     auth.searchParams.set("client_key", env.TIKTOK_CLIENT_KEY!);
     auth.searchParams.set("response_type", "code");
-    auth.searchParams.set("scope", "user.info.basic,video.publish,video.upload,video.list");
+    auth.searchParams.set(
+      "scope",
+      "user.info.basic,user.info.stats,video.publish,video.upload,video.list",
+    );
     auth.searchParams.set("redirect_uri", redirectUri);
     auth.searchParams.set("state", state);
     return auth.toString();
@@ -963,7 +966,7 @@ async function createPublicMediaUrl(env: SocialEnv, post: any) {
   return `${env.PUBLIC_BASE_URL.replace(/\/$/, "")}/v1/public/publish-media/${token}`;
 }
 
-async function accountToken(env: SocialEnv, account: SocialAccountRow) {
+export async function accountToken(env: SocialEnv, account: SocialAccountRow) {
   const authority = await env.DB.prepare(
     "SELECT status,connection_revision,access_token_ciphertext FROM social_accounts WHERE id=?",
   )

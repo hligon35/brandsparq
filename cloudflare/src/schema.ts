@@ -265,6 +265,36 @@ export const REQUIRED_SCHEMA = {
       notnull: 0,
       pk: 0,
     },
+    {
+      name: "scope",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "platform_cursor",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "page_count",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "account_revision",
+      type: "INTEGER",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "warnings_json",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
   ],
   analytics_snapshots: [
     {
@@ -1935,6 +1965,124 @@ export const REQUIRED_SCHEMA = {
     },
     {
       name: "updated_at",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+  ],
+  platform_account_insights: [
+    {
+      name: "social_account_id",
+      type: "TEXT",
+      notnull: 1,
+      pk: 1,
+    },
+    {
+      name: "range_days",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 2,
+    },
+    {
+      name: "range_start",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "range_end",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "connection_revision",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "complete",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "metrics_json",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "daily_json",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "measured_at",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+  ],
+  platform_content: [
+    {
+      name: "social_account_id",
+      type: "TEXT",
+      notnull: 1,
+      pk: 1,
+    },
+    {
+      name: "external_id",
+      type: "TEXT",
+      notnull: 1,
+      pk: 2,
+    },
+    {
+      name: "connection_revision",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "published_at",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "title",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "platform_url",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "metrics_json",
+      type: "TEXT",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "insights_complete",
+      type: "INTEGER",
+      notnull: 1,
+      pk: 0,
+    },
+    {
+      name: "seen_job_id",
+      type: "TEXT",
+      notnull: 0,
+      pk: 0,
+    },
+    {
+      name: "measured_at",
       type: "TEXT",
       notnull: 1,
       pk: 0,
@@ -3991,6 +4139,10 @@ export const REQUIRED_INDEXES = [
   {
     name: "idx_users_google_sub",
     sql: "CREATE INDEX idx_users_google_sub ON users(google_sub)",
+  },
+  {
+    name: "platform_content_range",
+    sql: "CREATE INDEX platform_content_range ON platform_content(social_account_id,published_at)",
   },
 ] as const;
 export const REQUIRED_TRIGGERS = [
